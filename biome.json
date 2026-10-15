@@ -1,0 +1,18 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+	"files": {
+		"includes": [
+			"src/**",
+			"scripts/**",
+			"*.json",
+			"vite.config.ts",
+			"!src-tauri",
+			"!bun.lock",
+			"!dist",
+			"!node_modules"
+		]
+	},
+	"formatter": { "enabled": true, "indentStyle": "tab", "lineWidth": 110 },
+	"linter": { "enabled": true, "rules": { "preset": "none" } },
+	"assist": { "actions": { "source": { "organizeImports": "on" } } }
+}

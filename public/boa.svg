@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#232429"/>
+  <rect x="192" y="192" width="640" height="640" rx="160" fill="#303e60"/>
+  <path fill="#a9c1ff" fill-rule="evenodd" d="M320 280h70v190c24-29 56-44 94-44 89 0 146 65 146 161s-58 161-147 161c-42 0-75-17-99-49v40h-64V280zm154 211c-52 0-86 37-86 96s34 96 86 96 85-37 85-96-33-96-85-96z"/>
+  <circle cx="715" cy="702" r="38" fill="#a9c1ff"/>
+</svg>
