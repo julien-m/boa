@@ -44,6 +44,17 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
+await page.route("https://example.com/tracking.png", async (route) => {
+	expect(route.request().headers().referer).toBeUndefined();
+	await route.fulfill({ contentType: "image/png", body: readFileSync("src-tauri/icons/32x32.png") });
+});
+await page.route("http://example.com/badge.svg", (route) =>
+	route.fulfill({
+		contentType: "image/svg+xml",
+		body: '<svg xmlns="http://www.w3.org/2000/svg" width="90" height="20"><rect width="90" height="20" fill="green"/></svg>',
+	}),
+);
+await page.route("https://example.com/missing.png", (route) => route.fulfill({ status: 404 }));
 await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<string, unknown> = {}) => {
 	if (command === "plugin:event|listen") return 1;
 	if (command.startsWith("plugin:event|")) return null;
@@ -123,7 +134,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				original: "",
 				modified:
 					args.path === "README.md"
-						? "# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>"
+						? '# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n<img src="http://example.com/badge.svg" alt="Large illustration" width="1200" height="800">\n\n<img src="http://example.com/badge.svg" alt="Height only" height="40">\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -353,7 +364,39 @@ try {
 				.evaluate((image) => (image as HTMLImageElement).naturalWidth),
 		)
 		.toBe(32);
-	await expect(page.getByRole("img", { name: "Remote", exact: true })).toHaveCount(0);
+	await expect
+		.poll(() =>
+			page
+				.getByRole("img", { name: "Remote", exact: true })
+				.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+		)
+		.toBe(32);
+	await expect
+		.poll(() =>
+			page
+				.getByRole("img", { name: "Quality badge", exact: true })
+				.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+		)
+		.toBe(90);
+	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).toHaveAttribute("width", "90");
+	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).toHaveAttribute("height", "40");
+	const badgeBounds = await page.getByRole("img", { name: "Quality badge", exact: true }).boundingBox();
+	expect(badgeBounds?.width).toBe(90);
+	expect(badgeBounds?.height).toBe(40);
+	const largeBounds = await page.getByRole("img", { name: "Large illustration", exact: true }).boundingBox();
+	expect(largeBounds?.width).toBeLessThan(1200);
+	expect(largeBounds?.height).toBeCloseTo(((largeBounds?.width ?? 0) * 800) / 1200, 1);
+	await expect
+		.poll(() =>
+			page
+				.getByRole("img", { name: "Height only", exact: true })
+				.evaluate((image) => image.getBoundingClientRect().height),
+		)
+		.toBe(40);
+	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).not.toHaveAttribute("onerror");
+	await expect(page.locator(".markdown-image").filter({ hasText: "Unavailable" })).toBeVisible();
+	await expect(page.locator(".markdown-preview iframe, .markdown-preview script")).toHaveCount(0);
+	expect(await page.evaluate(() => Reflect.get(window, "boaUnsafe"))).toBeUndefined();
 	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
 	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
 	if (!monacoPath) throw new Error("Monaco import unavailable");

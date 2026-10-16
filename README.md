@@ -18,7 +18,7 @@ These screenshots show BOA's actual interface with fictional projects, paths, co
 - Add folders explicitly, pin projects and sort the dashboard by name, activity or changed files.
 - Distinguish files to commit from commits to push; a `?` means the branch has no upstream.
 - Browse files, nested repositories and Git worktrees. Read code with local syntax highlighting, including JSON/JSONC, YAML, XML/SVG and TOML/Wrangler configurations.
-- Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. Remote images remain placeholders and are never fetched automatically.
+- Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Local image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. HTTP(S) images and badges load directly from their URLs when previewing a document, without sending a referrer. Sanitized HTML supports embedded `<img>` tags and their dimensions; scripts and active HTML are removed. Failed images fall back to their descriptions.
 - Inspect staged/local changes, commit history and a branch's changes since its common ancestor with a base. Compare before/after and jump between changed blocks.
 - Use Files, Git or a combined layout; resize the Git panels and hide the file tree.
 - Search in a file or across a selected project.
@@ -111,6 +111,7 @@ Project commands return `{ "ok": true, "result": ... }` with `--json`; failures 
 - An empty first launch performs no project scan. BOA reads registered projects and an optional explicitly configured discovery folder. Imported configuration from an earlier BOA version remains intact.
 - A selected project can contain nested repositories and external Git worktrees. Explicit symbolic links in its file tree can lead outside the project; BOA follows these when you browse them. File contents remain on the Mac until you explicitly copy and share them.
 - BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
+- The macOS bundle permits HTTP loads in its webview so cleartext image URLs also work. The content security policy allows these remote loads only for images; remote scripts and other remote connections remain blocked.
 - The current context dialog stores no history and creates no export files. Older prototypes may have left exports in the local application-data directory; those are not distributed.
 
 ## Limits
