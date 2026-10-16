@@ -40,14 +40,10 @@ export default function App() {
 	const settings = useQuery({
 		queryKey: ["settings"],
 		queryFn: api.settings,
-		refetchInterval: 10_000,
-		refetchIntervalInBackground: true,
 	});
 	const projects = useQuery({
 		queryKey: ["projects"],
 		queryFn: api.projects,
-		refetchInterval: 10_000,
-		refetchIntervalInBackground: true,
 	});
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const language = settings.data?.language;
@@ -68,7 +64,6 @@ export default function App() {
 			queryKey: ["summary", project.path],
 			queryFn: () => api.summary(project.path),
 			staleTime: 25_000,
-			refetchInterval: 60_000,
 			retry: false,
 		})),
 	});
@@ -144,6 +139,41 @@ export default function App() {
 			.catch((error: unknown) =>
 				setNotice(t("cliRefreshUnavailable", { error: localizeNativeText(String(error)) })),
 			);
+		return () => {
+			disposed = true;
+			cleanup?.();
+		};
+	}, [client]);
+	useEffect(() => {
+		let disposed = false;
+		let cleanup: (() => void) | undefined;
+		void listen<{ discovery: boolean; settings: boolean; projects: string[] }>(
+			"boa:filesystem-changed",
+			({ payload }) => {
+				if (payload.discovery) void client.invalidateQueries({ queryKey: ["projects"] });
+				if (payload.discovery || payload.settings) void client.invalidateQueries({ queryKey: ["settings"] });
+				if (payload.projects.length)
+					void client.invalidateQueries({
+						predicate: (query) => {
+							const key = query.queryKey;
+							return payload.projects.some(
+								(project) =>
+									key.includes(project) ||
+									(key[0] === "preview" &&
+										typeof key[1] === "object" &&
+										key[1] !== null &&
+										"project" in key[1] &&
+										key[1].project === project),
+							);
+						},
+					});
+			},
+		)
+			.then((unlisten) => {
+				if (disposed) unlisten();
+				else cleanup = unlisten;
+			})
+			.catch((error: unknown) => setNotice(localizeNativeText(String(error))));
 		return () => {
 			disposed = true;
 			cleanup?.();

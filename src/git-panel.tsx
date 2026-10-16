@@ -385,12 +385,12 @@ function History({
 }) {
 	const { t } = useTranslation("git");
 	const branches = useQuery({
-		queryKey: ["branches", repo.path],
+		queryKey: ["branches", project.path, repo.path],
 		queryFn: () => api.branches(project.path, repo.path),
 		staleTime: 15_000,
 	});
 	const history = useInfiniteQuery({
-		queryKey: ["history", repo.path, branch],
+		queryKey: ["history", project.path, repo.path, branch],
 		initialPageParam: 0,
 		queryFn: ({ pageParam }) => api.history(project.path, repo.path, pageParam, branch),
 		getNextPageParam: (last, pages) => (last.length === 100 ? pages.length * 100 : undefined),
@@ -398,7 +398,7 @@ function History({
 	const commits = history.data?.pages.flat() ?? [];
 	const selected = commits.find((item) => item.hash === commitHash) ?? commits[0];
 	const commitFiles = useQuery({
-		queryKey: ["commit-files", repo.path, selected?.hash],
+		queryKey: ["commit-files", project.path, repo.path, selected?.hash],
 		queryFn: () => api.commitFiles(project.path, repo.path, selected?.hash ?? ""),
 		enabled: Boolean(selected),
 	});

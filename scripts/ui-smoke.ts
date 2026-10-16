@@ -30,6 +30,8 @@ const repo = {
 };
 let registeredProjects: (typeof project)[] = [];
 let summaryCalls = 0;
+let projectListCalls = 0;
+let historyCalls = 0;
 let clipboard = "";
 let exportsCreated = 0;
 const browser = await chromium.launch({
@@ -54,6 +56,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
 		case "list_projects":
+			projectListCalls++;
 			if (
 				watchDirectory &&
 				automaticallyDiscovered &&
@@ -136,6 +139,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				{ name: "feature/impact", current: true, remote: false },
 			];
 		case "git_history":
+			historyCalls++;
 			return [
 				{
 					hash: args.branch === "main" ? otherHash : hash,
@@ -198,6 +202,9 @@ await page.addInitScript(() => {
 	};
 	Reflect.set(window, "boaTestNavigate", (urls: string[]) => emit("deep-link://new-url", urls));
 	Reflect.set(window, "boaTestProjectsChanged", () => emit("boa:projects-changed", null));
+	Reflect.set(window, "boaTestFilesystemChanged", (payload: unknown) =>
+		emit("boa:filesystem-changed", payload),
+	);
 });
 try {
 	await page.clock.install();
@@ -464,10 +471,30 @@ try {
 	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
 	automaticallyDiscovered = true;
 	await page.getByTestId("dashboard-nav").click();
-	await page.clock.fastForward(10_100);
+	const idleSummaries = summaryCalls;
+	const idleLists = projectListCalls;
+	await page.clock.fastForward(120_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
+	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
+	);
 	await expect(page.getByTestId("project-card-Auto QA")).toBeVisible();
+	const beforeGitEvent = summaryCalls;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect.poll(() => summaryCalls).toBe(beforeGitEvent + 1);
 	await page.getByTestId("archive-project-Auto QA").click();
-	await page.clock.fastForward(10_100);
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
+	);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
 	await page.getByTestId("settings-nav").click();
 	await page.getByTestId("interface-language").selectOption("en");
@@ -476,6 +503,7 @@ try {
 	await expect(page.locator("html")).toHaveAttribute("lang", "en");
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-en.png") });
+	repo.path = `${directory}/nested-repo`;
 	await page.reload();
 	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
 	await page.getByTestId("archives-nav").click();
@@ -483,6 +511,19 @@ try {
 	await expect(page.getByTestId("restore-Auto QA")).toContainText("Restore");
 	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("open-project-BOA QA").click();
+	await page.getByTestId("layout-git").click();
+	await page.getByTestId("git-history-tab").click();
+	await expect(page.getByTestId(`commit-${hash}`)).toBeVisible();
+	const previousHistoryCalls = historyCalls;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect.poll(() => historyCalls).toBe(previousHistoryCalls + 1);
 	await expect(page.getByTestId("layout-files")).toContainText("Files");
 	await page.getByTestId("layout-files").click();
 	await page.getByTestId("file-README.md").click();
@@ -499,7 +540,7 @@ try {
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-fr.png") });
 	expect(errors).toEqual([]);
 	console.log(
-		"PASS: fichiers, Git, contexte, navigation, réglages, détection périodique, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",
+		"PASS: fichiers, Git, contexte, navigation, réglages, événements natifs, aucun polling, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",
 	);
 } finally {
 	await browser.close();

@@ -71,6 +71,7 @@ const englishText: Record<string, string> = {
 
 // Replace only the known wrapper. Everything after it is opaque OS/Git/path data.
 const englishPrefixes: [string, string][] = [
+	["Surveillance indisponible : ", "File monitoring unavailable: "],
 	["Configuration BOA illisible : ", "Cannot read BOA configuration: "],
 	["Projet inaccessible : ", "Project inaccessible: "],
 	["Dossier surveillé inaccessible : ", "Watched folder inaccessible: "],

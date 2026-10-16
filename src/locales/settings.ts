@@ -18,7 +18,7 @@ export const settingsFr = {
 	disable: "Désactiver",
 	saving: "Enregistrement…",
 	polling:
-		"Vérification à l’ouverture puis toutes les 10 secondes tant que BOA est ouvert. Les dossiers masqués sont ignorés.",
+		"Détection à l’ouverture puis lors de la création ou du renommage d’un sous-dossier direct. Les dossiers masqués sont ignorés.",
 	preserve:
 		"Les projets existants et leurs épingles sont conservés, sans doublon. Changer ou désactiver ce dossier arrête les ajouts depuis l’ancien emplacement.",
 	manualHint: "Sans dossier configuré, ajoutez vos projets manuellement avec « Ajouter un projet ».",
@@ -44,7 +44,8 @@ export const settingsEn: typeof settingsFr = {
 	dialogTitle: "Your projects folder",
 	disable: "Disable",
 	saving: "Saving…",
-	polling: "Checked at startup and every 10 seconds while BOA is open. Hidden folders are ignored.",
+	polling:
+		"Detected at startup, then when a direct subfolder is created or renamed. Hidden folders are ignored.",
 	preserve:
 		"Existing projects and pins are kept without duplicates. Changing or disabling this folder stops additions from the previous location.",
 	manualHint: "Without a configured folder, add projects manually using “Add a project”.",

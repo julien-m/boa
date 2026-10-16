@@ -29,7 +29,7 @@ export function BranchComparison({
 		"?": t("newFile"),
 	};
 	const branches = useQuery({
-		queryKey: ["branches", repo.path],
+		queryKey: ["branches", project.path, repo.path],
 		queryFn: () => api.branches(project.path, repo.path),
 		staleTime: 15_000,
 	});
@@ -40,7 +40,7 @@ export function BranchComparison({
 		baseChoice ||
 		(names.includes("main") ? "main" : names.includes("master") ? "master" : (repo.upstream ?? "HEAD"));
 	const comparison = useQuery({
-		queryKey: ["comparison", repo.path, base, head],
+		queryKey: ["comparison", project.path, repo.path, base, head],
 		queryFn: () => api.compare(project.path, repo.path, base, head),
 		enabled: Boolean(branches.data),
 	});

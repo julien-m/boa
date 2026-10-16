@@ -7,13 +7,14 @@ mod projects;
 mod search;
 #[cfg(test)]
 mod tests;
+mod watch;
 
 use projects::{AppState, Project, Settings, Summary};
 use std::{
     path::{Component, Path},
     sync::Arc,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 type NativeState<'a> = State<'a, Arc<AppState>>;
 
@@ -330,6 +331,20 @@ pub fn run() {
                     .map_err(std::io::Error::other)?,
             );
             cli::start(app.handle().clone(), state.clone()).map_err(std::io::Error::other)?;
+            let handle = app.handle().clone();
+            let service = watch::start(state.clone(), move |update| {
+                let _ = handle.emit("boa:filesystem-changed", update);
+            });
+            match service {
+                Ok(service) => {
+                    app.manage(service);
+                }
+                Err(error) => {
+                    state.set_watch_service_error(Some(format!(
+                        "Surveillance indisponible : {error}"
+                    )));
+                }
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(
                     if state.settings().map_err(std::io::Error::other)?.language == "en" {

@@ -109,6 +109,8 @@ pub(crate) struct AppState {
     pub repo_cache: Mutex<RepoCache>,
     pub workers: std::sync::Arc<tokio::sync::Semaphore>,
     watch_error: Mutex<Option<String>>,
+    watch_service_error: Mutex<Option<String>>,
+    pub watch_control: Mutex<Option<std::sync::mpsc::Sender<crate::watch::Message>>>,
 }
 
 impl AppState {
@@ -126,6 +128,8 @@ impl AppState {
             repo_cache: Mutex::new(HashMap::new()),
             workers: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
             watch_error: Mutex::new(None),
+            watch_service_error: Mutex::new(None),
+            watch_control: Mutex::new(None),
         };
         state.save()?;
         Ok(state)
@@ -135,12 +139,40 @@ impl AppState {
         let config = self.config.lock().map_err(|e| e.to_string())?;
         Ok(Settings {
             watch_directory: config.watch_directory.clone(),
-            watch_error: self.watch_error.lock().map_err(|e| e.to_string())?.clone(),
+            watch_error: self
+                .watch_error
+                .lock()
+                .map_err(|e| e.to_string())?
+                .clone()
+                .or_else(|| {
+                    self.watch_service_error
+                        .lock()
+                        .ok()
+                        .and_then(|error| error.clone())
+                }),
             language: config.language.clone(),
         })
     }
 
-    /// Poll only the explicitly configured directory; keep prior projects on transient errors.
+    pub fn notify_watchers(&self) {
+        if let Ok(control) = self.watch_control.lock()
+            && let Some(control) = control.as_ref()
+        {
+            let _ = control.send(crate::watch::Message::Configure);
+        }
+    }
+
+    pub fn set_watch_service_error(&self, error: Option<String>) -> bool {
+        let mut current = self
+            .watch_service_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let changed = *current != error;
+        *current = error;
+        changed
+    }
+
+    /// Refresh on startup, native notifications, focus or an explicit user request.
     pub fn list_projects(&self) -> Result<Vec<Project>, String> {
         let mut config = self.config.lock().map_err(|e| e.to_string())?;
         let mut candidate = config.clone();
@@ -152,6 +184,7 @@ impl AppState {
             Ok(())
         });
         *self.watch_error.lock().map_err(|e| e.to_string())? = refresh.err();
+        self.notify_watchers();
         Ok(config.projects.clone())
     }
 
@@ -174,6 +207,7 @@ impl AppState {
         self.write_config(&candidate)?;
         *config = candidate;
         *self.watch_error.lock().map_err(|e| e.to_string())? = None;
+        self.notify_watchers();
         Ok(Settings {
             watch_directory: config.watch_directory.clone(),
             watch_error: None,
@@ -211,6 +245,7 @@ impl AppState {
                 candidate.projects[index].archived = false;
                 self.write_config(&candidate)?;
                 *config = candidate;
+                self.notify_watchers();
             }
             return Ok(config.projects[index].clone());
         }
@@ -229,6 +264,7 @@ impl AppState {
         candidate.projects.sort_by_key(|p| p.name.to_lowercase());
         self.write_config(&candidate)?;
         *config = candidate;
+        self.notify_watchers();
         Ok(project)
     }
 
@@ -261,6 +297,7 @@ impl AppState {
             .archived = archived;
         self.write_config(&candidate)?;
         *config = candidate;
+        self.notify_watchers();
         Ok(())
     }
 
@@ -324,6 +361,7 @@ impl AppState {
             project.to_path_buf(),
             (Instant::now(), repos.clone(), limited),
         );
+        self.notify_watchers();
         Ok((repos, limited))
     }
 
