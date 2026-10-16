@@ -7,6 +7,12 @@ BOA helps you see which projects need attention and understand what changed with
 
 **A fresh installation starts empty.** BOA does not discover your home folder, import someone else's projects or scan any directory before you choose one. Previously added projects stay on your own Mac.
 
+![BOA dashboard showing project status, pinned projects and Git counters](docs/images/dashboard.png)
+
+![BOA project view with a file tree, highlighted diff and Git history](docs/images/project.png)
+
+These screenshots show BOA's actual interface with fictional projects, paths, code and commits. No personal workspace data is included. To regenerate them, start `bun run dev`, then run `bun scripts/capture-demo.ts` with Chrome installed. The capture script supplies in-memory demo data and does not connect to the native app or read its preferences.
+
 ## What you can do
 
 - Add folders explicitly, pin projects and sort the dashboard by name, activity or changed files.
