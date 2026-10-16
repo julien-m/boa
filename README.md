@@ -102,6 +102,8 @@ Project commands return `{ "ok": true, "result": ... }` with `--json`; failures 
 
 Text preview supports UTF-8 files up to 2 MiB. Repository discovery inside an explicitly selected project is bounded to 6 levels / 4,000 directories, with dependency/cache directories excluded. History loads 100 commits per page. Project search is literal, respects ignore files, does not follow symbolic links and is limited to 300 results, 20 matches per file and 10 seconds. Bounds and errors are shown in the interface.
 
+Unreadable descendants are skipped during discovery and the scan is marked partial; an unreadable project root still reports an error. Merge commit file lists and previews both compare against the first parent. During a Git conflict, both change sections show our index version (empty when deleted on our side) against the current working file, including any conflict markers.
+
 ## Quality and contributions
 
 ```bash

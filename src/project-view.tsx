@@ -130,7 +130,8 @@ export function ProjectView({
 			)}
 			{summary?.scanLimited && (
 				<div className="scan-note">
-					Découverte bornée à 6 niveaux / 4 000 dossiers ; importez un sous-dossier si un dépôt manque.
+					Découverte partielle : limite de 6 niveaux / 4 000 dossiers ou dossier inaccessible ; importez un
+					sous-dossier si un dépôt manque.
 				</div>
 			)}
 			{layout !== "git" && (

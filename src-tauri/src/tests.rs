@@ -454,3 +454,108 @@ fn failed_preference_writes_do_not_publish_changes_or_report_false_success() {
             .pinned
     );
 }
+
+#[test]
+fn merge_file_list_uses_the_same_first_parent_as_the_preview() {
+    let (_temp, path) = fixture();
+    fs::write(path.join("ours.txt"), "base\n").unwrap();
+    fs::write(path.join("theirs.txt"), "base\n").unwrap();
+    commit(&path, "base");
+    run(&path, &["checkout", "-b", "feature"]);
+    fs::write(path.join("theirs.txt"), "feature\n").unwrap();
+    commit(&path, "feature");
+    run(&path, &["checkout", "main"]);
+    fs::write(path.join("ours.txt"), "main\n").unwrap();
+    commit(&path, "main");
+    run(&path, &["merge", "--no-ff", "feature", "-m", "merge"]);
+    let hash = git::text(&path, &["rev-parse", "HEAD"]).unwrap();
+    let changes = git::commit_files(&path, hash.trim()).unwrap();
+    assert_eq!(
+        changes.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        vec!["theirs.txt"]
+    );
+    let preview = files::commit_diff(&path, hash.trim(), "theirs.txt", None).unwrap();
+    assert_eq!(preview.original, "base\n");
+    assert_eq!(preview.modified, "feature\n");
+}
+
+#[test]
+fn conflicted_files_preview_our_stage_against_the_working_file_in_both_sections() {
+    for (ours, theirs) in [
+        (Some("ours\n"), Some("theirs\n")),
+        (None, Some("theirs\n")),
+        (Some("ours\n"), None),
+    ] {
+        let (_temp, path) = fixture();
+        let filename = "conflict\nfile.txt";
+        fs::write(path.join(filename), "base\n").unwrap();
+        commit(&path, "base");
+        run(&path, &["checkout", "-b", "feature"]);
+        match theirs {
+            Some(content) => fs::write(path.join(filename), content).unwrap(),
+            None => fs::remove_file(path.join(filename)).unwrap(),
+        }
+        commit(&path, "theirs");
+        run(&path, &["checkout", "main"]);
+        match ours {
+            Some(content) => fs::write(path.join(filename), content).unwrap(),
+            None => fs::remove_file(path.join(filename)).unwrap(),
+        }
+        commit(&path, "ours");
+        assert!(
+            !Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&path)
+                .args(["merge", "feature"])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        assert!(
+            git::status(&path)
+                .changes
+                .iter()
+                .any(|change| change.conflict)
+        );
+        let working = fs::read_to_string(path.join(filename)).unwrap();
+        for side in ["working", "staged"] {
+            let preview = files::local_diff(&path, filename, None, side).unwrap();
+            assert_eq!(preview.original, ours.unwrap_or(""));
+            assert_eq!(preview.modified, working);
+            assert!(preview.label.contains("Conflit"));
+        }
+        fs::write(path.join(filename), "resolved\n").unwrap();
+        run(&path, &["add", filename]);
+        let preview = files::local_diff(&path, filename, None, "staged").unwrap();
+        assert_eq!(preview.original, ours.unwrap_or(""));
+        assert_eq!(preview.modified, "resolved\n");
+        assert_eq!(preview.label, "HEAD → index");
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn discovery_keeps_healthy_siblings_when_a_descendant_is_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let healthy = root.join("healthy");
+    repo(&healthy);
+    let blocked = root.join("blocked");
+    fs::create_dir(&blocked).unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    let inaccessible = fs::read_dir(&blocked).is_err();
+    let result = discover_repositories(&root);
+    let root_result = discover_repositories(&blocked);
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        inaccessible,
+        "Test requires an unprivileged user to exercise EACCES"
+    );
+    let (repos, limited) = result.unwrap();
+    assert!(repos.contains(&healthy));
+    assert!(limited);
+    assert!(root_result.is_err());
+    assert!(discover_repositories(&root.join("missing")).is_err());
+}

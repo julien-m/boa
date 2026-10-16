@@ -305,7 +305,7 @@ pub(crate) fn commit_files(path: &Path, hash: &str) -> Result<Vec<Change>, Strin
             "diff-tree",
             "--root",
             "--first-parent",
-            "-m",
+            "--diff-merges=first-parent",
             "--no-commit-id",
             "--name-status",
             "-r",

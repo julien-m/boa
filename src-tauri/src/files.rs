@@ -133,20 +133,48 @@ pub(crate) fn git_blob(repo: &Path, revision: &str, path: &str) -> Result<String
     )?)
 }
 
-pub(crate) fn index_blob(repo: &Path, path: &str) -> Result<String, String> {
+fn index_snapshot(repo: &Path, path: &str) -> Result<(String, bool), String> {
     let tree = crate::git::git(repo, &["ls-files", "--stage", "-z", "--", path])?;
-    if tree.is_empty() {
-        return Ok(String::new());
+    let mut normal = false;
+    let mut ours = false;
+    let mut conflicted = false;
+    for entry in tree
+        .split(|b| *b == b'\0')
+        .filter(|entry| !entry.is_empty())
+    {
+        // Parse only the header: paths may contain spaces, tabs and newlines.
+        let header = entry.split(|b| *b == b'\t').next().unwrap_or_default();
+        match header.rsplit(|b| *b == b' ').next() {
+            Some(b"0") => normal = true,
+            Some(b"2") => {
+                ours = true;
+                conflicted = true;
+            }
+            Some(b"1" | b"3") => conflicted = true,
+            _ => return Err("Entrée d’index Git invalide".into()),
+        }
     }
-    decode(crate::git::git(
+    let stage = if conflicted {
+        if !ours {
+            // Deleted on our side: the correct baseline is empty, not the ancestor.
+            return Ok((String::new(), true));
+        }
+        "2"
+    } else if normal {
+        "0"
+    } else {
+        return Ok((String::new(), false));
+    };
+    let content = decode(crate::git::git(
         repo,
         &[
             "show",
             "--no-ext-diff",
             "--no-textconv",
-            &format!(":{path}"),
+            &format!(":{stage}:{path}"),
         ],
-    )?)
+    )?)?;
+    Ok((content, conflicted))
 }
 
 pub(crate) fn local_diff(
@@ -156,16 +184,17 @@ pub(crate) fn local_diff(
     side: &str,
 ) -> Result<Preview, String> {
     let old_path = old_path.unwrap_or(path);
+    let (index, conflicted) = index_snapshot(repo, path)?;
     let (original, modified, label) = match side {
-        "staged" => {
+        "staged" if !conflicted => {
             let original = match crate::git::git(repo, &["rev-parse", "--verify", "HEAD"]) {
                 Ok(_) => git_blob(repo, "HEAD", old_path)?,
                 Err(_) => String::new(),
             };
-            (original, index_blob(repo, path)?, "HEAD → index")
+            (original, index, "HEAD → index")
         }
-        "working" => {
-            let original = index_blob(repo, path)?;
+        "working" | "staged" => {
+            let original = index;
             let target = repo.join(path);
             let modified = if target
                 .symlink_metadata()
@@ -190,7 +219,12 @@ pub(crate) fn local_diff(
             } else {
                 String::new()
             };
-            (original, modified, "Index → fichiers locaux")
+            let label = if conflicted {
+                "Conflit · notre version → fichiers locaux"
+            } else {
+                "Index → fichiers locaux"
+            };
+            (original, modified, label)
         }
         _ => return Err("Type de diff inconnu".into()),
     };

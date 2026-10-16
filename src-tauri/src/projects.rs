@@ -239,20 +239,46 @@ pub(crate) fn discover_repositories(root: &Path) -> Result<(Vec<PathBuf>, bool),
             break;
         }
         if path.join(".git").exists() {
-            repos.insert(path.canonicalize().map_err(|e| e.to_string())?);
+            match path.canonicalize() {
+                Ok(path) => {
+                    repos.insert(path);
+                }
+                Err(_) => {
+                    limited = true;
+                }
+            }
         }
         if depth >= MAX_DEPTH {
             limited = true;
             continue;
         }
-        let entries =
-            fs::read_dir(&path).map_err(|e| format!("Lecture de {} : {e}", path.display()))?;
+        let entries = match fs::read_dir(&path) {
+            Ok(entries) => entries,
+            Err(error) if path == root => {
+                return Err(format!("Lecture de {} : {error}", path.display()));
+            }
+            Err(_) => {
+                limited = true;
+                continue;
+            }
+        };
         for entry in entries {
-            let entry = entry.map_err(|e| e.to_string())?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    limited = true;
+                    continue;
+                }
+            };
             let name = entry.file_name();
-            if entry.file_type().map_err(|e| e.to_string())?.is_dir()
-                && !SKIP.contains(&name.to_string_lossy().as_ref())
-            {
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(_) => {
+                    limited = true;
+                    continue;
+                }
+            };
+            if kind.is_dir() && !SKIP.contains(&name.to_string_lossy().as_ref()) {
                 stack.push((entry.path(), depth + 1));
             }
         }
