@@ -1570,7 +1570,8 @@ details:not([open]) > summary > svg {
 	border-radius: 5px;
 }
 .markdown-local-image {
-	display: block;
+	display: inline-block;
+	vertical-align: middle;
 	max-width: 100%;
 	height: auto;
 	border-radius: 6px;

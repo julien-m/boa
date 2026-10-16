@@ -1,25 +1,38 @@
-/** Read-only Markdown document; remote resources never load automatically. */
+/** Read-only Markdown with sanitized HTML and local or HTTP(S) images. */
 
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { api } from "./api";
 
-function LocalImage({
+function MarkdownImage({
 	project,
 	path,
 	src,
 	alt,
+	width,
+	height,
 }: {
 	project: string;
 	path: string;
 	src?: string;
 	alt?: string;
+	width?: string | number;
+	height?: string | number;
 }) {
 	const { t } = useTranslation("workspace");
 	const [failed, setFailed] = useState<string | null>(null);
+	let remote: string | undefined;
+	try {
+		const url = new URL(src?.startsWith("//") ? `https:${src}` : (src ?? ""));
+		if (["https:", "http:"].includes(url.protocol) && !url.username && !url.password) remote = url.href;
+	} catch {
+		/* Relative images use the native reader. */
+	}
 	const local = Boolean(src && !/^(?:[a-z][a-z\d+.-]*:|[\\/]|#)/i.test(src));
 	const image = useQuery({
 		queryKey: ["markdown-image", project, path, src],
@@ -28,12 +41,16 @@ function LocalImage({
 		retry: false,
 		gcTime: 0,
 	});
-	return image.data && failed !== image.data ? (
+	const resolved = remote ?? image.data;
+	return resolved && failed !== resolved ? (
 		<img
-			src={image.data}
+			src={resolved}
 			alt={alt ?? ""}
+			width={width}
+			height={height}
+			referrerPolicy="no-referrer"
 			className="markdown-local-image"
-			onError={() => setFailed(image.data ?? null)}
+			onError={() => setFailed(resolved)}
 		/>
 	) : (
 		<span className="markdown-image" title={image.error ? String(image.error) : src}>
@@ -55,8 +72,25 @@ export function MarkdownPreview({
 }) {
 	const { t } = useTranslation("workspace");
 	const renderImage = useCallback(
-		({ alt, src }: { alt?: string; src?: string | Blob }) => (
-			<LocalImage project={project} path={path} src={typeof src === "string" ? src : undefined} alt={alt} />
+		({
+			alt,
+			src,
+			width,
+			height,
+		}: {
+			alt?: string;
+			src?: string | Blob;
+			width?: string | number;
+			height?: string | number;
+		}) => (
+			<MarkdownImage
+				project={project}
+				path={path}
+				src={typeof src === "string" ? src : undefined}
+				alt={alt}
+				width={width}
+				height={height}
+			/>
 		),
 		[project, path],
 	);
@@ -65,7 +99,7 @@ export function MarkdownPreview({
 			<article className="markdown-preview">
 				<Markdown
 					remarkPlugins={[remarkGfm]}
-					skipHtml
+					rehypePlugins={[rehypeRaw, rehypeSanitize]}
 					components={{
 						a: ({ href, children }) => (
 							<a

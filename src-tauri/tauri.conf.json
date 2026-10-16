@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: asset:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: asset: https: http:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
   "plugins": { "deep-link": { "desktop": { "schemes": ["boa"] } } },
