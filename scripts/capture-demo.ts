@@ -100,7 +100,7 @@ await page.exposeFunction("boaDemoInvoke", async (command: string, args: Record<
 					},
 				],
 				scanLimited: false,
-				updatedAt: Date.parse("2026-10-16T10:30:00Z"),
+				updatedAt: Date.parse("2026-10-16T10:30:00Z") / 1000,
 			};
 		}
 		case "repository_web_url":
@@ -193,6 +193,7 @@ try {
 	await expect(
 		page.locator(".monaco-diff-editor .view-line").filter({ hasText: "ANNUAL_DISCOUNT" }).first(),
 	).toBeVisible();
+	await expect(page.locator(".monaco-diff-editor .line-insert").first()).toBeVisible();
 	await page.mouse.move(1595, 1045);
 	await page.screenshot({ path: resolve(output, "project.png") });
 	expect(errors).toEqual([]);
