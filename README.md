@@ -3,13 +3,13 @@
 <p align="center">A local macOS cockpit for your projects, files and Git changes.</p>
 <p align="center"><a href="https://github.com/julien-m/boa/actions/workflows/quality.yaml"><img src="https://github.com/julien-m/boa/actions/workflows/quality.yaml/badge.svg" alt="Quality checks"></a> <a href="LICENSE">MIT license</a></p>
 
-BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The interface supports French (default) and English, selectable in Settings.
-
-**A fresh installation starts empty.** BOA does not discover your home folder, import someone else's projects or scan any directory before you choose one. Previously added projects stay on your own Mac.
-
 ![BOA dashboard showing project status, pinned projects and Git counters](docs/images/dashboard.png)
 
 ![BOA project view with a file tree, highlighted diff and Git history](docs/images/project.png)
+
+BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The interface supports French (default) and English, selectable in Settings.
+
+**A fresh installation starts empty.** BOA does not discover your home folder, import someone else's projects or scan any directory before you choose one. Previously added projects stay on your own Mac.
 
 These screenshots show BOA's actual interface with fictional projects, paths, code and commits. No personal workspace data is included. To regenerate them, start `bun run dev`, then run `bun scripts/capture-demo.ts` with Chrome installed. The capture script supplies in-memory demo data and does not connect to the native app or read its preferences.
 
