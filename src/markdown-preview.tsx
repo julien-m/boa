@@ -1,7 +1,7 @@
 /** Read-only Markdown with sanitized HTML and local or HTTP(S) images. */
 
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { createElement, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -77,18 +77,70 @@ function MarkdownImage({
 	);
 }
 
+export type MarkdownBookmark = { text: string; tag: string; offset: number; scrollTop: number };
+const sourceBlocks = Object.fromEntries(
+	["h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "table", "li"].map((tag) => [
+		tag,
+		({
+			node,
+			children,
+			...props
+		}: {
+			node?: { position?: { start: { line: number } } };
+			children?: ReactNode;
+		}) => createElement(tag, { ...props, "data-source-line": node?.position?.start.line }, children),
+	]),
+);
+
 export function MarkdownPreview({
 	content,
 	project,
 	path,
 	onCopyLink,
+	restorePosition,
 }: {
+	restorePosition?: MarkdownBookmark;
 	content: string;
 	project: string;
 	path: string;
 	onCopyLink: (href: string) => void;
 }) {
 	const { t } = useTranslation("workspace");
+	const scroll = useRef<HTMLDivElement>(null);
+	const anchor = useRef<MarkdownBookmark | null>(restorePosition ?? null);
+	const capturePosition = (): void => {
+		const container = scroll.current;
+		if (!container) return;
+		const top = container.getBoundingClientRect().top;
+		const blocks = [...container.querySelectorAll("h1,h2,h3,h4,h5,h6,p,pre,table,li")];
+		const visible = blocks.find((block) => block.getBoundingClientRect().bottom > top);
+		anchor.current = visible
+			? {
+					text: visible.textContent ?? "",
+					tag: visible.tagName,
+					offset: visible.getBoundingClientRect().top - top,
+					scrollTop: container.scrollTop,
+				}
+			: null;
+	};
+	useLayoutEffect(() => {
+		const container = scroll.current;
+		const saved = anchor.current;
+		if (container && saved) {
+			const candidates = [...container.querySelectorAll(saved.tag)].filter(
+				(block) => block.textContent === saved.text,
+			);
+			const top = container.getBoundingClientRect().top;
+			const target = candidates.sort(
+				(a, b) =>
+					Math.abs(a.getBoundingClientRect().top - top + container.scrollTop - saved.scrollTop) -
+					Math.abs(b.getBoundingClientRect().top - top + container.scrollTop - saved.scrollTop),
+			)[0];
+			if (target) container.scrollTop += target.getBoundingClientRect().top - top - saved.offset;
+			else container.scrollTop = saved.scrollTop;
+		}
+		capturePosition();
+	}, [content]);
 	const renderImage = useCallback(
 		({
 			alt,
@@ -113,12 +165,13 @@ export function MarkdownPreview({
 		[project, path],
 	);
 	return (
-		<div className="markdown-scroll" data-testid="markdown-preview">
+		<div ref={scroll} onScroll={capturePosition} className="markdown-scroll" data-testid="markdown-preview">
 			<article className="markdown-preview">
 				<Markdown
 					remarkPlugins={[remarkGfm]}
 					rehypePlugins={[rehypeRaw, rehypeSanitize]}
 					components={{
+						...sourceBlocks,
 						a: ({ href, children }) => (
 							<a
 								href={href}

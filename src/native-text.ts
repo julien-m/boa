@@ -2,6 +2,13 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"La sauvegarde modifierait le propriétaire, le groupe ou les permissions du fichier.":
+		"Saving would change the file owner, group or permissions.",
+	"Édition limitée aux fichiers du projet, hors métadonnées Git.":
+		"Editing is limited to project files, excluding Git metadata.",
+	"Ce fichier est en lecture seule.": "This file is read-only.",
+	"Le fichier a changé sur le disque. Annulez puis rouvrez l’édition pour repartir de sa version actuelle.":
+		"The file changed on disk. Cancel and reopen editing to start from its current version.",
 	"Image trop volumineuse (8 Mo maximum).": "Image too large (8 MB maximum).",
 	"Format d’image non pris en charge.": "Unsupported image format.",
 	"Aucun dépôt distant web configuré": "No web remote configured",
@@ -75,6 +82,7 @@ const englishText: Record<string, string> = {
 
 // Replace only the known wrapper. Everything after it is opaque OS/Git/path data.
 const englishPrefixes: [string, string][] = [
+	["Conservation des métadonnées impossible : ", "Unable to preserve file metadata: "],
 	["Ouverture impossible : ", "Unable to open: "],
 	["Surveillance indisponible : ", "File monitoring unavailable: "],
 	["Configuration BOA illisible : ", "Cannot read BOA configuration: "],

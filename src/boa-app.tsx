@@ -25,6 +25,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
+import { DraftIndicator } from "./file-editing";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
@@ -217,6 +218,17 @@ export default function App() {
 			setNotice(localizeNativeText(String(error)));
 		}
 	};
+	useEffect(() => {
+		const resume = (event: Event): void => {
+			const target = (event as CustomEvent<Selection>).detail;
+			setSelectedPath(target.project);
+			setSettingsOpen(false);
+			setArchivesOpen(false);
+			setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
+		};
+		window.addEventListener("boa:resume-draft", resume);
+		return () => window.removeEventListener("boa:resume-draft", resume);
+	}, []);
 	const handleProjectRefresh = (): void => {
 		if (selected) {
 			void client.invalidateQueries({ queryKey: ["summary", selected.path] });
@@ -263,7 +275,8 @@ export default function App() {
 					<span className="muted">{t("projectSpace")}</span>
 				</div>
 				<div className="titlebar-right">
-					{navigation && (
+					<DraftIndicator />
+					{navigation && navigation.source !== "BOA" && (
 						<button
 							type="button"
 							data-testid="guidance-toggle"

@@ -309,3 +309,89 @@ pub(crate) fn commit_diff(
         label: format!("Commit {} · premier parent", &hash[..7]),
     })
 }
+
+/// Save only existing local project files; publish complete contents with an atomic rename.
+pub(crate) fn save(
+    root: &Path,
+    relative: &str,
+    original: &str,
+    content: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+    static SAVES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SAVES.lock().map_err(|e| e.to_string())?;
+    decode(content.as_bytes().to_vec())?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let target = confined(&root, relative)?;
+    if !target.starts_with(&root)
+        || target
+            .strip_prefix(&root)
+            .is_ok_and(|p| p.components().any(|c| c.as_os_str() == ".git"))
+    {
+        return Err("Édition limitée aux fichiers du projet, hors métadonnées Git.".into());
+    }
+    let permissions = fs::metadata(&target)
+        .map_err(|e| e.to_string())?
+        .permissions();
+    if permissions.readonly() {
+        return Err("Ce fichier est en lecture seule.".into());
+    }
+    let mut temp = tempfile::NamedTempFile::new_in(target.parent().ok_or("Chemin hors du projet")?)
+        .map_err(|e| e.to_string())?;
+    temp.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
+    preserve_save_metadata(&target, temp.as_file())?;
+    temp.as_file()
+        .set_modified(std::time::SystemTime::now())
+        .map_err(|e| e.to_string())?;
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    if confined(&root, relative)? != target || text(&target)? != original {
+        return Err("Le fichier a changé sur le disque. Annulez puis rouvrez l’édition pour repartir de sa version actuelle.".into());
+    }
+    temp.persist(&target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn preserve_save_metadata(source: &Path, destination: &fs::File) -> Result<(), String> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let source = fs::File::open(source).map_err(|e| e.to_string())?;
+    // Both descriptors are owned, open regular files. No data is copied over the new contents.
+    if unsafe {
+        libc::fcopyfile(
+            source.as_raw_fd(),
+            destination.as_raw_fd(),
+            std::ptr::null_mut(),
+            libc::COPYFILE_METADATA,
+        )
+    } != 0
+    {
+        return Err(format!(
+            "Conservation des métadonnées impossible : {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let original = source.metadata().map_err(|e| e.to_string())?;
+    let copied = destination.metadata().map_err(|e| e.to_string())?;
+    if original.uid() != copied.uid()
+        || original.gid() != copied.gid()
+        || original.permissions() != copied.permissions()
+    {
+        return Err(
+            "La sauvegarde modifierait le propriétaire, le groupe ou les permissions du fichier."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn preserve_save_metadata(source: &Path, destination: &fs::File) -> Result<(), String> {
+    destination
+        .set_permissions(
+            fs::metadata(source)
+                .map_err(|e| e.to_string())?
+                .permissions(),
+        )
+        .map_err(|e| e.to_string())
+}

@@ -1,6 +1,6 @@
 # Contributing to BOA
 
-BOA is an early macOS project viewer. Keep changes focused and preserve its read-only Git/file behavior.
+BOA is an early macOS project viewer. Keep changes focused and keep Git views read-only and file editing explicit. Preserve the save safeguards: existing project files only, bounded UTF-8 content and detection of external changes.
 
 1. Follow the setup in [README.md](README.md).
 2. Reproduce a bug with a disposable folder or Git repository. Never commit application preferences, personal project paths, credentials, generated app bundles or real context exports.

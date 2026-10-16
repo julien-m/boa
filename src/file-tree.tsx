@@ -10,6 +10,7 @@ interface TreeProps {
 	project: string;
 	path?: string;
 	onOpen: (path: string) => void;
+	onKeepOpen?: (path: string) => void;
 	selected?: string;
 	repos: RepoStatus[];
 	depth?: number;
@@ -19,6 +20,7 @@ function FileRow({
 	entry,
 	project,
 	onOpen,
+	onKeepOpen,
 	selected,
 	repos,
 	depth = 0,
@@ -47,6 +49,9 @@ function FileRow({
 				className={`tree-row ${selected === entry.path ? "selected" : ""}`}
 				style={{ paddingLeft: 12 + depth * 14 }}
 				onClick={handleOpen}
+				onDoubleClick={() => {
+					if (!entry.directory) onKeepOpen?.(entry.path);
+				}}
 				title={entry.path}
 				aria-expanded={entry.directory ? expanded : undefined}
 			>
@@ -73,6 +78,7 @@ function FileRow({
 					project={project}
 					path={entry.path}
 					onOpen={onOpen}
+					onKeepOpen={onKeepOpen}
 					selected={selected}
 					repos={repos}
 					depth={depth + 1}
@@ -82,7 +88,7 @@ function FileRow({
 	);
 }
 
-export function FileTree({ project, path = "", onOpen, selected, repos, depth = 0 }: TreeProps) {
+export function FileTree({ project, path = "", onOpen, onKeepOpen, selected, repos, depth = 0 }: TreeProps) {
 	const { t } = useTranslation("workspace");
 	const query = useQuery({
 		queryKey: ["directory", project, path],
@@ -110,6 +116,7 @@ export function FileTree({ project, path = "", onOpen, selected, repos, depth = 
 						entry={entry}
 						project={project}
 						onOpen={onOpen}
+						onKeepOpen={onKeepOpen}
 						selected={selected}
 						repos={repos}
 						depth={depth}

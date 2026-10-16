@@ -785,3 +785,123 @@ fn repository_link_prefers_origin_and_falls_back_to_a_supported_remote() {
         Some("https://github.com/example/project")
     );
 }
+
+#[test]
+fn saves_existing_text_atomically_and_rejects_conflicts_and_unsafe_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let file = root.join("note.md");
+    fs::write(&file, "before\r\n").unwrap();
+    files::save(root, "note.md", "before\r\n", "after\r\n").unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "after\r\n");
+    fs::write(&file, "external change").unwrap();
+    assert!(files::save(root, "note.md", "after\r\n", "lost").is_err());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "external change");
+    assert!(files::save(root, "../note.md", "", "bad").is_err());
+    assert!(files::save(root, "missing.md", "", "bad").is_err());
+    assert!(files::save(root, "", "", "bad").is_err());
+    assert!(files::save(root, "note.md", "external change", "\0binary").is_err());
+    assert!(
+        files::save(
+            root,
+            "note.md",
+            "external change",
+            &"x".repeat(files::FILE_LIMIT as usize + 1)
+        )
+        .is_err()
+    );
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::write(root.join(".git/config"), "private").unwrap();
+    assert!(files::save(root, ".git/config", "private", "bad").is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        fs::write(outside.path(), "outside").unwrap();
+        symlink(outside.path(), root.join("linked.md")).unwrap();
+        assert!(files::save(root, "linked.md", "outside", "bad").is_err());
+        assert_eq!(fs::read_to_string(outside.path()).unwrap(), "outside");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        files::save(root, "note.md", "external change", "saved").unwrap();
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn saves_preserve_macos_xattrs_acl_owner_group_and_mode() {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("tagged.txt");
+    fs::write(&file, "before").unwrap();
+    // Exercise a distinct group when this account belongs to more than one group.
+    let count = unsafe { libc::getgroups(0, std::ptr::null_mut()) };
+    if count > 0 {
+        let mut groups = vec![0; count as usize];
+        assert!(unsafe { libc::getgroups(count, groups.as_mut_ptr()) } >= 0);
+        if let Some(group) = groups
+            .into_iter()
+            .find(|gid| *gid != fs::metadata(&file).unwrap().gid())
+        {
+            let handle = fs::File::open(&file).unwrap();
+            assert_eq!(
+                unsafe { libc::fchown(handle.as_raw_fd(), u32::MAX, group) },
+                0
+            );
+        }
+    }
+    assert!(
+        Command::new("/usr/bin/xattr")
+            .args(["-w", "com.example.boa-test", "retained"])
+            .arg(&file)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        Command::new("/bin/chmod")
+            .args([
+                "+a",
+                "everyone allow read,readattr,readextattr,readsecurity"
+            ])
+            .arg(&file)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let acl = |file: &Path| {
+        let output = Command::new("/bin/ls")
+            .arg("-le")
+            .arg(file)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let before_acl = acl(&file);
+    assert!(!before_acl.is_empty());
+    let before = fs::metadata(&file).unwrap();
+    files::save(dir.path(), "tagged.txt", "before", "after").unwrap();
+    let after = fs::metadata(&file).unwrap();
+    assert_eq!(
+        (before.uid(), before.gid(), before.mode()),
+        (after.uid(), after.gid(), after.mode())
+    );
+    assert_eq!(before_acl, acl(&file));
+    let tag = Command::new("/usr/bin/xattr")
+        .args(["-p", "com.example.boa-test"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(tag.status.success());
+    assert_eq!(String::from_utf8(tag.stdout).unwrap().trim(), "retained");
+    assert_eq!(fs::read_to_string(file).unwrap(), "after");
+}
