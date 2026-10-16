@@ -1,0 +1,47 @@
+[package]
+name = "boa"
+version = "0.1.0"
+description = "Cockpit local de projets et de revue Git"
+authors = ["Julien M."]
+license = "MIT"
+repository = "https://github.com/julien-m/boa"
+rust-version = "1.94"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "boa_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+tauri-plugin-dialog = "2.8.3"
+wait-timeout = "0.2.1"
+tokio = { version = "1.53.3", features = ["sync"] }
+tauri-plugin-drag = "2.1.1"
+base64 = "0.23.1"
+tauri-plugin-deep-link = "2.6.2"
+tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-clipboard-manager = "2.5.0"
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

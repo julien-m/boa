@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+.claude/output/
+test-results/
+playwright-report/
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# User configuration, credentials and generated local artifacts
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.p12
+*.pfx
+work/
+outputs/
