@@ -14,7 +14,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
-import { CodeViewer } from "./code-viewer";
+import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { useFileEditing } from "./file-editing";
 import { FileTree } from "./file-tree";
 import { GitPanel } from "./git-panel";
@@ -54,6 +54,28 @@ export function ProjectView({
 		selection: Selection | null;
 	}>({ tabs: [], preview: null, selection: null });
 	const { tabs, preview, selection } = files;
+	const openPaths = useRef(new Set<string>());
+	useEffect(() => {
+		const previous = openPaths.current;
+		const next = new Set(tabs.map((tab) => tab.path));
+		openPaths.current = next;
+		queueMicrotask(() => {
+			for (const path of previous) if (!next.has(path)) disposeReaderModel(project.path, path);
+		});
+	}, [tabs, project.path]);
+	useEffect(
+		() => () => {
+			const paths = openPaths.current;
+			queueMicrotask(() => {
+				for (const path of paths) disposeReaderModel(project.path, path);
+			});
+		},
+		[project.path],
+	);
+	useEffect(() => {
+		if (preview && editing.drafts[JSON.stringify([project.path, preview])])
+			setFiles((current) => ({ ...current, preview: null }));
+	}, [editing.drafts, preview, project.path]);
 	const setSelection = useCallback((value: Selection | null): void => {
 		setFiles((current) => ({ ...current, selection: value }));
 	}, []);
@@ -263,7 +285,10 @@ export function ProjectView({
 										>
 											<FileCode2 size={13} />
 											{tab.path.split("/").pop()}
-											{editing.draft(tab.project, tab.path) && " •"}
+											{editing.draft(tab.project, tab.path)?.content !== undefined &&
+												editing.draft(tab.project, tab.path)?.content !==
+													editing.draft(tab.project, tab.path)?.original &&
+												" •"}
 										</button>
 										<button
 											type="button"

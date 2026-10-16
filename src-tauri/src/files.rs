@@ -338,10 +338,11 @@ pub(crate) fn save(
     }
     let mut temp = tempfile::NamedTempFile::new_in(target.parent().ok_or("Chemin hors du projet")?)
         .map_err(|e| e.to_string())?;
-    temp.as_file()
-        .set_permissions(permissions)
-        .map_err(|e| e.to_string())?;
     temp.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
+    preserve_save_metadata(&target, temp.as_file())?;
+    temp.as_file()
+        .set_modified(std::time::SystemTime::now())
         .map_err(|e| e.to_string())?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     if confined(&root, relative)? != target || text(&target)? != original {
@@ -349,4 +350,48 @@ pub(crate) fn save(
     }
     temp.persist(&target).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn preserve_save_metadata(source: &Path, destination: &fs::File) -> Result<(), String> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let source = fs::File::open(source).map_err(|e| e.to_string())?;
+    // Both descriptors are owned, open regular files. No data is copied over the new contents.
+    if unsafe {
+        libc::fcopyfile(
+            source.as_raw_fd(),
+            destination.as_raw_fd(),
+            std::ptr::null_mut(),
+            libc::COPYFILE_METADATA,
+        )
+    } != 0
+    {
+        return Err(format!(
+            "Conservation des métadonnées impossible : {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let original = source.metadata().map_err(|e| e.to_string())?;
+    let copied = destination.metadata().map_err(|e| e.to_string())?;
+    if original.uid() != copied.uid()
+        || original.gid() != copied.gid()
+        || original.permissions() != copied.permissions()
+    {
+        return Err(
+            "La sauvegarde modifierait le propriétaire, le groupe ou les permissions du fichier."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn preserve_save_metadata(source: &Path, destination: &fs::File) -> Result<(), String> {
+    destination
+        .set_permissions(
+            fs::metadata(source)
+                .map_err(|e| e.to_string())?
+                .permissions(),
+        )
+        .map_err(|e| e.to_string())
 }

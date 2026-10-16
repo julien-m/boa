@@ -20,6 +20,14 @@ import "monaco-editor/editor/contrib/find/browser/findController.js";
 // Local worker and local language grammars keep all code on the Mac and work offline.
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
+const navigationRequests = new WeakMap<monaco.editor.ITextModel, string>();
+const readerViewStates = new WeakMap<monaco.editor.ITextModel, monaco.editor.ICodeEditorViewState>();
+export const readerModelPath = (project: string, path: string): string =>
+	monaco.Uri.from({ scheme: "boa-file", path: `${project}/${path}` }).toString();
+export function disposeReaderModel(project: string, path: string): void {
+	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(project, path)));
+	if (model && !monaco.editor.getEditors().some((editor) => editor.getModel() === model)) model.dispose();
+}
 const options: monaco.editor.IStandaloneEditorConstructionOptions = {
 	readOnly: true,
 	domReadOnly: true,
@@ -425,6 +433,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 					<MonacoContent
 						key={JSON.stringify(selection)}
 						preview={draft ? { ...query.data, modified: draft.content } : query.data}
+						modelPath={readerModelPath(selection.project, selection.path)}
 						editable={Boolean(draft) && !draft?.saving}
 						onChange={(value) => {
 							if (draft && !draft.saving) editing.change(selection.project, selection.path, value);
@@ -450,7 +459,17 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							setSelectionVersion((version) => version + 1);
 							if (navigate && draft && markdownBookmark.current?.key === fileKey) {
 								editor.revealLineNearTop(markdownBookmark.current.line);
-							} else if (selection.line && navigate) {
+							} else if (
+								selection.line &&
+								navigate &&
+								editor.getModel() &&
+								navigationRequests.get(editor.getModel() as monaco.editor.ITextModel) !==
+									(selection.navigationId ?? `${selection.line}:${selection.endLine}`)
+							) {
+								navigationRequests.set(
+									editor.getModel() as monaco.editor.ITextModel,
+									selection.navigationId ?? `${selection.line}:${selection.endLine}`,
+								);
 								const line = Math.min(selection.line, editor.getModel()?.getLineCount() ?? 1);
 								editor.setSelection(
 									new monaco.Range(
@@ -472,6 +491,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 
 function MonacoContent({
 	preview,
+	modelPath,
 	editable = false,
 	onChange,
 	onSave,
@@ -482,6 +502,7 @@ function MonacoContent({
 }: {
 	onDiffEditor: (editor: monaco.editor.IStandaloneDiffEditor | null) => void;
 	preview: Preview;
+	modelPath: string;
 	editable?: boolean;
 	onChange: (value: string) => void;
 	onSave: () => void;
@@ -491,9 +512,18 @@ function MonacoContent({
 }) {
 	const { t } = useTranslation("workspace");
 	const reader = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+	useLayoutEffect(
+		() => () => {
+			const editor = reader.current;
+			const model = editor?.getModel();
+			const state = editor?.saveViewState();
+			if (model && state) readerViewStates.set(model, state);
+		},
+		[],
+	);
 	const save = useRef(onSave);
 	save.current = onSave;
-	useLayoutEffect(() => {
+	const synchronize = (): void => {
 		const editor = reader.current;
 		const model = editor?.getModel();
 		if (!editor || !model || diff || model.getValue() === preview.modified) return;
@@ -514,6 +544,11 @@ function MonacoContent({
 			editor.getTopForLineNumber(relocateLine(previous, preview.modified, visible)) + offset,
 			monaco.editor.ScrollType.Immediate,
 		);
+	};
+	const sync = useRef(synchronize);
+	sync.current = synchronize;
+	useLayoutEffect(() => {
+		sync.current();
 	}, [preview.modified, diff]);
 	return (
 		<div className="monaco-container">
@@ -554,6 +589,9 @@ function MonacoContent({
 				/>
 			) : (
 				<Editor
+					path={modelPath}
+					keepCurrentModel
+					saveViewState={false}
 					theme="vs-dark"
 					defaultValue={preview.modified}
 					language={language(preview.path)}
@@ -563,6 +601,11 @@ function MonacoContent({
 					}}
 					onMount={(editor) => {
 						reader.current = editor;
+						editor.layout();
+						const model = editor.getModel();
+						const state = model ? readerViewStates.get(model) : undefined;
+						if (state) editor.restoreViewState(state);
+						sync.current();
 						editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save.current());
 						editor.onDidChangeCursorSelection(() => onEditor(editor, "file", false));
 						onEditor(editor, "file", true);

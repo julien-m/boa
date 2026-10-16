@@ -602,11 +602,48 @@ try {
 	await editInput.press("ControlOrMeta+End");
 	await editInput.press("Enter");
 	await page.keyboard.insertText("// saved edit");
+	const retainedPosition = await page.evaluate(async (path) => {
+		const module = await import(path);
+		const reader = module.editor
+			.getEditors()
+			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		Reflect.set(window, "boaRetainedModel", reader.getModel());
+		return { cursor: reader.getPosition(), scroll: reader.getScrollTop() };
+	}, monacoPath);
 	await page.getByTestId("file-README.md").click();
 	await expect(page.getByTestId("draft-indicator")).toBeVisible();
+	await page.getByTestId("tab-sample.ts").click();
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	const restoredPosition = await page.evaluate(async (path) => {
+		const module = await import(path);
+		const reader = module.editor
+			.getEditors()
+			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		return {
+			sameModel: reader.getModel() === Reflect.get(window, "boaRetainedModel"),
+			cursor: reader.getPosition(),
+			scroll: reader.getScrollTop(),
+		};
+	}, monacoPath);
+	expect(restoredPosition.sameModel).toBe(true);
+	expect(restoredPosition.cursor).toEqual(retainedPosition.cursor);
+	expect(restoredPosition.scroll).toBeCloseTo(retainedPosition.scroll, 0);
+	await editInput.press("ControlOrMeta+z");
+	await expect
+		.poll(() =>
+			page.evaluate(() => Reflect.get(window, "boaRetainedModel").getValue().includes("// saved edit")),
+		)
+		.toBe(false);
+	await editInput.press("ControlOrMeta+Shift+z");
+	await expect
+		.poll(() =>
+			page.evaluate(() => Reflect.get(window, "boaRetainedModel").getValue().includes("// saved edit")),
+		)
+		.toBe(true);
+	await page.getByTestId("file-README.md").click();
 	await page.getByTestId("draft-indicator").locator("summary").click();
 	await page.getByTestId("draft-indicator").getByRole("button", { name: "sample.ts", exact: true }).click();
-	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
 	await expect(page.getByTestId("edit-dirty")).toBeVisible();
 
 	saveConflict = true;
