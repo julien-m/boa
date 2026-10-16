@@ -339,11 +339,84 @@ details > summary > span {
 }
 .nav-bottom {
 	display: flex;
-	align-items: center;
+	flex-direction: column;
+	align-items: stretch;
 	gap: 8px;
 	color: var(--muted);
 	font-size: 10px;
 	padding: 16px 10px 0;
+}
+.nav-local {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 10px 0;
+}
+.settings-view {
+	max-width: 1000px;
+}
+.settings-card {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 24px;
+	margin: 24px 0;
+}
+.settings-card p {
+	line-height: 1.7;
+}
+.settings-heading,
+.settings-actions,
+.settings-directory,
+.archive-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.settings-heading h2 {
+	font-size: 16px;
+	margin: 0;
+}
+.settings-heading > span {
+	margin-left: auto;
+	font-size: 11px;
+}
+.settings-directory {
+	margin: 24px 0 16px;
+	padding: 16px;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	overflow-wrap: anywhere;
+}
+.settings-actions {
+	flex-wrap: wrap;
+}
+.language-field {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	padding: 12px 0;
+}
+.language-field select {
+	min-width: 180px;
+	padding: 8px 12px;
+}
+.settings-details {
+	margin-top: 24px;
+	padding-top: 12px;
+	border-top: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 12px;
+}
+.archive-row > div {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.archive-row p {
+	margin: 4px 0 0;
 }
 .main-content {
 	min-width: 0;
@@ -1496,6 +1569,12 @@ details:not([open]) > summary > svg {
 	padding: 10px;
 	border-radius: 5px;
 }
+.markdown-local-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+}
 
 .git-detail-workspace {
 	min-width: 0;
@@ -1518,4 +1597,9 @@ details:not([open]) > summary > svg {
 .git-resizer.vertical span {
 	width: 2px;
 	height: 40px;
+}
+
+.git-remote-button {
+	margin-left: auto;
+	white-space: nowrap;
 }

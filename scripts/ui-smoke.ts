@@ -1,12 +1,16 @@
 /** Browser UI contracts with mocked Tauri transport and real local attachment files. */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
-const project = { path: directory, name: "BOA QA", pinned: false };
+const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
+let watchDirectory: string | null = null;
+let folderChoice: string | null = directory;
+let language = "fr";
+let automaticallyDiscovered = false;
 const hash = "a".repeat(40);
 const otherHash = "c".repeat(40);
 const change = { path: "sample.ts", oldPath: null, index: "M", worktree: "M", conflict: false };
@@ -26,6 +30,11 @@ const repo = {
 };
 let registeredProjects: (typeof project)[] = [];
 let summaryCalls = 0;
+let projectListCalls = 0;
+let historyCalls = 0;
+let remoteUrl: string | null = "https://github.com/example/project";
+const openedFolders: string[] = [];
+const openedRepositories: string[] = [];
 let clipboard = "";
 let exportsCreated = 0;
 const browser = await chromium.launch({
@@ -47,14 +56,46 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 		// No automatic drag-out is used by the composer.
 		return null;
 	}
-	if (command === "plugin:dialog|open") return directory;
+	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "read_markdown_image":
+			expect(args.document).toBe("README.md");
+			expect(args.source).toBe("images/plan.png");
+			return `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`;
+		case "repository_web_url":
+			return remoteUrl;
+		case "open_repository":
+			openedRepositories.push(String(args.repo));
+			return null;
+		case "open_project_folder":
+			openedFolders.push(String(args.project));
+			return null;
 		case "list_projects":
+			projectListCalls++;
+			if (
+				watchDirectory &&
+				automaticallyDiscovered &&
+				!registeredProjects.some((item) => item.name === "Auto QA")
+			)
+				registeredProjects.push({ ...project, path: `${directory}/auto`, name: "Auto QA" });
 			return registeredProjects;
+		case "get_settings":
+			return { watchDirectory, watchError: null, language };
+		case "set_language":
+			language = String(args.language);
+			return { watchDirectory, watchError: null, language };
+		case "set_watch_directory":
+			watchDirectory = args.path as string | null;
+			return { watchDirectory, watchError: null, language };
+		case "archive_project":
+			registeredProjects = registeredProjects.map((item) =>
+				item.path === args.project ? { ...item, archived: Boolean(args.archived) } : item,
+			);
+			return null;
 		case "add_project":
 			if (args.path !== directory) throw new Error("Unexpected import path");
-			registeredProjects = [project];
-			return project;
+			registeredProjects = [{ ...project, ...registeredProjects[0], archived: false }];
+			return registeredProjects[0];
 		case "pin_project":
 			registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: Boolean(args.pinned) }));
 			return null;
@@ -82,7 +123,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				original: "",
 				modified:
 					args.path === "README.md"
-						? "# Mon document\n\nUne **lecture claire**.\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>"
+						? "# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>"
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -113,6 +154,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				{ name: "feature/impact", current: true, remote: false },
 			];
 		case "git_history":
+			historyCalls++;
 			return [
 				{
 					hash: args.branch === "main" ? otherHash : hash,
@@ -175,19 +217,76 @@ await page.addInitScript(() => {
 	};
 	Reflect.set(window, "boaTestNavigate", (urls: string[]) => emit("deep-link://new-url", urls));
 	Reflect.set(window, "boaTestProjectsChanged", () => emit("boa:projects-changed", null));
+	Reflect.set(window, "boaTestFilesystemChanged", (payload: unknown) =>
+		emit("boa:filesystem-changed", payload),
+	);
 });
 try {
+	await page.clock.install();
 	await page.goto("http://localhost:1420");
 	await expect(page.getByTestId("empty-add-project")).toBeVisible();
 	await expect(page.getByText("Aucun dossier n’est parcouru avant votre sélection.")).toBeVisible();
 	expect(summaryCalls).toBe(0);
+	await page.getByTestId("settings-nav").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	folderChoice = null;
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	folderChoice = directory;
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("watch-directory")).toContainText(directory);
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
+	await page.getByTestId("disable-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("empty-add-project").click();
 	await expect(page.getByTestId("project-view")).toBeVisible();
+	await page.getByTestId("open-project-folder").click();
+	await expect.poll(() => openedFolders.at(-1)).toBe(directory);
+	await page.getByTestId("open-repository").click();
+	await expect.poll(() => openedRepositories.at(-1)).toBe(directory);
+	remoteUrl = null;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByTestId("open-repository")).toBeDisabled();
+	await expect(page.getByTestId("open-repository")).toHaveAttribute(
+		"title",
+		"Aucun dépôt distant web configuré",
+	);
+	remoteUrl = "https://github.com/example/project";
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByTestId("open-repository")).toBeEnabled();
 	await page.getByTestId("dashboard-nav").click();
 	await expect(page.getByTestId("project-card-BOA QA")).toBeVisible();
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
 	await page.getByTestId("pin-project-BOA QA").click();
 	await expect(page.getByTestId("nav-project-BOA QA")).toBeVisible();
+	await page.getByTestId("archive-project-BOA QA").click();
+	await expect(page.getByTestId("project-card-BOA QA")).toHaveCount(0);
+	await expect(page.getByTestId("nav-project-BOA QA")).toHaveCount(0);
+	await page.getByTestId("archives-nav").click();
+	await expect(page.getByTestId("archived-BOA QA")).toBeVisible();
+	await page.getByTestId("restore-BOA QA").click();
+	await expect(page.getByTestId("archived-BOA QA")).toHaveCount(0);
+	await page.getByTestId("dashboard-nav").click();
+	await expect(page.getByTestId("nav-project-BOA QA")).toBeVisible();
+	await page.getByTestId("archive-project-BOA QA").click();
+	await page.getByTestId("add-project").click();
+	await expect(page.getByTestId("project-view")).toBeVisible();
+	await page.getByTestId("dashboard-nav").click();
 	registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: false }));
 	await page.evaluate(() => Reflect.get(window, "boaTestProjectsChanged")());
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
@@ -246,6 +345,15 @@ try {
 	await expect(page.locator(".monaco-editor").first()).toBeVisible();
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toBeVisible();
+	await expect(page.getByRole("img", { name: "Plan", exact: true })).toBeVisible();
+	await expect
+		.poll(() =>
+			page
+				.getByRole("img", { name: "Plan", exact: true })
+				.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+		)
+		.toBe(32);
+	await expect(page.getByRole("img", { name: "Remote", exact: true })).toHaveCount(0);
 	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
 	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
 	if (!monacoPath) throw new Error("Monaco import unavailable");
@@ -410,9 +518,84 @@ try {
 	await expect(page.getByTestId("layout-files")).toHaveAttribute("aria-pressed", "true");
 	await page.getByTestId("guidance-toggle").click();
 	await expect(page.getByTestId("guidance-toggle")).toContainText("suspendu");
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
+	automaticallyDiscovered = true;
+	await page.getByTestId("dashboard-nav").click();
+	const idleSummaries = summaryCalls;
+	const idleLists = projectListCalls;
+	await page.clock.fastForward(120_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
+	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
+	);
+	await expect(page.getByTestId("project-card-Auto QA")).toBeVisible();
+	const beforeGitEvent = summaryCalls;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect.poll(() => summaryCalls).toBe(beforeGitEvent + 1);
+	await page.getByTestId("archive-project-Auto QA").click();
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
+	);
+	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("interface-language").selectOption("en");
+	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
+	await expect(page.locator("html")).toHaveAttribute("lang", "en");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-en.png") });
+	repo.path = `${directory}/nested-repo`;
+	await page.reload();
+	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
+	await page.getByTestId("archives-nav").click();
+	await expect(page.getByRole("heading", { name: "Archives", exact: true })).toBeVisible();
+	await expect(page.getByTestId("restore-Auto QA")).toContainText("Restore");
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("open-project-BOA QA").click();
+	await page.getByTestId("layout-git").click();
+	await page.getByTestId("git-history-tab").click();
+	await expect(page.getByTestId(`commit-${hash}`)).toBeVisible();
+	await expect(page.getByTestId("open-repository")).toContainText("Open repository");
+	await page.getByTestId("open-repository").click();
+	await expect.poll(() => openedRepositories.at(-1)).toBe(repo.path);
+	const previousHistoryCalls = historyCalls;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect.poll(() => historyCalls).toBe(previousHistoryCalls + 1);
+	await expect(page.getByTestId("layout-files")).toContainText("Files");
+	await page.getByTestId("layout-files").click();
+	await page.getByTestId("file-README.md").click();
+	await page.getByTestId("create-context").click();
+	await expect(page.getByTestId("context-popover")).toContainText("Context to share");
+	await page.getByTestId("context-message").fill("Explain this file");
+	await page.getByTestId("save-context").click();
+	expect(clipboard).toContain("Project:");
+	expect(clipboard).not.toContain("Projet :");
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("interface-language").selectOption("fr");
+	await expect(page.getByRole("heading", { name: "Réglages", exact: true })).toBeVisible();
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-fr.png") });
 	expect(errors).toEqual([]);
 	console.log(
-		"PASS: aperçu Markdown/source, dashboard, dispositions, arbre masquable, diffs, sélection AVANT, dialogue éphémère, Markdown, chemin seul, sélection+copie, raccourci/fermeture, largeur Git persistée, flèches de diff, couleurs JSON/XML/YAML/TOML, historique, branches, navigation CLI et pause. Transport Tauri mocké.",
+		"PASS: fichiers, Git, contexte, navigation, réglages, événements natifs, aucun polling, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",
 	);
 } finally {
 	await browser.close();

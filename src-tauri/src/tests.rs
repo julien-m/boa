@@ -10,6 +10,55 @@ use std::{
 };
 use tempfile::TempDir;
 
+#[test]
+fn markdown_images_resolve_relative_paths_and_refuse_external_or_oversized_data() {
+    use base64::Engine;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::create_dir(root.join("images")).unwrap();
+    fs::write(root.join("docs/README.md"), "# Guide").unwrap();
+    let png = b"\x89PNG\r\n\x1a\nexample";
+    fs::write(root.join("images/plan one.png"), png).unwrap();
+    let value = files::markdown_image(&root, "docs/README.md", "../images/plan%20one.png").unwrap();
+    assert_eq!(
+        value,
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        )
+    );
+    fs::write(temp.path().join("private.png"), png).unwrap();
+    std::os::unix::fs::symlink(
+        temp.path().join("private.png"),
+        root.join("images/outside.png"),
+    )
+    .unwrap();
+    for source in [
+        "../../private.png",
+        "../images/outside.png",
+        "https://example.com/image.png",
+        "file:///etc/passwd",
+        "//example.com/image.png",
+        "data:image/png;base64,AAAA",
+        "/etc/passwd",
+    ] {
+        assert!(
+            files::markdown_image(&root, "docs/README.md", source).is_err(),
+            "{source}"
+        );
+    }
+    fs::write(root.join("images/not-image.png"), "private text").unwrap();
+    assert!(files::markdown_image(&root, "docs/README.md", "../images/not-image.png").is_err());
+    let large = fs::File::create(root.join("images/large.png")).unwrap();
+    large.set_len(8 * 1024 * 1024 + 1).unwrap();
+    assert!(
+        files::markdown_image(&root, "docs/README.md", "../images/large.png")
+            .unwrap_err()
+            .contains("8 Mo")
+    );
+}
+
 fn run(path: &Path, args: &[&str]) {
     let output = Command::new("/usr/bin/git")
         .arg("-C")
@@ -558,4 +607,181 @@ fn discovery_keeps_healthy_siblings_when_a_descendant_is_unreadable() {
     assert!(limited);
     assert!(root_result.is_err());
     assert!(discover_repositories(&root.join("missing")).is_err());
+}
+
+#[test]
+fn configured_directory_discovers_direct_children_without_duplicates_and_preserves_archives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("alpha/nested")).unwrap();
+    fs::create_dir(root.join(".hidden")).unwrap();
+    fs::write(root.join("file.txt"), "not a directory").unwrap();
+    let config = temp.path().join("settings.json");
+    let state = AppState::new(config.clone()).unwrap();
+    assert!(state.list_projects().unwrap().is_empty());
+    let alpha = state.add_project(&root.join("alpha")).unwrap();
+    state.pin_project(&alpha.path, true).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    let projects = state.list_projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert!(projects[0].pinned);
+    fs::create_dir(root.join("beta")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("alpha"), root.join("alias")).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    state.archive_project(&alpha.path, true).unwrap();
+    assert!(
+        state
+            .list_projects()
+            .unwrap()
+            .iter()
+            .find(|p| p.path == alpha.path)
+            .unwrap()
+            .archived
+    );
+    let next = AppState::new(config).unwrap();
+    assert!(next.settings().unwrap().watch_directory.is_some());
+    assert!(next.list_projects().unwrap()[0].archived);
+    assert!(!next.add_project(&root.join("alpha")).unwrap().archived);
+    assert!(next.list_projects().unwrap()[0].pinned);
+    next.archive_project(&alpha.path, true).unwrap();
+    next.archive_project(&alpha.path, false).unwrap();
+    assert!(!next.list_projects().unwrap()[0].archived);
+    next.set_watch_directory(None).unwrap();
+    fs::create_dir(root.join("gamma")).unwrap();
+    assert_eq!(next.list_projects().unwrap().len(), 2);
+}
+
+#[test]
+fn settings_migrate_old_configuration_and_do_not_publish_failed_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.json");
+    fs::write(&config, r#"{"projects":[]}"#).unwrap();
+    let state = AppState::new(config.clone()).unwrap();
+    assert!(state.settings().unwrap().watch_directory.is_none());
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("first")).unwrap();
+    let blocker = config.with_extension("json.tmp");
+    fs::create_dir(&blocker).unwrap();
+    assert!(state.set_watch_directory(Some(&root)).is_err());
+    assert!(state.settings().unwrap().watch_directory.is_none());
+    assert!(state.list_projects().unwrap().is_empty());
+    fs::remove_dir(&blocker).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    fs::create_dir(root.join("second")).unwrap();
+    fs::create_dir(&blocker).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 1);
+    assert!(state.settings().unwrap().watch_error.is_some());
+    let project = state.list_projects().unwrap()[0].clone();
+    assert!(state.archive_project(&project.path, true).is_err());
+    assert!(!state.list_projects().unwrap()[0].archived);
+    fs::remove_dir(&blocker).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    assert!(state.settings().unwrap().watch_error.is_none());
+    fs::rename(&root, temp.path().join("moved")).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    assert!(state.settings().unwrap().watch_error.is_some());
+    state.set_watch_directory(None).unwrap();
+    assert!(state.settings().unwrap().watch_error.is_none());
+}
+
+#[test]
+fn interface_language_is_validated_persisted_and_independent_of_project_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.json");
+    let state = AppState::new(config.clone()).unwrap();
+    assert_eq!(state.settings().unwrap().language, "fr");
+    assert!(state.set_language("de").is_err());
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("one")).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    state.set_language("en").unwrap();
+    let next = AppState::new(config.clone()).unwrap();
+    assert_eq!(next.settings().unwrap().language, "en");
+    assert!(next.settings().unwrap().watch_directory.is_some());
+    assert_eq!(next.list_projects().unwrap().len(), 1);
+    fs::create_dir(config.with_extension("json.tmp")).unwrap();
+    assert!(next.set_language("fr").is_err());
+    assert_eq!(next.settings().unwrap().language, "en");
+}
+
+#[test]
+fn repository_links_normalize_git_transports_without_credentials_or_unsafe_schemes() {
+    for (remote, expected) in [
+        (
+            "https://git.example.org:8443/team/app.git?token=example#readme",
+            "https://git.example.org:8443/team/app",
+        ),
+        (
+            "git@gitlab.example.org:group/subgroup/app.git",
+            "https://gitlab.example.org/group/subgroup/app",
+        ),
+        (
+            "github.com:example/project.git",
+            "https://github.com/example/project",
+        ),
+        (
+            "ssh://git@git.example.org:2222/team/app.git",
+            "https://git.example.org/team/app",
+        ),
+        (
+            "http://localhost:3000/team/app.git/",
+            "http://localhost:3000/team/app",
+        ),
+    ] {
+        assert_eq!(git::web_url(remote).as_deref(), Some(expected));
+    }
+    let mut authenticated = tauri::Url::parse("https://git.example.org/team/app.git").unwrap();
+    authenticated.set_username("example-user").unwrap();
+    authenticated
+        .set_password(Some("example-password"))
+        .unwrap();
+    assert_eq!(
+        git::web_url(authenticated.as_str()).as_deref(),
+        Some("https://git.example.org/team/app")
+    );
+    for remote in [
+        "file:///tmp/repo",
+        "/tmp/repo.git",
+        "javascript:alert(1)",
+        "https://example.org/",
+        "https://example.org/team/app\nextra",
+        "",
+    ] {
+        assert!(git::web_url(remote).is_none(), "{remote}");
+    }
+}
+
+#[test]
+fn repository_link_prefers_origin_and_falls_back_to_a_supported_remote() {
+    let (_temp, path) = fixture();
+    assert!(git::repository_web_url(&path).unwrap().is_none());
+    run(&path, &["remote", "add", "origin", "/tmp/local.git"]);
+    assert!(git::repository_web_url(&path).unwrap().is_none());
+    run(
+        &path,
+        &[
+            "remote",
+            "add",
+            "upstream",
+            "git@gitlab.example.org:team/app.git",
+        ],
+    );
+    assert_eq!(
+        git::repository_web_url(&path).unwrap().as_deref(),
+        Some("https://gitlab.example.org/team/app")
+    );
+    run(
+        &path,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/example/project.git",
+        ],
+    );
+    assert_eq!(
+        git::repository_web_url(&path).unwrap().as_deref(),
+        Some("https://github.com/example/project")
+    );
 }

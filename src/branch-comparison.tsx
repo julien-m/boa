@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, FileCode2, GitCompareArrows } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { Project, RepoStatus, Selection } from "./models";
 
@@ -16,8 +17,19 @@ export function BranchComparison({
 	onSelect: (selection: Selection | null) => void;
 	selection: Selection | null;
 }) {
+	const { t } = useTranslation("git");
+	const changeLabels: Record<string, string> = {
+		M: t("modifiedFile"),
+		A: t("addedFile"),
+		D: t("deletedFile"),
+		R: t("renamedFile"),
+		C: t("copiedFile"),
+		T: t("typeChangedFile"),
+		U: t("unmergedFile"),
+		"?": t("newFile"),
+	};
 	const branches = useQuery({
-		queryKey: ["branches", repo.path],
+		queryKey: ["branches", project.path, repo.path],
 		queryFn: () => api.branches(project.path, repo.path),
 		staleTime: 15_000,
 	});
@@ -28,13 +40,13 @@ export function BranchComparison({
 		baseChoice ||
 		(names.includes("main") ? "main" : names.includes("master") ? "master" : (repo.upstream ?? "HEAD"));
 	const comparison = useQuery({
-		queryKey: ["comparison", repo.path, base, head],
+		queryKey: ["comparison", project.path, repo.path, base, head],
 		queryFn: () => api.compare(project.path, repo.path, base, head),
 		enabled: Boolean(branches.data),
 	});
 	const options = (
 		<>
-			<option value="HEAD">HEAD (branche courante)</option>
+			<option value="HEAD">{t("currentHead")}</option>
 			{branches.data?.map((branch) => (
 				<option key={branch.name} value={branch.name}>
 					{branch.name}
@@ -47,7 +59,7 @@ export function BranchComparison({
 			<div className="comparison-controls">
 				<GitCompareArrows size={16} />
 				<label>
-					Base
+					{t("base")}
 					<select
 						data-testid="compare-base"
 						value={base}
@@ -61,7 +73,7 @@ export function BranchComparison({
 				</label>
 				<ArrowRight size={14} />
 				<label>
-					Branche à relire
+					{t("reviewBranch")}
 					<select
 						data-testid="compare-head"
 						value={head}
@@ -74,20 +86,18 @@ export function BranchComparison({
 					</select>
 				</label>
 			</div>
-			<p className="comparison-note">
-				Impact depuis l’ancêtre commun · aucun changement de branche sur disque.
-			</p>
+			<p className="comparison-note">{t("comparisonNote")}</p>
 			{branches.error && <p className="inline-error">{String(branches.error)}</p>}
 			{comparison.error && (
 				<p className="inline-error" data-testid="comparison-error">
 					{String(comparison.error)}
 				</p>
 			)}
-			{comparison.isFetching && <p className="inline-status">Comparaison des branches…</p>}
+			{comparison.isFetching && <p className="inline-status">{t("comparingBranches")}</p>}
 			{comparison.data && (
 				<>
 					<div className="content-toolbar">
-						<span>{comparison.data.changes.length} fichiers modifiés par cette branche</span>
+						<span>{t("branchChangedFiles", { count: comparison.data.changes.length })}</span>
 						<code className="small">
 							{comparison.data.mergeBase.slice(0, 7)} → {comparison.data.head.slice(0, 7)}
 						</code>
@@ -112,11 +122,13 @@ export function BranchComparison({
 						>
 							<FileCode2 size={13} />
 							<span>{change.path}</span>
-							<span className="file-state">{change.index}</span>
+							<span className="file-state" title={changeLabels[change.index]}>
+								{change.index}
+							</span>
 						</button>
 					))}
 					{comparison.data.changes.length === 0 && (
-						<div className="empty-view">Aucune différence depuis l’ancêtre commun.</div>
+						<div className="empty-view">{t("noBranchDifference")}</div>
 					)}
 				</>
 			)}

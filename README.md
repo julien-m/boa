@@ -3,23 +3,38 @@
 <p align="center">A local macOS cockpit for your projects, files and Git changes.</p>
 <p align="center"><a href="https://github.com/julien-m/boa/actions/workflows/quality.yaml"><img src="https://github.com/julien-m/boa/actions/workflows/quality.yaml/badge.svg" alt="Quality checks"></a> <a href="LICENSE">MIT license</a></p>
 
-BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The current interface is in French.
+![BOA dashboard showing project status, pinned projects and Git counters](docs/images/dashboard.png)
+
+![BOA project view with a file tree, highlighted diff and Git history](docs/images/project.png)
+
+BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The interface supports French (default) and English, selectable in Settings.
 
 **A fresh installation starts empty.** BOA does not discover your home folder, import someone else's projects or scan any directory before you choose one. Previously added projects stay on your own Mac.
+
+These screenshots show BOA's actual interface with fictional projects, paths, code and commits. No personal workspace data is included. To regenerate them, start `bun run dev`, then run `bun scripts/capture-demo.ts` with Chrome installed. The capture script supplies in-memory demo data and does not connect to the native app or read its preferences.
 
 ## What you can do
 
 - Add folders explicitly, pin projects and sort the dashboard by name, activity or changed files.
 - Distinguish files to commit from commits to push; a `?` means the branch has no upstream.
 - Browse files, nested repositories and Git worktrees. Read code with local syntax highlighting, including JSON/JSONC, YAML, XML/SVG and TOML/Wrangler configurations.
-- Preview Markdown documents or switch to their source.
+- Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. Remote images remain placeholders and are never fetched automatically.
 - Inspect staged/local changes, commit history and a branch's changes since its common ancestor with a base. Compare before/after and jump between changed blocks.
 - Use Files, Git or a combined layout; resize the Git panels and hide the file tree.
 - Search in a file or across a selected project.
+- Open the selected repository in your browser (HTTP(S) and common SSH remotes), or open the project folder in Finder. The web button prefers `origin`, then the first supported remote; it is disabled when none is available. Credentials, query strings and fragments are removed from browser URLs.
 - Prepare a small AI context: selected text plus your comment, or just the file path plus your comment. Copy it to an assistant of your choice. No conversation history, model backend or automatic AI submission.
 - Let a CLI or coding agent add/pin projects and open a file at exact lines.
 
 BOA is a viewer: it does not edit source files, stage changes, commit, push or check out branches. Remote counters use existing local tracking references; BOA does not run `git fetch` automatically.
+
+## Settings and archives
+
+Open **Réglages / Settings** from the sidebar to optionally select your main projects folder. Its visible direct child directories, including folders without Git, are added at startup and on native filesystem notifications while BOA is open. Symlink aliases are deduplicated by canonical path; pins and existing projects are preserved. No folder is selected by default. Changing or disabling discovery stops additions from the old location and keeps projects already registered. An inaccessible watched folder shows a warning without hiding existing projects.
+
+Use a project's **Archive** button to move it out of the overview and pinned navigation. **Archives** lists those projects and lets you restore them. Automatic discovery keeps them archived; explicitly adding the same project again restores it. Archiving only changes BOA's local list: it never moves, deletes or edits the project folder. Archived projects have no background Git monitoring. Active projects refresh their status on relevant native file notifications, grouped over 750 ms; Git object/log/lock traffic and common dependency caches are filtered. There are no periodic project or Git scans. Returning to BOA or using Refresh performs a reconciliation for missed notifications. Discovery reacts only to changes of direct child directories. Filesystems that do not support native notifications can be refreshed manually; monitoring errors appear in Settings.
+
+Choose **Français** or **English** in Settings to switch immediately. The preference is stored locally; translations and plural rules use i18next/react-i18next with bundled catalogues in [src/locales](src/locales). To add a language, provide matching namespace keys and interpolation parameters, extend the supported language codes and update the language selector and native preference validation.
 
 ## Install from source
 
@@ -93,7 +108,7 @@ Project commands return `{ "ok": true, "result": ... }` with `--json`; failures 
 ## Local data and privacy
 
 - The project list is stored in the current user's application-data directory, in `com.julienm.boa/projects.json` (on macOS: `~/Library/Application Support/com.julienm.boa/projects.json`). Layout preferences stay in the app's local webview storage. Neither is bundled with the app or committed to this repository.
-- An empty first launch performs no project scan. Only registered folders are read. Imported configuration from an earlier BOA version remains intact.
+- An empty first launch performs no project scan. BOA reads registered projects and an optional explicitly configured discovery folder. Imported configuration from an earlier BOA version remains intact.
 - A selected project can contain nested repositories and external Git worktrees. Explicit symbolic links in its file tree can lead outside the project; BOA follows these when you browse them. File contents remain on the Mac until you explicitly copy and share them.
 - BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
 - The current context dialog stores no history and creates no export files. Older prototypes may have left exports in the local application-data directory; those are not distributed.

@@ -72,10 +72,17 @@ fn bind(path: &Path) -> Result<UnixListener, String> {
 
 fn execute(state: &AppState, request: Request) -> Result<(Value, bool), String> {
     match request {
-        Request::List {} => Ok((
-            json!(state.config.lock().map_err(|e| e.to_string())?.projects),
-            false,
-        )),
+        Request::List {} => {
+            let count = state
+                .config
+                .lock()
+                .map_err(|e| e.to_string())?
+                .projects
+                .len();
+            let projects = state.list_projects()?;
+            let changed = projects.len() != count;
+            Ok((json!(projects), changed))
+        }
         Request::Add { path, pin } => {
             let project = state.add_project(Path::new(&path))?;
             let project = if pin {
@@ -182,6 +189,28 @@ mod tests {
             false
         );
         assert_eq!(rpc(&state, b"{} ")["ok"], false);
+    }
+
+    #[test]
+    fn rpc_listing_notifies_only_when_reconciliation_discovers_projects() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("projects");
+        fs::create_dir(&root).unwrap();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        state.set_watch_directory(Some(&root)).unwrap();
+        fs::create_dir(root.join("missed-notification")).unwrap();
+        for expected in [true, false] {
+            let (mut client, server) = UnixStream::pair().unwrap();
+            client.write_all(b"{\"command\":\"list\"}\n").unwrap();
+            let changed = AtomicBool::new(false);
+            serve(server, &state, || changed.store(true, Ordering::SeqCst)).unwrap();
+            assert_eq!(changed.load(Ordering::SeqCst), expected);
+            let restored = AppState::new(temp.path().join("config.json")).unwrap();
+            assert_eq!(
+                restored.config.lock().unwrap().projects[0].name,
+                "missed-notification"
+            );
+        }
     }
 
     #[test]

@@ -132,6 +132,85 @@ pub(crate) fn status(path: &Path) -> RepoStatus {
     result
 }
 
+/// Convert Git transport URLs into credential-free HTTP(S) repository links.
+pub(crate) fn web_url(remote: &str) -> Option<String> {
+    if remote.chars().any(char::is_control) {
+        return None;
+    }
+    let mut url = if remote.contains("://") {
+        let url = tauri::Url::parse(remote).ok()?;
+        match url.scheme() {
+            "http" | "https" => url,
+            "ssh" | "git" => {
+                let host = url.host_str()?;
+                let host = if host.contains(':') && !host.starts_with('[') {
+                    format!("[{host}]")
+                } else {
+                    host.to_owned()
+                };
+                tauri::Url::parse(&format!("https://{host}{}", url.path())).ok()?
+            }
+            _ => return None,
+        }
+    } else {
+        let (authority, path) = remote.split_once(':')?;
+        let host = authority
+            .rsplit_once('@')
+            .map_or(authority, |(_, host)| host);
+        // SCP-style SSH allows an omitted user, but other URI schemes are not web remotes.
+        if !authority.contains('@')
+            && [
+                "javascript",
+                "data",
+                "file",
+                "mailto",
+                "vbscript",
+                "tel",
+                "about",
+                "ftp",
+                "ftps",
+                "http",
+                "https",
+                "ssh",
+                "git",
+            ]
+            .contains(&host.to_ascii_lowercase().as_str())
+        {
+            return None;
+        }
+        if host.is_empty() || host.contains('/') || host.contains('\\') || path.is_empty() {
+            return None;
+        }
+        tauri::Url::parse(&format!("https://{host}/{}", path.trim_start_matches('/'))).ok()?
+    };
+    url.host_str()?;
+    let path = url.path().trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).to_owned();
+    if path.is_empty() || path == "/" {
+        return None;
+    }
+    url.set_path(&path);
+    url.set_username("").ok()?;
+    url.set_password(None).ok()?;
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.into())
+}
+
+pub(crate) fn repository_web_url(path: &Path) -> Result<Option<String>, String> {
+    let remotes = text(path, &["remote"])?;
+    let mut names: Vec<&str> = remotes.lines().collect();
+    names.sort_by_key(|name| (*name != "origin", *name));
+    for remote in names {
+        if let Ok(value) = text(path, &["remote", "get-url", "--", remote])
+            && let Some(url) = web_url(value.trim())
+        {
+            return Ok(Some(url));
+        }
+    }
+    Ok(None)
+}
+
 fn operation(path: &Path) -> Option<String> {
     let git_dir = text(path, &["rev-parse", "--absolute-git-dir"]).ok()?;
     let git_dir = Path::new(git_dir.trim());

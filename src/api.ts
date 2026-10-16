@@ -1,5 +1,5 @@
 /** Typed IPC boundary; the packaged application has no network data service. */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as nativeInvoke } from "@tauri-apps/api/core";
 import type {
 	Branch,
 	Change,
@@ -11,6 +11,23 @@ import type {
 	Selection,
 	Summary,
 } from "./models";
+import { localizeNativeText } from "./native-text";
+
+export type ProjectSettings = {
+	watchDirectory: string | null;
+	watchError: string | null;
+	language: "fr" | "en";
+};
+
+const invoke = <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
+	nativeInvoke<T>(command, args).catch((error: unknown) => {
+		throw localizeNativeText(String(error));
+	});
+const settingsLabels = (value: ProjectSettings): ProjectSettings => ({
+	...value,
+	watchError: value.watchError ? localizeNativeText(value.watchError) : null,
+});
+const previewLabels = (value: Preview): Preview => ({ ...value, label: localizeNativeText(value.label) });
 
 export const api = {
 	search: (
@@ -22,14 +39,35 @@ export const api = {
 		warning: string | null;
 	}> => invoke("search_project", { project, query }),
 	projects: (): Promise<Project[]> => invoke("list_projects"),
-	summary: (project: string): Promise<Summary> => invoke("project_summary", { project }),
+	markdownImage: (project: string, document: string, source: string): Promise<string> =>
+		invoke("read_markdown_image", { project, document, source }),
+	repositoryUrl: (project: string, repo: string): Promise<string | null> =>
+		invoke("repository_web_url", { project, repo }),
+	openRepository: (project: string, repo: string): Promise<void> =>
+		invoke("open_repository", { project, repo }),
+	openProjectFolder: (project: string): Promise<void> => invoke("open_project_folder", { project }),
+	settings: (): Promise<ProjectSettings> => invoke<ProjectSettings>("get_settings").then(settingsLabels),
+	setLanguage: (language: "fr" | "en"): Promise<ProjectSettings> => invoke("set_language", { language }),
+	setWatchDirectory: (path: string | null): Promise<ProjectSettings> =>
+		invoke("set_watch_directory", { path }),
+	summary: (project: string): Promise<Summary> =>
+		invoke<Summary>("project_summary", { project }).then((summary) => ({
+			...summary,
+			repos: summary.repos.map((repo) => ({
+				...repo,
+				operation: repo.operation ? localizeNativeText(repo.operation) : null,
+				error: repo.error ? localizeNativeText(repo.error) : null,
+			})),
+		})),
 	pin: (project: string, pinned: boolean): Promise<void> => invoke("pin_project", { project, pinned }),
 	add: (path: string): Promise<Project> => invoke("add_project", { path }),
+	archive: (project: string, archived: boolean): Promise<void> =>
+		invoke("archive_project", { project, archived }),
 	directory: (project: string, path: string): Promise<DirectoryEntry[]> =>
 		invoke("read_directory", { project, path }),
 	preview: (selection: Selection): Promise<Preview> =>
 		selection.repo
-			? invoke("git_diff", {
+			? invoke<Preview>("git_diff", {
 					request: {
 						...selection,
 						side: selection.side ?? "working",
@@ -38,8 +76,10 @@ export const api = {
 						base: selection.base ?? null,
 						head: selection.head ?? null,
 					},
-				})
-			: invoke("read_file", { project: selection.project, path: selection.path }),
+				}).then(previewLabels)
+			: invoke<Preview>("read_file", { project: selection.project, path: selection.path }).then(
+					previewLabels,
+				),
 	compare: (project: string, repo: string, base: string, head: string): Promise<Comparison> =>
 		invoke("compare_branch", { project, repo, base, head }),
 	exportContext: (prompt: string, image: string): Promise<{ markdownPath: string; imagePath: string }> =>

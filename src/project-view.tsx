@@ -2,6 +2,7 @@
 import {
 	Columns2,
 	FileCode2,
+	FolderOpen,
 	GitBranch,
 	GitFork,
 	PanelLeftClose,
@@ -10,6 +11,8 @@ import {
 	Search,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { api } from "./api";
 import { CodeViewer } from "./code-viewer";
 import { FileTree } from "./file-tree";
 import { GitPanel } from "./git-panel";
@@ -32,12 +35,14 @@ export function ProjectView({
 	pending: boolean;
 	onRefresh: () => void;
 }) {
+	const { t } = useTranslation("workspace");
 	const [layout, setLayout] = useState<Layout>(() => {
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
 	});
 	const [showTree, setShowTree] = useState(true);
 	const [searching, setSearching] = useState(false);
+	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const shortcut = (event: KeyboardEvent): void => {
@@ -80,17 +85,30 @@ export function ProjectView({
 						{project.path.replace(/^\/Users\/[^/]+/, "~")}
 					</span>
 				</div>
-				<div className="view-switcher" role="group" aria-label="Disposition">
+				<div className="view-switcher" role="group" aria-label={t("project.layout")}>
+					<button
+						type="button"
+						data-testid="open-project-folder"
+						title={t("project.openFolder")}
+						aria-label={t("project.openFolder")}
+						onClick={() => {
+							setFolderError("");
+							void api.openProjectFolder(project.path).catch((error) => setFolderError(String(error)));
+						}}
+					>
+						<FolderOpen size={14} />
+						<span>Finder</span>
+					</button>
 					<button
 						type="button"
 						data-testid="layout-split"
 						className={layout === "split" ? "active" : ""}
 						aria-pressed={layout === "split"}
 						onClick={() => handleLayout("split")}
-						title="Fichiers et Git"
+						title={t("project.filesAndGit")}
 					>
 						<Columns2 size={14} />
-						<span>Mixte</span>
+						<span>{t("project.mixed")}</span>
 					</button>
 					<button
 						type="button"
@@ -100,7 +118,7 @@ export function ProjectView({
 						onClick={() => handleLayout("files")}
 					>
 						<FileCode2 size={14} />
-						<span>Fichiers</span>
+						<span>{t("project.files")}</span>
 					</button>
 					<button
 						type="button"
@@ -110,40 +128,42 @@ export function ProjectView({
 						onClick={() => handleLayout("git")}
 					>
 						<GitFork size={14} />
-						<span>Git</span>
+						<span>{t("project.git")}</span>
 					</button>
 					<button
 						type="button"
 						className="icon-button"
 						data-testid="project-refresh"
 						onClick={onRefresh}
-						title="Actualiser le projet"
+						title={t("project.refresh")}
 					>
 						<RefreshCw size={14} className={pending ? "spin" : ""} />
 					</button>
 				</div>
 			</header>
+			{folderError && (
+				<div className="operation-banner error" role="alert">
+					{folderError}
+				</div>
+			)}
 			{error && (
 				<div className="operation-banner error" data-testid="project-error">
 					{error}
 				</div>
 			)}
-			{summary?.scanLimited && (
-				<div className="scan-note">
-					Découverte partielle : limite de 6 niveaux / 4 000 dossiers ou dossier inaccessible ; importez un
-					sous-dossier si un dépôt manque.
-				</div>
-			)}
+			{summary?.scanLimited && <div className="scan-note">{t("project.scanLimited")}</div>}
 			{layout !== "git" && (
 				<div className={`file-workspace ${showTree ? "" : "no-tree"}`}>
 					<aside className={`file-sidebar ${showTree ? "" : "collapsed"}`}>
 						<div className="pane-heading">
-							<span>{showTree ? (searching ? "RECHERCHE" : "FICHIERS") : ""}</span>
+							<span>
+								{showTree ? (searching ? t("project.searchHeading") : t("project.filesHeading")) : ""}
+							</span>
 							<button
 								type="button"
 								className="icon-button"
 								data-testid="toggle-project-search"
-								title="Rechercher dans le projet (⌘⇧F / Ctrl⇧F)"
+								title={t("project.search")}
 								onClick={() => {
 									setSearching(!searching);
 									setShowTree(true);
@@ -155,7 +175,7 @@ export function ProjectView({
 								type="button"
 								className="icon-button"
 								data-testid="toggle-file-tree"
-								title={showTree ? "Masquer l’arborescence" : "Afficher l’arborescence"}
+								title={showTree ? t("project.hideTree") : t("project.showTree")}
 								onClick={() => setShowTree(!showTree)}
 							>
 								{showTree ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}

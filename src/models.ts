@@ -3,6 +3,7 @@ export interface Project {
 	path: string;
 	name: string;
 	pinned: boolean;
+	archived: boolean;
 }
 export interface Change {
 	path: string;

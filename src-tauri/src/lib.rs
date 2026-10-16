@@ -7,13 +7,14 @@ mod projects;
 mod search;
 #[cfg(test)]
 mod tests;
+mod watch;
 
-use projects::{AppState, Project, Summary};
+use projects::{AppState, Project, Settings, Summary};
 use std::{
     path::{Component, Path},
     sync::Arc,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 type NativeState<'a> = State<'a, Arc<AppState>>;
 
@@ -28,18 +29,51 @@ async fn work<T: Send + 'static>(
 }
 
 #[tauri::command]
-fn list_projects(state: NativeState<'_>) -> Result<Vec<Project>, String> {
-    Ok(state
-        .config
-        .lock()
-        .map_err(|e| e.to_string())?
-        .projects
-        .clone())
+async fn list_projects(state: NativeState<'_>) -> Result<Vec<Project>, String> {
+    work(state.inner().clone(), AppState::list_projects).await
+}
+
+#[tauri::command]
+fn get_settings(state: NativeState<'_>) -> Result<Settings, String> {
+    state.settings()
+}
+
+#[tauri::command]
+async fn set_watch_directory(
+    state: NativeState<'_>,
+    path: Option<String>,
+) -> Result<Settings, String> {
+    work(state.inner().clone(), move |state| {
+        state.set_watch_directory(path.as_deref().map(Path::new))
+    })
+    .await
 }
 
 #[tauri::command]
 fn pin_project(state: NativeState<'_>, project: String, pinned: bool) -> Result<(), String> {
     state.pin_project(&project, pinned).map(|_| ())
+}
+
+#[tauri::command]
+fn set_language(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    language: String,
+) -> Result<Settings, String> {
+    let settings = state.set_language(&language)?;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(if settings.language == "en" {
+            "BOA — Projects & Git"
+        } else {
+            "BOA — Projets & Git"
+        });
+    }
+    Ok(settings)
+}
+
+#[tauri::command]
+fn archive_project(state: NativeState<'_>, project: String, archived: bool) -> Result<(), String> {
+    state.archive_project(&project, archived)
 }
 
 #[tauri::command]
@@ -76,6 +110,87 @@ async fn read_directory(
 ) -> Result<Vec<files::Entry>, String> {
     work(state.inner().clone(), move |state| {
         files::directory(&state.registered(&project)?, &path)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn repository_web_url(
+    state: NativeState<'_>,
+    project: String,
+    repo: String,
+) -> Result<Option<String>, String> {
+    work(state.inner().clone(), move |state| {
+        git::repository_web_url(&state.repository(&project, &repo)?)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_repository(
+    state: NativeState<'_>,
+    project: String,
+    repo: String,
+) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let url = git::repository_web_url(&state.repository(&project, &repo)?)?
+            .ok_or("Aucun dépôt distant web configuré")?;
+        open_external(&[&url])
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_project_folder(state: NativeState<'_>, project: String) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let root = state.registered(&project)?;
+        if !root.is_dir() {
+            return Err("Sélectionnez un dossier".into());
+        }
+        open_external(&[
+            "-b",
+            "com.apple.finder",
+            root.to_str().ok_or("Chemin non UTF-8")?,
+        ])
+    })
+    .await
+}
+
+fn open_external(args: &[&str]) -> Result<(), String> {
+    use wait_timeout::ChildExt;
+    let mut child = std::process::Command::new("/usr/bin/open")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Ouverture impossible : {error}"))?;
+    let status = match child
+        .wait_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("Ouverture impossible : {error}"))?
+    {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Ouverture impossible".into());
+        }
+    };
+    if !status.success() {
+        return Err("Ouverture impossible".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_markdown_image(
+    state: NativeState<'_>,
+    project: String,
+    document: String,
+    source: String,
+) -> Result<String, String> {
+    work(state.inner().clone(), move |state| {
+        files::markdown_image(&state.registered(&project)?, &document, &source)
     })
     .await
 }
@@ -297,16 +412,47 @@ pub fn run() {
                     .map_err(std::io::Error::other)?,
             );
             cli::start(app.handle().clone(), state.clone()).map_err(std::io::Error::other)?;
+            let handle = app.handle().clone();
+            let service = watch::start(state.clone(), move |update| {
+                let _ = handle.emit("boa:filesystem-changed", update);
+            });
+            match service {
+                Ok(service) => {
+                    app.manage(service);
+                }
+                Err(error) => {
+                    state.set_watch_service_error(Some(format!(
+                        "Surveillance indisponible : {error}"
+                    )));
+                }
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(
+                    if state.settings().map_err(std::io::Error::other)?.language == "en" {
+                        "BOA — Projects & Git"
+                    } else {
+                        "BOA — Projets & Git"
+                    },
+                );
+            }
             app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_projects,
+            get_settings,
+            set_watch_directory,
+            set_language,
             pin_project,
+            archive_project,
             add_project,
             project_summary,
             read_directory,
+            repository_web_url,
+            open_repository,
+            open_project_folder,
             read_file,
+            read_markdown_image,
             git_history,
             git_branches,
             git_commit_files,
