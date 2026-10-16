@@ -9,11 +9,13 @@ import {
 	PanelLeftOpen,
 	RefreshCw,
 	Search,
+	X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { CodeViewer } from "./code-viewer";
+import { useFileEditing } from "./file-editing";
 import { FileTree } from "./file-tree";
 import { GitPanel } from "./git-panel";
 import type { Layout, Project, Selection, Summary } from "./models";
@@ -36,6 +38,7 @@ export function ProjectView({
 	onRefresh: () => void;
 }) {
 	const { t } = useTranslation("workspace");
+	const editing = useFileEditing();
 	const [layout, setLayout] = useState<Layout>(() => {
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
@@ -44,6 +47,49 @@ export function ProjectView({
 	const [searching, setSearching] = useState(false);
 	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
+	const filesRef = useRef<HTMLDivElement>(null);
+	const [files, setFiles] = useState<{
+		tabs: Selection[];
+		preview: string | null;
+		selection: Selection | null;
+	}>({ tabs: [], preview: null, selection: null });
+	const { tabs, preview, selection } = files;
+	const setSelection = useCallback((value: Selection | null): void => {
+		setFiles((current) => ({ ...current, selection: value }));
+	}, []);
+	const openFile = useCallback((value: Selection, keep = false): void => {
+		setFiles((current) => {
+			const existing = current.tabs.some((tab) => tab.path === value.path);
+			const next = existing
+				? current.tabs.map((tab) => (tab.path === value.path ? value : tab))
+				: [...current.tabs.filter((tab) => tab.path !== current.preview), value];
+			return {
+				tabs: next,
+				selection: value,
+				preview: keep
+					? current.preview === value.path || !existing
+						? null
+						: current.preview
+					: existing
+						? current.preview
+						: value.path,
+			};
+		});
+	}, []);
+	const closeFile = (path: string): void => {
+		setFiles((current) => {
+			const index = current.tabs.findIndex((tab) => tab.path === path);
+			const next = current.tabs.filter((tab) => tab.path !== path);
+			return {
+				tabs: next,
+				preview: current.preview === path ? null : current.preview,
+				selection:
+					!current.selection?.repo && current.selection?.path === path
+						? (next[Math.min(index, next.length - 1)] ?? null)
+						: current.selection,
+			};
+		});
+	};
 	useEffect(() => {
 		const shortcut = (event: KeyboardEvent): void => {
 			if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
@@ -57,13 +103,12 @@ export function ProjectView({
 		window.addEventListener("keydown", shortcut);
 		return () => window.removeEventListener("keydown", shortcut);
 	}, []);
-	const [selection, setSelection] = useState<Selection | null>(null);
 	useEffect(() => {
 		if (navigation) {
-			setSelection(navigation);
+			openFile(navigation);
 			setLayout("files");
 		}
-	}, [navigation]);
+	}, [navigation, openFile]);
 	const repos = summary?.repos ?? [];
 	const root = repos.find((repo) => repo.path === project.path) ?? repos[0];
 	const handleLayout = (value: Layout): void => {
@@ -153,7 +198,7 @@ export function ProjectView({
 			)}
 			{summary?.scanLimited && <div className="scan-note">{t("project.scanLimited")}</div>}
 			{layout !== "git" && (
-				<div className={`file-workspace ${showTree ? "" : "no-tree"}`}>
+				<div ref={filesRef} className={`file-workspace ${showTree ? "" : "no-tree"}`}>
 					<aside className={`file-sidebar ${showTree ? "" : "collapsed"}`}>
 						<div className="pane-heading">
 							<span>
@@ -184,19 +229,58 @@ export function ProjectView({
 						{showTree && (
 							<div className="tree-scroll">
 								{searching ? (
-									<ProjectSearch project={project.path} onOpen={setSelection} />
+									<ProjectSearch project={project.path} onOpen={openFile} />
 								) : (
 									<FileTree
 										project={project.path}
 										repos={repos}
 										selected={!selection?.repo ? selection?.path : undefined}
-										onOpen={(path) => setSelection({ project: project.path, path })}
+										onOpen={(path) => openFile({ project: project.path, path })}
+										onKeepOpen={(path) => openFile({ project: project.path, path }, true)}
 									/>
 								)}
 							</div>
 						)}
 					</aside>
-					<CodeViewer selection={selection} />
+					{showTree && <PanelResizer container={filesRef} vertical fileTree />}
+					<div className="file-editor">
+						{tabs.length > 0 && (
+							<div className="file-tabs" role="tablist" aria-label={t("tabs.label")}>
+								{tabs.map((tab) => (
+									<div
+										key={tab.path}
+										className={`file-tab ${!selection?.repo && selection?.path === tab.path ? "active" : ""}`}
+									>
+										<button
+											type="button"
+											role="tab"
+											aria-selected={!selection?.repo && selection?.path === tab.path}
+											className={preview === tab.path ? "preview-tab" : ""}
+											title={tab.path}
+											data-testid={`tab-${tab.path}`}
+											onClick={() => setSelection(tab)}
+											onDoubleClick={() => openFile(tab, true)}
+										>
+											<FileCode2 size={13} />
+											{tab.path.split("/").pop()}
+											{editing.draft(tab.project, tab.path) && " •"}
+										</button>
+										<button
+											type="button"
+											className="tab-close"
+											data-testid={`close-tab-${tab.path}`}
+											aria-label={t("tabs.close", { path: tab.path })}
+											title={t("tabs.close", { path: tab.path })}
+											onClick={() => closeFile(tab.path)}
+										>
+											<X size={12} />
+										</button>
+									</div>
+								))}
+							</div>
+						)}
+						<CodeViewer selection={selection} />
+					</div>
 				</div>
 			)}
 			{layout === "split" && <PanelResizer container={containerRef} />}

@@ -215,6 +215,20 @@ async fn read_file(
 }
 
 #[tauri::command]
+async fn save_file(
+    state: NativeState<'_>,
+    project: String,
+    path: String,
+    original: String,
+    content: String,
+) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        files::save(&state.registered(&project)?, &path, &original, &content)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn git_history(
     state: NativeState<'_>,
     project: String,
@@ -452,6 +466,7 @@ pub fn run() {
             open_repository,
             open_project_folder,
             read_file,
+            save_file,
             read_markdown_image,
             git_history,
             git_branches,

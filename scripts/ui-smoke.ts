@@ -36,6 +36,11 @@ let remoteUrl: string | null = "https://github.com/example/project";
 const openedFolders: string[] = [];
 const openedRepositories: string[] = [];
 let clipboard = "";
+let savedContent: string | null = null;
+let markdownExtra = "";
+let saveConflict = false;
+let summaryGate: Promise<void> | null = null;
+let releaseSummary = (): void => {};
 let exportsCreated = 0;
 const browser = await chromium.launch({
 	channel: process.env.BOA_TEST_BROWSER === "chromium" ? undefined : "chrome",
@@ -44,6 +49,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
+
 await page.route("https://example.com/tracking.png", async (route) => {
 	expect(route.request().headers().referer).toBeUndefined();
 	await route.fulfill({ contentType: "image/png", body: readFileSync("src-tauri/icons/32x32.png") });
@@ -111,6 +117,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: Boolean(args.pinned) }));
 			return null;
 		case "project_summary":
+			if (summaryGate) await summaryGate;
 			summaryCalls++;
 			return { repos: [repo], scanLimited: false };
 		case "read_directory":
@@ -129,12 +136,18 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				symlink: false,
 				repository: false,
 			}));
+		case "save_file":
+			if (saveConflict) throw new Error("Le fichier a changé sur le disque.");
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			savedContent = String(args.content);
+			return null;
 		case "read_file":
 			return {
 				original: "",
 				modified:
 					args.path === "README.md"
-						? '# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n<img src="http://example.com/badge.svg" alt="Large illustration" width="1200" height="800">\n\n<img src="http://example.com/badge.svg" alt="Height only" height="40">\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
+						? markdownExtra +
+							'# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n<img src="http://example.com/badge.svg" alt="Large illustration" width="1200" height="800">\n\n<img src="http://example.com/badge.svg" alt="Height only" height="40">\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -145,7 +158,9 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 										? '# Wrangler\nname = "boa"\nworkers_dev = true\n[env.production]\ncompatibility_date = "2026-10-15"'
 										: args.path === "wrangler.jsonc"
 											? '// Wrangler\n{ "name": "boa", "workers_dev": true }'
-											: after,
+											: args.path === "sample.ts"
+												? (savedContent ?? after)
+												: after,
 				path: String(args.path),
 				label: "Lecture seule",
 			};
@@ -207,6 +222,7 @@ await page.addInitScript(() => {
 	Reflect.set(window, "__TAURI_EVENT_PLUGIN_INTERNALS__", { unregisterListener: () => {} });
 	Object.defineProperty(window, "__TAURI_INTERNALS__", {
 		value: {
+			metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
 			invoke: (command: string, args: Record<string, unknown>) => {
 				if (command === "plugin:event|listen") {
 					listeners.set(String(args.event), Number(args.handler));
@@ -233,7 +249,6 @@ await page.addInitScript(() => {
 	);
 });
 try {
-	await page.clock.install();
 	await page.goto("http://localhost:1420");
 	await expect(page.getByTestId("empty-add-project")).toBeVisible();
 	await expect(page.getByText("Aucun dossier n’est parcouru avant votre sélection.")).toBeVisible();
@@ -431,6 +446,196 @@ try {
 	}
 	await page.getByTestId("file-sample.ts").click();
 	await expect(page.getByTestId("code-viewer")).toContainText("sample.ts");
+	expect(await page.getByTestId("code-viewer").evaluate((e) => e.clientHeight)).toBeGreaterThan(200);
+	// Temporary previews replace each other; retained tabs survive and close independently.
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await page.getByTestId("file-README.md").click();
+	await expect(page.getByTestId("tab-sample.ts")).toHaveCount(0);
+	await page.getByTestId("file-README.md").dblclick();
+	await page.getByTestId("file-sample.ts").click();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await page.getByTestId("file-sample.ts").dblclick();
+	await page.getByTestId("tab-README.md").click();
+	await expect(page.getByTestId("markdown-preview")).toBeVisible();
+	await page.getByTestId("close-tab-README.md").click();
+	await expect(page.getByTestId("tab-sample.ts")).toHaveAttribute("aria-selected", "true");
+	await page.getByTestId("close-tab-sample.ts").click();
+	await expect(page.getByTestId("preview-empty")).toBeVisible();
+	await page.getByTestId("file-sample.ts").click();
+	// A filesystem event refreshes the reader without returning to the start.
+	await expect
+		.poll(() =>
+			page.evaluate(async (path) => {
+				const module = await import(path);
+				const reader = module.editor
+					.getEditors()
+					.find((e: { getDomNode: () => HTMLElement }) =>
+						e.getDomNode()?.closest('[data-testid="code-viewer"]'),
+					);
+				return reader?.getLayoutInfo().height ?? 0;
+			}, monacoPath),
+		)
+		.toBeGreaterThan(200);
+	const visibleBefore = await page.evaluate(async (path) => {
+		const module = await import(path);
+		const reader = module.editor
+			.getEditors()
+			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		reader.setScrollTop(reader.getTopForLineNumber(16), 1);
+		const line = reader.getVisibleRanges()[0].startLineNumber;
+		return reader.getModel().getLineContent(line);
+	}, monacoPath);
+	savedContent = Array.from({ length: 8 }, (_, i) => `// inserted ${i}`).join("\n") + "\n" + after;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect
+		.poll(() =>
+			page.evaluate(async (path) => {
+				const module = await import(path);
+				const reader = module.editor
+					.getEditors()
+					.find((e: { getDomNode: () => HTMLElement }) =>
+						e.getDomNode()?.closest('[data-testid="code-viewer"]'),
+					);
+				return reader.getModel().getValue().startsWith("// inserted");
+			}, monacoPath),
+		)
+		.toBe(true);
+	await expect
+		.poll(() =>
+			page.evaluate(async (path) => {
+				const module = await import(path);
+				const reader = module.editor
+					.getEditors()
+					.find((e: { getDomNode: () => HTMLElement }) =>
+						e.getDomNode()?.closest('[data-testid="code-viewer"]'),
+					);
+				return reader.getModel().getLineContent(reader.getVisibleRanges()[0].startLineNumber);
+			}, monacoPath),
+		)
+		.toBe(visibleBefore);
+	savedContent = null;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect
+		.poll(() =>
+			page.evaluate(async (path) => {
+				const module = await import(path);
+				return module.editor
+					.getModels()
+					.some((m: { getValue: () => string }) => m.getValue().startsWith("// inserted"));
+			}, monacoPath),
+		)
+		.toBe(false);
+	await page.getByTestId("file-README.md").click();
+	await page.getByRole("heading", { name: "Mon document" }).scrollIntoViewIfNeeded();
+	const headingBefore = await page
+		.getByRole("heading", { name: "Mon document" })
+		.evaluate((e) => e.getBoundingClientRect().top);
+	markdownExtra = "# Inserted before\n\n" + "An extra paragraph.\n\n".repeat(20);
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByRole("heading", { name: "Inserted before" })).toBeAttached();
+	expect(
+		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
+	).toBeCloseTo(headingBefore, -1);
+	await page.getByTestId("read-only-toggle").click();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
+	await page.getByTestId("edit-cancel").click();
+	await expect(page.getByRole("heading", { name: "Mon document" })).toBeVisible();
+	expect(
+		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
+	).toBeCloseTo(headingBefore, -1);
+	await page.getByTestId("file-sample.ts").click();
+	const originalReader = await page.evaluate(async (path) => {
+		const module = await import(path);
+		const reader = module.editor
+			.getEditors()
+			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		reader.layout();
+		reader.setScrollTop(reader.getTopForLineNumber(16), 1);
+		reader.setPosition({ lineNumber: 16, column: 4 });
+		Reflect.set(window, "boaOriginalReader", reader);
+		return reader.getScrollTop();
+	}, monacoPath);
+	await page.getByTestId("read-only-toggle").click();
+	await expect(page.getByTestId("edit-save")).toBeDisabled();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	expect(await page.evaluate(() => Reflect.get(window, "boaOriginalReader").getScrollTop())).toBe(
+		originalReader,
+	);
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
+	expect(
+		await page.evaluate(async (path) => {
+			const module = await import(path);
+			return module.editor.getEditors().includes(Reflect.get(window, "boaOriginalReader"));
+		}, monacoPath),
+	).toBe(true);
+	const editInput = page.getByTestId("code-viewer").getByRole("textbox");
+	await editInput.press("ControlOrMeta+End");
+	await editInput.press("Enter");
+	await page.keyboard.insertText("// local edit");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	await page.getByTestId("edit-cancel").click();
+	await page.getByTestId("edit-discard").click();
+	expect(savedContent).toBeNull();
+	await page.getByTestId("read-only-toggle").click();
+	await editInput.press("ControlOrMeta+End");
+	await editInput.press("Enter");
+	await page.keyboard.insertText("// saved edit");
+	await page.getByTestId("file-README.md").click();
+	await expect(page.getByTestId("draft-indicator")).toBeVisible();
+	await page.getByTestId("draft-indicator").locator("summary").click();
+	await page.getByTestId("draft-indicator").getByRole("button", { name: "sample.ts", exact: true }).click();
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+
+	saveConflict = true;
+	await page.getByTestId("edit-save").click();
+	await expect(page.getByTestId("code-viewer")).toContainText("Le fichier a changé");
+	await expect(editInput).toBeEditable();
+	saveConflict = false;
+	summaryGate = new Promise<void>((resolve) => {
+		releaseSummary = resolve;
+	});
+	await page.getByTestId("edit-cancel").click();
+	await expect(page.getByTestId("edit-discard")).toBeVisible();
+	await editInput.press("ControlOrMeta+s");
+	await expect(page.getByTestId("edit-discard")).toHaveCount(0);
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "false");
+	releaseSummary();
+	summaryGate = null;
+	expect(savedContent).toContain("// saved edit");
+	await page.getByTestId("layout-split").click();
+	const treeGrip = page.getByTestId("file-tree-resizer");
+	const treeBefore = await page.locator(".file-sidebar").evaluate((e) => e.clientWidth);
+	const treeBounds = await treeGrip.boundingBox();
+	if (!treeBounds) throw new Error("File tree splitter missing");
+	await page.mouse.move(treeBounds.x + 3, treeBounds.y + 40);
+	await page.mouse.down();
+	await page.mouse.move(treeBounds.x + 100, treeBounds.y + 40);
+	await page.mouse.up();
+	expect(await page.locator(".file-sidebar").evaluate((e) => e.clientWidth)).toBeGreaterThan(treeBefore);
+	const savedTreeWidth = await page.evaluate(() => localStorage.getItem("boa-tree-width"));
 	const grip = page.getByTestId("git-resizer");
 	const beforeHeight = await page.getByTestId("git-panel").evaluate((e) => e.clientHeight);
 	await grip.press("ArrowUp");
@@ -438,6 +643,11 @@ try {
 	expect(afterHeight).toBeGreaterThan(beforeHeight);
 	await page.getByTestId("layout-files").click();
 	await expect(page.getByTestId("git-panel")).toHaveCount(0);
+	expect(await treeGrip.getAttribute("aria-valuenow")).toBe(String(Math.round(Number(savedTreeWidth))));
+	const filesTreeBefore = await page.locator(".file-sidebar").evaluate((e) => e.clientWidth);
+	await treeGrip.press("ArrowRight");
+	expect(await page.locator(".file-sidebar").evaluate((e) => e.clientWidth)).toBeGreaterThan(filesTreeBefore);
+
 	await page.keyboard.press("Control+Shift+f");
 	await expect(page.getByTestId("project-search-input")).toBeFocused();
 	await page.getByTestId("project-search-input").fill("newFunction");
@@ -568,6 +778,9 @@ try {
 	await page.getByTestId("dashboard-nav").click();
 	const idleSummaries = summaryCalls;
 	const idleLists = projectListCalls;
+	// Install the clock only for the no-polling assertion: its Performance mock
+	// does not implement the User Timing entries Monaco measures during typing.
+	await page.clock.install();
 	await page.clock.fastForward(120_000);
 	expect(summaryCalls).toBe(idleSummaries);
 	expect(projectListCalls).toBe(idleLists);

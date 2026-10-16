@@ -748,7 +748,7 @@ h2 {
 .file-workspace {
 	min-height: 120px;
 	display: grid;
-	grid-template-columns: 230px minmax(0, 1fr);
+	grid-template-columns: minmax(120px, var(--file-tree-size, 24%)) 7px minmax(0, 1fr);
 	flex: 1;
 	overflow: hidden;
 }
@@ -1194,9 +1194,6 @@ details:not([open]) > summary > svg {
 	.project-path {
 		display: none;
 	}
-	.file-workspace {
-		grid-template-columns: 200px minmax(0, 1fr);
-	}
 	.git-body {
 		grid-template-columns: 180px minmax(0, 1fr);
 	}
@@ -1603,4 +1600,119 @@ details:not([open]) > summary > svg {
 .git-remote-button {
 	margin-left: auto;
 	white-space: nowrap;
+}
+
+.file-editor {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+.file-tabs {
+	display: flex;
+	flex-shrink: 0;
+	overflow-x: auto;
+	background: var(--sidebar);
+	border-bottom: 1px solid var(--line);
+}
+.file-tab {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	border-right: 1px solid var(--line);
+	border-bottom: 2px solid transparent;
+}
+.file-tab.active {
+	background: var(--selected);
+	border-bottom-color: var(--blue);
+}
+.file-tab button {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	background: transparent;
+	border: 0;
+	padding: 9px 10px;
+	font-size: 11px;
+	white-space: nowrap;
+}
+.file-tab .preview-tab {
+	font-style: italic;
+}
+.file-tab .tab-close {
+	padding: 6px;
+	margin-right: 4px;
+}
+.file-tab .tab-close:hover {
+	background: var(--selected);
+}
+
+.file-editor > .code-viewer {
+	flex: 1;
+}
+
+.editing-controls {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	flex-shrink: 0;
+	color: var(--blue);
+}
+.editing-controls button {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	padding: 2px 4px;
+	cursor: pointer;
+}
+.editing-controls button[aria-pressed="true"] {
+	color: var(--yellow, #dbb56f);
+}
+.inline-edit-notice {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	padding: 8px 12px;
+	background: var(--sidebar);
+	font-size: 12px;
+}
+.draft-indicator {
+	position: relative;
+	font-size: 11px;
+	color: var(--blue);
+}
+.draft-indicator > div {
+	position: absolute;
+	top: 24px;
+	left: 0;
+	z-index: 30;
+	display: grid;
+	max-width: 400px;
+	padding: 8px;
+	background: var(--sidebar);
+	border: 1px solid var(--line);
+}
+.draft-indicator button {
+	text-align: left;
+	white-space: nowrap;
+}
+.draft-warning {
+	position: fixed;
+	z-index: 50;
+	bottom: 24px;
+	right: 24px;
+	background: var(--sidebar);
+	border: 1px solid var(--line);
+	padding: 12px;
+}
+
+.breadcrumb .breadcrumb-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted);
 }

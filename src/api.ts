@@ -65,6 +65,8 @@ export const api = {
 		invoke("archive_project", { project, archived }),
 	directory: (project: string, path: string): Promise<DirectoryEntry[]> =>
 		invoke("read_directory", { project, path }),
+	saveFile: (project: string, path: string, original: string, content: string): Promise<void> =>
+		invoke("save_file", { project, path, original, content }),
 	preview: (selection: Selection): Promise<Preview> =>
 		selection.repo
 			? invoke<Preview>("git_diff", {

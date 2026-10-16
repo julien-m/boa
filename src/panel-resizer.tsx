@@ -5,18 +5,20 @@ import { useTranslation } from "react-i18next";
 export function PanelResizer({
 	container,
 	vertical = false,
+	fileTree = false,
 }: {
 	container: RefObject<HTMLDivElement | null>;
 	vertical?: boolean;
+	fileTree?: boolean;
 }) {
 	const { t } = useTranslation("workspace");
-	const storageKey = vertical ? "boa-git-width" : "boa-git-height";
-	const property = vertical ? "--git-list-size" : "--git-size";
-	const minimum = vertical ? 20 : 18;
+	const storageKey = fileTree ? "boa-tree-width" : vertical ? "boa-git-width" : "boa-git-height";
+	const property = fileTree ? "--file-tree-size" : vertical ? "--git-list-size" : "--git-size";
+	const minimum = fileTree ? 12 : vertical ? 20 : 18;
 	const maximum = vertical ? 70 : 75;
 	const [value, setValue] = useState(() => {
 		const saved = Number(localStorage.getItem(storageKey));
-		return saved >= minimum && saved <= maximum ? saved : vertical ? 42 : 39;
+		return saved >= minimum && saved <= maximum ? saved : fileTree ? 24 : vertical ? 42 : 39;
 	});
 	const current = useRef(value);
 	const update = (ratio: number): void => {
@@ -38,9 +40,9 @@ export function PanelResizer({
 			aria-valuenow={Math.round(value)}
 			aria-valuemin={minimum}
 			aria-valuemax={maximum}
-			aria-label={vertical ? t("resizer.width") : t("resizer.height")}
+			aria-label={fileTree ? t("resizer.treeWidth") : vertical ? t("resizer.width") : t("resizer.height")}
 			title={vertical ? t("resizer.widthHint") : t("resizer.heightHint")}
-			data-testid={vertical ? "git-width-resizer" : "git-resizer"}
+			data-testid={fileTree ? "file-tree-resizer" : vertical ? "git-width-resizer" : "git-resizer"}
 			className={vertical ? "git-resizer vertical" : "git-resizer"}
 			onPointerDown={(event) => {
 				event.preventDefault();

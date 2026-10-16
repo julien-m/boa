@@ -2,6 +2,11 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"Édition limitée aux fichiers du projet, hors métadonnées Git.":
+		"Editing is limited to project files, excluding Git metadata.",
+	"Ce fichier est en lecture seule.": "This file is read-only.",
+	"Le fichier a changé sur le disque. Annulez puis rouvrez l’édition pour repartir de sa version actuelle.":
+		"The file changed on disk. Cancel and reopen editing to start from its current version.",
 	"Image trop volumineuse (8 Mo maximum).": "Image too large (8 MB maximum).",
 	"Format d’image non pris en charge.": "Unsupported image format.",
 	"Aucun dépôt distant web configuré": "No web remote configured",

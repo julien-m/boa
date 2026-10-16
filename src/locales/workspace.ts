@@ -1,5 +1,22 @@
 /** Workspace UI and generated context prompts. */
 export const workspaceFr = {
+	edit: {
+		readOnly: "Lecture seule",
+		drafts: "Brouillons ({{count}})",
+		externalChange:
+			"Le fichier a changé sur le disque. Votre brouillon est conservé ; annulez l’édition pour recharger la nouvelle version.",
+		title: "Édition",
+		save: "Enregistrer",
+		cancel: "Annuler",
+		undo: "Annuler la dernière modification",
+		redo: "Rétablir",
+		dirty: "Modifications non enregistrées",
+		discard: "Abandonner les modifications ?",
+		keep: "Continuer l’édition",
+		confirm: "Abandonner",
+		closeWarning: "Enregistrez ou annulez l’édition avant de fermer BOA.",
+	},
+	tabs: { label: "Fichiers ouverts", close: "Fermer {{path}}" },
 	project: {
 		openFolder: "Ouvrir dans le Finder",
 		layout: "Disposition",
@@ -90,6 +107,7 @@ export const workspaceFr = {
 		noDescription: "sans description",
 	},
 	resizer: {
+		treeWidth: "Largeur de l’arborescence des fichiers",
 		width: "Largeur de la liste des changements",
 		height: "Hauteur du panneau Git",
 		widthHint: "Glisser pour redimensionner · flèches gauche/droite au clavier",
@@ -98,6 +116,23 @@ export const workspaceFr = {
 };
 
 export const workspaceEn = {
+	edit: {
+		readOnly: "Read-only",
+		drafts: "Drafts ({{count}})",
+		externalChange:
+			"The file changed on disk. Your draft is preserved; cancel editing to reload the new version.",
+		title: "Editing",
+		save: "Save",
+		cancel: "Cancel",
+		undo: "Undo last change",
+		redo: "Redo",
+		dirty: "Unsaved changes",
+		discard: "Discard changes?",
+		keep: "Continue editing",
+		confirm: "Discard",
+		closeWarning: "Save or cancel editing before closing BOA.",
+	},
+	tabs: { label: "Open files", close: "Close {{path}}" },
 	project: {
 		openFolder: "Open in Finder",
 		layout: "Layout",
@@ -188,6 +223,7 @@ export const workspaceEn = {
 		noDescription: "no description",
 	},
 	resizer: {
+		treeWidth: "File tree width",
 		width: "Change list width",
 		height: "Git panel height",
 		widthHint: "Drag to resize · left/right arrow keys",

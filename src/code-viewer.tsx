@@ -7,11 +7,13 @@ import * as monaco from "monaco-editor/editor/editor.api.js";
 import { useTranslation } from "react-i18next";
 import "monaco-editor/basic-languages/monaco.contribution.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
-import { MarkdownPreview } from "./markdown-preview";
+import { useFileEditing } from "./file-editing";
+import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
+import { relocateLine } from "./reading-position";
 import "./syntax-highlighting";
 import "monaco-editor/editor/contrib/find/browser/findController.js";
 
@@ -71,6 +73,10 @@ interface CodeViewerProps {
 }
 export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	const { t } = useTranslation("workspace");
+	const editing = useFileEditing();
+	const draft = selection && !selection.repo ? editing.draft(selection.project, selection.path) : undefined;
+	const [discard, setDiscard] = useState(false);
+	useEffect(() => setDiscard(false), [selection?.project, selection?.path]);
 	const [sideBySide, setSideBySide] = useState(false);
 	const [notice, setNotice] = useState<{ key: string; error?: string } | null>(null);
 	const [markdownMode, setMarkdownMode] = useState<{ key: string; source: boolean } | null>(null);
@@ -79,7 +85,27 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		: "";
 	const isMarkdown = Boolean(selection && !selection.repo && /\.(md|markdown)$/i.test(selection.path));
 	const showMarkdown =
-		isMarkdown && (markdownMode?.key === fileKey ? !markdownMode.source : !selection?.line);
+		isMarkdown && !draft && (markdownMode?.key === fileKey ? !markdownMode.source : !selection?.line);
+	const markdownBookmark = useRef<{ key: string; position: MarkdownBookmark; line: number } | null>(null);
+	const rememberMarkdown = (): void => {
+		const container = document.querySelector<HTMLElement>('[data-testid="markdown-preview"]');
+		if (!showMarkdown || !container) return;
+		const top = container.getBoundingClientRect().top;
+		const visible = [...container.querySelectorAll<HTMLElement>("[data-source-line]")].find(
+			(block) => block.getBoundingClientRect().bottom > top,
+		);
+		if (visible)
+			markdownBookmark.current = {
+				key: fileKey,
+				line: Number(visible.dataset.sourceLine) || 1,
+				position: {
+					text: visible.textContent ?? "",
+					tag: visible.tagName,
+					offset: visible.getBoundingClientRect().top - top,
+					scrollTop: container.scrollTop,
+				},
+			};
+	};
 	const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 	const sideRef = useRef("file");
 	const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
@@ -187,7 +213,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 					{selection.path.split("/").pop()}
 				</span>
 				<div className="toolbar-actions">
-					{isMarkdown && (
+					{isMarkdown && !draft && (
 						<button
 							type="button"
 							className="quiet-button"
@@ -261,9 +287,104 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				</div>
 			</div>
 			<div className="breadcrumb" title={selection.path}>
-				{selection.path}
-				<span>{query.data?.label}</span>
+				<span className="breadcrumb-path">{selection.path}</span>
+				{selection.repo ? (
+					<span>{query.data?.label}</span>
+				) : (
+					<div className="editing-controls">
+						{draft && (
+							<>
+								{draft.content !== draft.original && <span data-testid="edit-dirty">•</span>}
+								<button
+									type="button"
+									disabled={draft.saving}
+									title={t("edit.undo")}
+									onClick={() => editorRef.current?.trigger("boa", "undo", null)}
+								>
+									↶
+								</button>
+								<button
+									type="button"
+									disabled={draft.saving}
+									title={t("edit.redo")}
+									onClick={() => editorRef.current?.trigger("boa", "redo", null)}
+								>
+									↷
+								</button>
+								<button
+									type="button"
+									data-testid="edit-cancel"
+									disabled={draft.saving}
+									onClick={() => {
+										if (draft.content !== draft.original) setDiscard(true);
+										else editing.cancel(selection.project, selection.path);
+									}}
+								>
+									{t("edit.cancel")}
+								</button>
+								<button
+									type="button"
+									data-testid="edit-save"
+									disabled={draft.saving || draft.content === draft.original}
+									onClick={() => {
+										setDiscard(false);
+										void editing.save(selection.project, selection.path);
+									}}
+								>
+									{t("edit.save")}
+								</button>
+							</>
+						)}
+						<button
+							type="button"
+							data-testid="read-only-toggle"
+							aria-pressed={Boolean(draft)}
+							disabled={!query.data || draft?.saving}
+							onClick={() => {
+								if (draft) {
+									if (draft.content !== draft.original) setDiscard(true);
+									else editing.cancel(selection.project, selection.path);
+								} else if (query.data) {
+									setDiscard(false);
+									rememberMarkdown();
+									editing.start(selection.project, selection.path, query.data.modified);
+								}
+							}}
+						>
+							{draft ? t("edit.title") : t("edit.readOnly")}
+						</button>
+					</div>
+				)}
 			</div>
+			{draft && discard && (
+				<div className="inline-edit-notice" role="alert">
+					<span>{t("edit.discard")}</span>
+					<button type="button" disabled={draft.saving} onClick={() => setDiscard(false)}>
+						{t("edit.keep")}
+					</button>
+					<button
+						type="button"
+						data-testid="edit-discard"
+						disabled={draft.saving}
+						onClick={() => {
+							setDiscard(false);
+							editing.cancel(selection.project, selection.path);
+						}}
+					>
+						{t("edit.confirm")}
+					</button>
+				</div>
+			)}
+			{draft && query.data && query.data.modified !== draft.original && !draft.saving && (
+				<p className="inline-error" role="alert">
+					{t("edit.externalChange")}
+				</p>
+			)}
+			{draft?.error && (
+				<p className="inline-error" role="alert">
+					{draft.error}
+				</p>
+			)}
 			{notice && (
 				<button
 					type="button"
@@ -274,11 +395,11 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 					{t(notice.key, { error: notice.error })} ×
 				</button>
 			)}
-			{query.isFetching ? (
+			{query.isFetching && !query.data ? (
 				<div className="empty-view" data-testid="preview-loading">
 					{t("viewer.loading")}
 				</div>
-			) : query.error ? (
+			) : query.error && !draft ? (
 				<div className="empty-view error" data-testid="preview-error">
 					{String(query.error)}
 				</div>
@@ -286,9 +407,13 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				query.data &&
 				(showMarkdown ? (
 					<MarkdownPreview
+						key={`${selection.project}/${selection.path}`}
 						project={selection.project}
 						path={selection.path}
 						content={query.data.modified}
+						restorePosition={
+							markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined
+						}
 						onCopyLink={(href) => {
 							void writeText(href).then(
 								() => setNotice({ key: "viewer.linkCopied" }),
@@ -298,7 +423,18 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 					/>
 				) : (
 					<MonacoContent
-						preview={query.data}
+						key={JSON.stringify(selection)}
+						preview={draft ? { ...query.data, modified: draft.content } : query.data}
+						editable={Boolean(draft) && !draft?.saving}
+						onChange={(value) => {
+							if (draft && !draft.saving) editing.change(selection.project, selection.path, value);
+						}}
+						onSave={() => {
+							if (draft) {
+								setDiscard(false);
+								void editing.save(selection.project, selection.path);
+							}
+						}}
 						onDiffEditor={(editor) => {
 							diffRef.current = editor;
 						}}
@@ -312,7 +448,9 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							}
 							sideRef.current = side;
 							setSelectionVersion((version) => version + 1);
-							if (selection.line && navigate) {
+							if (navigate && draft && markdownBookmark.current?.key === fileKey) {
+								editor.revealLineNearTop(markdownBookmark.current.line);
+							} else if (selection.line && navigate) {
 								const line = Math.min(selection.line, editor.getModel()?.getLineCount() ?? 1);
 								editor.setSelection(
 									new monaco.Range(
@@ -334,6 +472,9 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 
 function MonacoContent({
 	preview,
+	editable = false,
+	onChange,
+	onSave,
 	diff,
 	sideBySide,
 	onEditor,
@@ -341,11 +482,39 @@ function MonacoContent({
 }: {
 	onDiffEditor: (editor: monaco.editor.IStandaloneDiffEditor | null) => void;
 	preview: Preview;
+	editable?: boolean;
+	onChange: (value: string) => void;
+	onSave: () => void;
 	diff: boolean;
 	sideBySide: boolean;
 	onEditor: (editor: monaco.editor.IStandaloneCodeEditor, side: string, navigate: boolean) => void;
 }) {
 	const { t } = useTranslation("workspace");
+	const reader = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+	const save = useRef(onSave);
+	save.current = onSave;
+	useLayoutEffect(() => {
+		const editor = reader.current;
+		const model = editor?.getModel();
+		if (!editor || !model || diff || model.getValue() === preview.modified) return;
+		editor.layout();
+		const previous = model.getValue();
+		const visible = editor.getVisibleRanges()[0]?.startLineNumber ?? 1;
+		const offset = editor.getScrollTop() - editor.getTopForLineNumber(visible);
+		const state = editor.saveViewState();
+		const cursor = editor.getPosition();
+		model.setValue(preview.modified);
+		if (state) editor.restoreViewState(state);
+		if (cursor)
+			editor.setPosition({
+				lineNumber: relocateLine(previous, preview.modified, cursor.lineNumber),
+				column: cursor.column,
+			});
+		editor.setScrollTop(
+			editor.getTopForLineNumber(relocateLine(previous, preview.modified, visible)) + offset,
+			monaco.editor.ScrollType.Immediate,
+		);
+	}, [preview.modified, diff]);
 	return (
 		<div className="monaco-container">
 			{diff ? (
@@ -386,10 +555,15 @@ function MonacoContent({
 			) : (
 				<Editor
 					theme="vs-dark"
-					value={preview.modified}
+					defaultValue={preview.modified}
 					language={language(preview.path)}
-					options={options}
+					options={{ ...options, readOnly: !editable, domReadOnly: !editable }}
+					onChange={(value) => {
+						if (editable) onChange(value ?? "");
+					}}
 					onMount={(editor) => {
+						reader.current = editor;
+						editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save.current());
 						editor.onDidChangeCursorSelection(() => onEditor(editor, "file", false));
 						onEditor(editor, "file", true);
 					}}
