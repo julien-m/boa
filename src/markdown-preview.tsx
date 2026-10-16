@@ -9,6 +9,11 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { api } from "./api";
 
+function pixelDimension(value?: string | number): number | undefined {
+	const number = Number(value);
+	return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
 function MarkdownImage({
 	project,
 	path,
@@ -26,6 +31,7 @@ function MarkdownImage({
 }) {
 	const { t } = useTranslation("workspace");
 	const [failed, setFailed] = useState<string | null>(null);
+	const [intrinsic, setIntrinsic] = useState<{ source: string; ratio: number } | null>(null);
 	let remote: string | undefined;
 	try {
 		const url = new URL(src?.startsWith("//") ? `https:${src}` : (src ?? ""));
@@ -42,15 +48,27 @@ function MarkdownImage({
 		gcTime: 0,
 	});
 	const resolved = remote ?? image.data;
+	const requestedWidth = pixelDimension(width);
+	const requestedHeight = pixelDimension(height);
+	const naturalRatio = intrinsic && intrinsic.source === resolved ? intrinsic.ratio : undefined;
+	const displayWidth =
+		requestedWidth ?? (requestedHeight && naturalRatio ? requestedHeight * naturalRatio : undefined);
+	const ratio = requestedWidth && requestedHeight ? requestedWidth / requestedHeight : undefined;
 	return resolved && failed !== resolved ? (
 		<img
 			src={resolved}
 			alt={alt ?? ""}
 			width={width}
 			height={height}
+			style={{ width: displayWidth, height: displayWidth ? "auto" : requestedHeight, aspectRatio: ratio }}
 			referrerPolicy="no-referrer"
 			className="markdown-local-image"
 			onError={() => setFailed(resolved)}
+			onLoad={(event) => {
+				const { naturalWidth, naturalHeight } = event.currentTarget;
+				if (naturalWidth && naturalHeight)
+					setIntrinsic({ source: resolved, ratio: naturalWidth / naturalHeight });
+			}}
 		/>
 	) : (
 		<span className="markdown-image" title={image.error ? String(image.error) : src}>
