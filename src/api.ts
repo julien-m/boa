@@ -39,6 +39,8 @@ export const api = {
 		warning: string | null;
 	}> => invoke("search_project", { project, query }),
 	projects: (): Promise<Project[]> => invoke("list_projects"),
+	markdownImage: (project: string, document: string, source: string): Promise<string> =>
+		invoke("read_markdown_image", { project, document, source }),
 	repositoryUrl: (project: string, repo: string): Promise<string | null> =>
 		invoke("repository_web_url", { project, repo }),
 	openRepository: (project: string, repo: string): Promise<void> =>

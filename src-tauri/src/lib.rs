@@ -183,6 +183,19 @@ fn open_external(args: &[&str]) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn read_markdown_image(
+    state: NativeState<'_>,
+    project: String,
+    document: String,
+    source: String,
+) -> Result<String, String> {
+    work(state.inner().clone(), move |state| {
+        files::markdown_image(&state.registered(&project)?, &document, &source)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn read_file(
     state: NativeState<'_>,
     project: String,
@@ -439,6 +452,7 @@ pub fn run() {
             open_repository,
             open_project_folder,
             read_file,
+            read_markdown_image,
             git_history,
             git_branches,
             git_commit_files,

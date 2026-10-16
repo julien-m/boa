@@ -1,6 +1,6 @@
 /** Browser UI contracts with mocked Tauri transport and real local attachment files. */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
@@ -58,6 +58,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "read_markdown_image":
+			expect(args.document).toBe("README.md");
+			expect(args.source).toBe("images/plan.png");
+			return `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`;
 		case "repository_web_url":
 			return remoteUrl;
 		case "open_repository":
@@ -119,7 +123,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				original: "",
 				modified:
 					args.path === "README.md"
-						? "# Mon document\n\nUne **lecture claire**.\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>"
+						? "# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>"
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -341,6 +345,15 @@ try {
 	await expect(page.locator(".monaco-editor").first()).toBeVisible();
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toBeVisible();
+	await expect(page.getByRole("img", { name: "Plan", exact: true })).toBeVisible();
+	await expect
+		.poll(() =>
+			page
+				.getByRole("img", { name: "Plan", exact: true })
+				.evaluate((image) => (image as HTMLImageElement).naturalWidth),
+		)
+		.toBe(32);
+	await expect(page.getByRole("img", { name: "Remote", exact: true })).toHaveCount(0);
 	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
 	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
 	if (!monacoPath) throw new Error("Monaco import unavailable");

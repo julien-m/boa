@@ -18,7 +18,7 @@ These screenshots show BOA's actual interface with fictional projects, paths, co
 - Add folders explicitly, pin projects and sort the dashboard by name, activity or changed files.
 - Distinguish files to commit from commits to push; a `?` means the branch has no upstream.
 - Browse files, nested repositories and Git worktrees. Read code with local syntax highlighting, including JSON/JSONC, YAML, XML/SVG and TOML/Wrangler configurations.
-- Preview Markdown documents or switch to their source.
+- Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. Remote images remain placeholders and are never fetched automatically.
 - Inspect staged/local changes, commit history and a branch's changes since its common ancestor with a base. Compare before/after and jump between changed blocks.
 - Use Files, Git or a combined layout; resize the Git panels and hide the file tree.
 - Search in a file or across a selected project.

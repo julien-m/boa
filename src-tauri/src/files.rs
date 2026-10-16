@@ -7,6 +7,59 @@ use std::{
 };
 
 pub(crate) const FILE_LIMIT: u64 = 2 * 1024 * 1024;
+const IMAGE_LIMIT: u64 = 8 * 1024 * 1024;
+
+pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
+    use base64::Engine;
+    let document = confined(root, document)?;
+    if source.starts_with('/') || source.starts_with('\\') {
+        return Err("Chemin hors du projet".into());
+    }
+    let base = tauri::Url::from_file_path(document).map_err(|_| "Chemin hors du projet")?;
+    let path = base
+        .join(source)
+        .map_err(|_| "Chemin hors du projet")?
+        .to_file_path()
+        .map_err(|_| "Chemin hors du projet")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
+        return Err("Chemin hors du projet".into());
+    }
+    if !fs::metadata(&path).map_err(|e| e.to_string())?.is_file() {
+        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(&path)
+        .map_err(|e| e.to_string())?
+        .take(IMAGE_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > IMAGE_LIMIT {
+        return Err("Image trop volumineuse (8 Mo maximum).".into());
+    }
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+        && std::str::from_utf8(&bytes).is_ok_and(|text| text.contains("<svg"))
+    {
+        "image/svg+xml"
+    } else {
+        return Err("Format d’image non pris en charge.".into());
+    };
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
 
 pub(crate) fn confined(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let path = Path::new(relative);

@@ -1569,6 +1569,12 @@ details:not([open]) > summary > svg {
 	padding: 10px;
 	border-radius: 5px;
 }
+.markdown-local-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+}
 
 .git-detail-workspace {
 	min-width: 0;

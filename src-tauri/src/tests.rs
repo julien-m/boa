@@ -10,6 +10,55 @@ use std::{
 };
 use tempfile::TempDir;
 
+#[test]
+fn markdown_images_resolve_relative_paths_and_refuse_external_or_oversized_data() {
+    use base64::Engine;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("project");
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::create_dir(root.join("images")).unwrap();
+    fs::write(root.join("docs/README.md"), "# Guide").unwrap();
+    let png = b"\x89PNG\r\n\x1a\nexample";
+    fs::write(root.join("images/plan one.png"), png).unwrap();
+    let value = files::markdown_image(&root, "docs/README.md", "../images/plan%20one.png").unwrap();
+    assert_eq!(
+        value,
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        )
+    );
+    fs::write(temp.path().join("private.png"), png).unwrap();
+    std::os::unix::fs::symlink(
+        temp.path().join("private.png"),
+        root.join("images/outside.png"),
+    )
+    .unwrap();
+    for source in [
+        "../../private.png",
+        "../images/outside.png",
+        "https://example.com/image.png",
+        "file:///etc/passwd",
+        "//example.com/image.png",
+        "data:image/png;base64,AAAA",
+        "/etc/passwd",
+    ] {
+        assert!(
+            files::markdown_image(&root, "docs/README.md", source).is_err(),
+            "{source}"
+        );
+    }
+    fs::write(root.join("images/not-image.png"), "private text").unwrap();
+    assert!(files::markdown_image(&root, "docs/README.md", "../images/not-image.png").is_err());
+    let large = fs::File::create(root.join("images/large.png")).unwrap();
+    large.set_len(8 * 1024 * 1024 + 1).unwrap();
+    assert!(
+        files::markdown_image(&root, "docs/README.md", "../images/large.png")
+            .unwrap_err()
+            .contains("8 Mo")
+    );
+}
+
 fn run(path: &Path, args: &[&str]) {
     let output = Command::new("/usr/bin/git")
         .arg("-C")

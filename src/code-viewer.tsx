@@ -286,6 +286,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				query.data &&
 				(showMarkdown ? (
 					<MarkdownPreview
+						project={selection.project}
+						path={selection.path}
 						content={query.data.modified}
 						onCopyLink={(href) => {
 							void writeText(href).then(

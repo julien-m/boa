@@ -2,6 +2,8 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"Image trop volumineuse (8 Mo maximum).": "Image too large (8 MB maximum).",
+	"Format d’image non pris en charge.": "Unsupported image format.",
 	"Aucun dépôt distant web configuré": "No web remote configured",
 	"Ouverture impossible": "Unable to open",
 	"Lien BOA inconnu": "Unknown BOA link",
