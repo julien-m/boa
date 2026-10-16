@@ -72,10 +72,7 @@ fn bind(path: &Path) -> Result<UnixListener, String> {
 
 fn execute(state: &AppState, request: Request) -> Result<(Value, bool), String> {
     match request {
-        Request::List {} => Ok((
-            json!(state.config.lock().map_err(|e| e.to_string())?.projects),
-            false,
-        )),
+        Request::List {} => Ok((json!(state.list_projects()?), false)),
         Request::Add { path, pin } => {
             let project = state.add_project(Path::new(&path))?;
             let project = if pin {

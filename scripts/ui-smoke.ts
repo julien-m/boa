@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
-const project = { path: directory, name: "BOA QA", pinned: false };
+const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
+let watchDirectory: string | null = null;
+let folderChoice: string | null = directory;
+let language = "fr";
+let automaticallyDiscovered = false;
 const hash = "a".repeat(40);
 const otherHash = "c".repeat(40);
 const change = { path: "sample.ts", oldPath: null, index: "M", worktree: "M", conflict: false };
@@ -47,14 +51,33 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 		// No automatic drag-out is used by the composer.
 		return null;
 	}
-	if (command === "plugin:dialog|open") return directory;
+	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
 		case "list_projects":
+			if (
+				watchDirectory &&
+				automaticallyDiscovered &&
+				!registeredProjects.some((item) => item.name === "Auto QA")
+			)
+				registeredProjects.push({ ...project, path: `${directory}/auto`, name: "Auto QA" });
 			return registeredProjects;
+		case "get_settings":
+			return { watchDirectory, watchError: null, language };
+		case "set_language":
+			language = String(args.language);
+			return { watchDirectory, watchError: null, language };
+		case "set_watch_directory":
+			watchDirectory = args.path as string | null;
+			return { watchDirectory, watchError: null, language };
+		case "archive_project":
+			registeredProjects = registeredProjects.map((item) =>
+				item.path === args.project ? { ...item, archived: Boolean(args.archived) } : item,
+			);
+			return null;
 		case "add_project":
 			if (args.path !== directory) throw new Error("Unexpected import path");
-			registeredProjects = [project];
-			return project;
+			registeredProjects = [{ ...project, ...registeredProjects[0], archived: false }];
+			return registeredProjects[0];
 		case "pin_project":
 			registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: Boolean(args.pinned) }));
 			return null;
@@ -177,10 +200,23 @@ await page.addInitScript(() => {
 	Reflect.set(window, "boaTestProjectsChanged", () => emit("boa:projects-changed", null));
 });
 try {
+	await page.clock.install();
 	await page.goto("http://localhost:1420");
 	await expect(page.getByTestId("empty-add-project")).toBeVisible();
 	await expect(page.getByText("Aucun dossier n’est parcouru avant votre sélection.")).toBeVisible();
 	expect(summaryCalls).toBe(0);
+	await page.getByTestId("settings-nav").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	folderChoice = null;
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	folderChoice = directory;
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("watch-directory")).toContainText(directory);
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
+	await page.getByTestId("disable-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("empty-add-project").click();
 	await expect(page.getByTestId("project-view")).toBeVisible();
 	await page.getByTestId("dashboard-nav").click();
@@ -188,6 +224,19 @@ try {
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
 	await page.getByTestId("pin-project-BOA QA").click();
 	await expect(page.getByTestId("nav-project-BOA QA")).toBeVisible();
+	await page.getByTestId("archive-project-BOA QA").click();
+	await expect(page.getByTestId("project-card-BOA QA")).toHaveCount(0);
+	await expect(page.getByTestId("nav-project-BOA QA")).toHaveCount(0);
+	await page.getByTestId("archives-nav").click();
+	await expect(page.getByTestId("archived-BOA QA")).toBeVisible();
+	await page.getByTestId("restore-BOA QA").click();
+	await expect(page.getByTestId("archived-BOA QA")).toHaveCount(0);
+	await page.getByTestId("dashboard-nav").click();
+	await expect(page.getByTestId("nav-project-BOA QA")).toBeVisible();
+	await page.getByTestId("archive-project-BOA QA").click();
+	await page.getByTestId("add-project").click();
+	await expect(page.getByTestId("project-view")).toBeVisible();
+	await page.getByTestId("dashboard-nav").click();
 	registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: false }));
 	await page.evaluate(() => Reflect.get(window, "boaTestProjectsChanged")());
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
@@ -410,9 +459,47 @@ try {
 	await expect(page.getByTestId("layout-files")).toHaveAttribute("aria-pressed", "true");
 	await page.getByTestId("guidance-toggle").click();
 	await expect(page.getByTestId("guidance-toggle")).toContainText("suspendu");
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("choose-watch-directory").click();
+	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
+	automaticallyDiscovered = true;
+	await page.getByTestId("dashboard-nav").click();
+	await page.clock.fastForward(10_100);
+	await expect(page.getByTestId("project-card-Auto QA")).toBeVisible();
+	await page.getByTestId("archive-project-Auto QA").click();
+	await page.clock.fastForward(10_100);
+	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("interface-language").selectOption("en");
+	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
+	await expect(page.locator("html")).toHaveAttribute("lang", "en");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-en.png") });
+	await page.reload();
+	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
+	await page.getByTestId("archives-nav").click();
+	await expect(page.getByRole("heading", { name: "Archives", exact: true })).toBeVisible();
+	await expect(page.getByTestId("restore-Auto QA")).toContainText("Restore");
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("open-project-BOA QA").click();
+	await expect(page.getByTestId("layout-files")).toContainText("Files");
+	await page.getByTestId("layout-files").click();
+	await page.getByTestId("file-README.md").click();
+	await page.getByTestId("create-context").click();
+	await expect(page.getByTestId("context-popover")).toContainText("Context to share");
+	await page.getByTestId("context-message").fill("Explain this file");
+	await page.getByTestId("save-context").click();
+	expect(clipboard).toContain("Project:");
+	expect(clipboard).not.toContain("Projet :");
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("interface-language").selectOption("fr");
+	await expect(page.getByRole("heading", { name: "Réglages", exact: true })).toBeVisible();
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-fr.png") });
 	expect(errors).toEqual([]);
 	console.log(
-		"PASS: aperçu Markdown/source, dashboard, dispositions, arbre masquable, diffs, sélection AVANT, dialogue éphémère, Markdown, chemin seul, sélection+copie, raccourci/fermeture, largeur Git persistée, flèches de diff, couleurs JSON/XML/YAML/TOML, historique, branches, navigation CLI et pause. Transport Tauri mocké.",
+		"PASS: fichiers, Git, contexte, navigation, réglages, détection périodique, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",
 	);
 } finally {
 	await browser.close();

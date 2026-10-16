@@ -3,7 +3,7 @@
 <p align="center">A local macOS cockpit for your projects, files and Git changes.</p>
 <p align="center"><a href="https://github.com/julien-m/boa/actions/workflows/quality.yaml"><img src="https://github.com/julien-m/boa/actions/workflows/quality.yaml/badge.svg" alt="Quality checks"></a> <a href="LICENSE">MIT license</a></p>
 
-BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The current interface is in French.
+BOA helps you see which projects need attention and understand what changed without opening a full IDE. It combines a project dashboard, a read-only file viewer and Git review panes inspired by WebStorm. The interface supports French (default) and English, selectable in Settings.
 
 **A fresh installation starts empty.** BOA does not discover your home folder, import someone else's projects or scan any directory before you choose one. Previously added projects stay on your own Mac.
 
@@ -20,6 +20,14 @@ BOA helps you see which projects need attention and understand what changed with
 - Let a CLI or coding agent add/pin projects and open a file at exact lines.
 
 BOA is a viewer: it does not edit source files, stage changes, commit, push or check out branches. Remote counters use existing local tracking references; BOA does not run `git fetch` automatically.
+
+## Settings and archives
+
+Open **Réglages / Settings** from the sidebar to optionally select your main projects folder. Its visible direct child directories, including folders without Git, are added at startup and every 10 seconds while BOA is open. Symlink aliases are deduplicated by canonical path; pins and existing projects are preserved. No folder is selected by default. Changing or disabling discovery stops additions from the old location and keeps projects already registered. An inaccessible watched folder shows a warning without hiding existing projects.
+
+Use a project's **Archive** button to move it out of the overview and pinned navigation. **Archives** lists those projects and lets you restore them. Automatic discovery keeps them archived; explicitly adding the same project again restores it. Archiving only changes BOA's local list: it never moves, deletes or edits the project folder. Archived projects have no background Git status polling.
+
+Choose **Français** or **English** in Settings to switch immediately. The preference is stored locally; translations and plural rules use i18next/react-i18next with bundled catalogues in [src/locales](src/locales). To add a language, provide matching namespace keys and interpolation parameters, extend the supported language codes and update the language selector and native preference validation.
 
 ## Install from source
 
@@ -93,7 +101,7 @@ Project commands return `{ "ok": true, "result": ... }` with `--json`; failures 
 ## Local data and privacy
 
 - The project list is stored in the current user's application-data directory, in `com.julienm.boa/projects.json` (on macOS: `~/Library/Application Support/com.julienm.boa/projects.json`). Layout preferences stay in the app's local webview storage. Neither is bundled with the app or committed to this repository.
-- An empty first launch performs no project scan. Only registered folders are read. Imported configuration from an earlier BOA version remains intact.
+- An empty first launch performs no project scan. BOA reads registered projects and an optional explicitly configured discovery folder. Imported configuration from an earlier BOA version remains intact.
 - A selected project can contain nested repositories and external Git worktrees. Explicit symbolic links in its file tree can lead outside the project; BOA follows these when you browse them. File contents remain on the Mac until you explicitly copy and share them.
 - BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
 - The current context dialog stores no history and creates no export files. Older prototypes may have left exports in the local application-data directory; those are not distributed.

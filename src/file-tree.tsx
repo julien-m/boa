@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, FileCode2, Folder, FolderGit2, FolderOpen, Link } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { DirectoryEntry, RepoStatus } from "./models";
 
@@ -82,6 +83,7 @@ function FileRow({
 }
 
 export function FileTree({ project, path = "", onOpen, selected, repos, depth = 0 }: TreeProps) {
+	const { t } = useTranslation("workspace");
 	const query = useQuery({
 		queryKey: ["directory", project, path],
 		queryFn: () => api.directory(project, path),
@@ -90,7 +92,7 @@ export function FileTree({ project, path = "", onOpen, selected, repos, depth = 
 	if (query.isPending)
 		return (
 			<p className="inline-status" data-testid="directory-loading">
-				Chargement…
+				{t("tree.loading")}
 			</p>
 		);
 	if (query.error)
@@ -114,7 +116,7 @@ export function FileTree({ project, path = "", onOpen, selected, repos, depth = 
 					/>
 				))
 			) : (
-				<p className="inline-status">Dossier vide</p>
+				<p className="inline-status">{t("tree.empty")}</p>
 			)}
 		</div>
 	);

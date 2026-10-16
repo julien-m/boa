@@ -1,4 +1,5 @@
 /** Read-only Markdown document; remote resources never load automatically. */
+import { useTranslation } from "react-i18next";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,6 +10,7 @@ export function MarkdownPreview({
 	content: string;
 	onCopyLink: (href: string) => void;
 }) {
+	const { t } = useTranslation("workspace");
 	return (
 		<div className="markdown-scroll" data-testid="markdown-preview">
 			<article className="markdown-preview">
@@ -19,7 +21,7 @@ export function MarkdownPreview({
 						a: ({ href, children }) => (
 							<a
 								href={href}
-								title="Copier le lien"
+								title={t("markdown.copyLink")}
 								onClick={(event) => {
 									event.preventDefault();
 									if (href?.startsWith("#")) {
@@ -31,7 +33,11 @@ export function MarkdownPreview({
 								{children}
 							</a>
 						),
-						img: ({ alt }) => <span className="markdown-image">Image : {alt || "sans description"}</span>,
+						img: ({ alt }) => (
+							<span className="markdown-image">
+								{t("markdown.image", { alt: alt || t("markdown.noDescription") })}
+							</span>
+						),
 					}}
 				>
 					{content}

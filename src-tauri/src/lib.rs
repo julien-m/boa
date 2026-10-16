@@ -8,7 +8,7 @@ mod search;
 #[cfg(test)]
 mod tests;
 
-use projects::{AppState, Project, Summary};
+use projects::{AppState, Project, Settings, Summary};
 use std::{
     path::{Component, Path},
     sync::Arc,
@@ -28,18 +28,51 @@ async fn work<T: Send + 'static>(
 }
 
 #[tauri::command]
-fn list_projects(state: NativeState<'_>) -> Result<Vec<Project>, String> {
-    Ok(state
-        .config
-        .lock()
-        .map_err(|e| e.to_string())?
-        .projects
-        .clone())
+async fn list_projects(state: NativeState<'_>) -> Result<Vec<Project>, String> {
+    work(state.inner().clone(), AppState::list_projects).await
+}
+
+#[tauri::command]
+fn get_settings(state: NativeState<'_>) -> Result<Settings, String> {
+    state.settings()
+}
+
+#[tauri::command]
+async fn set_watch_directory(
+    state: NativeState<'_>,
+    path: Option<String>,
+) -> Result<Settings, String> {
+    work(state.inner().clone(), move |state| {
+        state.set_watch_directory(path.as_deref().map(Path::new))
+    })
+    .await
 }
 
 #[tauri::command]
 fn pin_project(state: NativeState<'_>, project: String, pinned: bool) -> Result<(), String> {
     state.pin_project(&project, pinned).map(|_| ())
+}
+
+#[tauri::command]
+fn set_language(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    language: String,
+) -> Result<Settings, String> {
+    let settings = state.set_language(&language)?;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_title(if settings.language == "en" {
+            "BOA — Projects & Git"
+        } else {
+            "BOA — Projets & Git"
+        });
+    }
+    Ok(settings)
+}
+
+#[tauri::command]
+fn archive_project(state: NativeState<'_>, project: String, archived: bool) -> Result<(), String> {
+    state.archive_project(&project, archived)
 }
 
 #[tauri::command]
@@ -297,12 +330,25 @@ pub fn run() {
                     .map_err(std::io::Error::other)?,
             );
             cli::start(app.handle().clone(), state.clone()).map_err(std::io::Error::other)?;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(
+                    if state.settings().map_err(std::io::Error::other)?.language == "en" {
+                        "BOA — Projects & Git"
+                    } else {
+                        "BOA — Projets & Git"
+                    },
+                );
+            }
             app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_projects,
+            get_settings,
+            set_watch_directory,
+            set_language,
             pin_project,
+            archive_project,
             add_project,
             project_summary,
             read_directory,

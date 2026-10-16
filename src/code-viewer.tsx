@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ArrowDown, ArrowUp, Copy, FileCode2, PanelLeftClose, SplitSquareHorizontal } from "lucide-react";
 import * as monaco from "monaco-editor/editor/editor.api.js";
+import { useTranslation } from "react-i18next";
 import "monaco-editor/basic-languages/monaco.contribution.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import { useEffect, useRef, useState } from "react";
@@ -69,8 +70,9 @@ interface CodeViewerProps {
 	compact?: boolean;
 }
 export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
+	const { t } = useTranslation("workspace");
 	const [sideBySide, setSideBySide] = useState(false);
-	const [notice, setNotice] = useState("");
+	const [notice, setNotice] = useState<{ key: string; error?: string } | null>(null);
 	const [markdownMode, setMarkdownMode] = useState<{ key: string; source: boolean } | null>(null);
 	const fileKey = selection
 		? `${selection.project}/${selection.path}:${selection.navigationId ?? selection.line ?? ""}`
@@ -79,7 +81,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	const showMarkdown =
 		isMarkdown && (markdownMode?.key === fileKey ? !markdownMode.source : !selection?.line);
 	const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-	const sideRef = useRef("Fichier");
+	const sideRef = useRef("file");
 	const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 	const findOnMount = useRef(false);
 	const [selectionVersion, setSelectionVersion] = useState(0);
@@ -87,7 +89,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	const query = useQuery({
 		queryKey: ["preview", selection],
 		queryFn: () => {
-			if (!selection) throw new Error("Aucun fichier");
+			if (!selection) throw new Error(t("viewer.noFile"));
 			return api.preview(selection);
 		},
 		enabled: Boolean(selection),
@@ -114,7 +116,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 			startLine: selected ? range.startLineNumber : null,
 			endLine: selected ? range.endLineNumber : null,
 			code: selected ? (editor?.getModel()?.getValueInRange(range) ?? "") : renderedText,
-			label: `${query.data.label} · ${showMarkdown ? "Aperçu Markdown" : sideRef.current}`,
+			label: `${query.data.label} · ${showMarkdown ? t("viewer.markdown") : t(`viewer.${sideRef.current}`)}`,
 		};
 	};
 	useEffect(() => {
@@ -132,7 +134,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		const editor = showMarkdown ? null : editorRef.current;
 		const selected = editor?.getSelection();
 		if (!full && (!selected || selected.isEmpty())) {
-			setNotice("Sélectionnez des lignes, ou utilisez Copier fichier.");
+			setNotice({ key: "viewer.selectLines" });
 			return;
 		}
 		const excerpt =
@@ -143,12 +145,19 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 			!full && selected && !selected.isEmpty()
 				? `:${selected.startLineNumber}-${selected.endLineNumber}`
 				: "";
-		const context = `Projet : ${selection.project}\nFichier : ${selection.repo ?? selection.project}/${selection.path}${location}\n${query.data.label} · ${sideRef.current}\n\n${excerpt ?? ""}`;
+		const context = t("viewer.copyContext", {
+			project: selection.project,
+			path: `${selection.repo ?? selection.project}/${selection.path}`,
+			location,
+			label: query.data.label,
+			side: t(`viewer.${sideRef.current}`),
+			excerpt: excerpt ?? "",
+		});
 		try {
 			await writeText(context);
-			setNotice("Contexte copié pour Codex ou Claude");
+			setNotice({ key: "viewer.copied" });
 		} catch (error) {
-			setNotice(`Copie impossible : ${String(error)}`);
+			setNotice({ key: "viewer.copyFailed", error: String(error) });
 		}
 	};
 	useEffect(() => {
@@ -165,9 +174,9 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		return (
 			<section className="code-viewer empty-view" data-testid="preview-empty">
 				<FileCode2 size={32} strokeWidth={1} />
-				<h2>Un fichier. Tout son contexte.</h2>
-				<p>Sélectionnez un fichier ou un changement Git.</p>
-				<span>Lecture seule · aucune indexation du code</span>
+				<h2>{t("viewer.emptyTitle")}</h2>
+				<p>{t("viewer.emptyDescription")}</p>
+				<span>{t("viewer.readOnly")}</span>
 			</section>
 		);
 	return (
@@ -185,7 +194,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							data-testid="markdown-toggle"
 							onClick={() => setMarkdownMode({ key: fileKey, source: showMarkdown })}
 						>
-							{showMarkdown ? "Source" : "Aperçu"}
+							{showMarkdown ? t("viewer.source") : t("viewer.preview")}
 						</button>
 					)}
 					<ContextBubbles capture={capture} context={capture()} />
@@ -195,8 +204,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								type="button"
 								className="icon-button"
 								data-testid="diff-previous"
-								title="Différence précédente"
-								aria-label="Différence précédente"
+								title={t("viewer.previous")}
+								aria-label={t("viewer.previous")}
 								disabled={!query.data || query.isFetching}
 								onClick={() => diffRef.current?.goToDiff("previous")}
 							>
@@ -206,8 +215,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								type="button"
 								className="icon-button"
 								data-testid="diff-next"
-								title="Différence suivante"
-								aria-label="Différence suivante"
+								title={t("viewer.next")}
+								aria-label={t("viewer.next")}
 								disabled={!query.data || query.isFetching}
 								onClick={() => diffRef.current?.goToDiff("next")}
 							>
@@ -221,7 +230,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							className="icon-button"
 							data-testid="diff-layout"
 							onClick={() => setSideBySide(!sideBySide)}
-							title={sideBySide ? "Diff intégré" : "Diff côte à côte"}
+							title={sideBySide ? t("viewer.inlineDiff") : t("viewer.sideBySideDiff")}
 						>
 							{sideBySide ? <PanelLeftClose size={15} /> : <SplitSquareHorizontal size={15} />}
 						</button>
@@ -236,7 +245,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 						disabled={!query.data || !hasSelection}
 					>
 						<Copy size={13} />
-						Copier sélection
+						{t("viewer.copySelection")}
 					</button>
 					<button
 						type="button"
@@ -247,7 +256,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							void handleCopy(true);
 						}}
 					>
-						Copier fichier
+						{t("viewer.copyFile")}
 					</button>
 				</div>
 			</div>
@@ -256,13 +265,18 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				<span>{query.data?.label}</span>
 			</div>
 			{notice && (
-				<button type="button" className="copy-notice" data-testid="copy-notice" onClick={() => setNotice("")}>
-					{notice} ×
+				<button
+					type="button"
+					className="copy-notice"
+					data-testid="copy-notice"
+					onClick={() => setNotice(null)}
+				>
+					{t(notice.key, { error: notice.error })} ×
 				</button>
 			)}
 			{query.isFetching ? (
 				<div className="empty-view" data-testid="preview-loading">
-					Lecture du fichier…
+					{t("viewer.loading")}
 				</div>
 			) : query.error ? (
 				<div className="empty-view error" data-testid="preview-error">
@@ -275,8 +289,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 						content={query.data.modified}
 						onCopyLink={(href) => {
 							void writeText(href).then(
-								() => setNotice("Lien copié"),
-								(error: unknown) => setNotice(String(error)),
+								() => setNotice({ key: "viewer.linkCopied" }),
+								(error: unknown) => setNotice({ key: "viewer.rawError", error: String(error) }),
 							);
 						}}
 					/>
@@ -329,6 +343,7 @@ function MonacoContent({
 	sideBySide: boolean;
 	onEditor: (editor: monaco.editor.IStandaloneCodeEditor, side: string, navigate: boolean) => void;
 }) {
+	const { t } = useTranslation("workspace");
 	return (
 		<div className="monaco-container">
 			{diff ? (
@@ -343,8 +358,8 @@ function MonacoContent({
 						...options,
 						renderSideBySide: sideBySide,
 						originalEditable: false,
-						originalAriaLabel: "Code original avant modification",
-						modifiedAriaLabel: "Code modifié après modification",
+						originalAriaLabel: t("viewer.originalCode"),
+						modifiedAriaLabel: t("viewer.modifiedCode"),
 						enableSplitViewResizing: true,
 					}}
 					onMount={(editor) => {
@@ -359,11 +374,11 @@ function MonacoContent({
 						});
 						const original = editor.getOriginalEditor();
 						const modified = editor.getModifiedEditor();
-						original.onDidFocusEditorText(() => onEditor(original, "Avant", false));
-						original.onDidChangeCursorSelection(() => onEditor(original, "Avant", false));
-						modified.onDidFocusEditorText(() => onEditor(modified, "Après", false));
-						modified.onDidChangeCursorSelection(() => onEditor(modified, "Après", false));
-						onEditor(modified, "Après", true);
+						original.onDidFocusEditorText(() => onEditor(original, "before", false));
+						original.onDidChangeCursorSelection(() => onEditor(original, "before", false));
+						modified.onDidFocusEditorText(() => onEditor(modified, "after", false));
+						modified.onDidChangeCursorSelection(() => onEditor(modified, "after", false));
+						onEditor(modified, "after", true);
 					}}
 				/>
 			) : (
@@ -373,8 +388,8 @@ function MonacoContent({
 					language={language(preview.path)}
 					options={options}
 					onMount={(editor) => {
-						editor.onDidChangeCursorSelection(() => onEditor(editor, "Fichier", false));
-						onEditor(editor, "Fichier", true);
+						editor.onDidChangeCursorSelection(() => onEditor(editor, "file", false));
+						onEditor(editor, "file", true);
 					}}
 				/>
 			)}

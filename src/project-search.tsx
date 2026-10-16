@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { Selection } from "./models";
 
@@ -12,6 +13,7 @@ export function ProjectSearch({
 	project: string;
 	onOpen: (selection: Selection) => void;
 }) {
+	const { t } = useTranslation("workspace");
 	const [input, setInput] = useState("");
 	const [query, setQuery] = useState("");
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -36,13 +38,13 @@ export function ProjectSearch({
 					}
 				}}
 			>
-				<label htmlFor="project-search-input">Rechercher dans le projet</label>
+				<label htmlFor="project-search-input">{t("search.label")}</label>
 				<div className="search-input-row">
 					<input
 						ref={inputRef}
 						id="project-search-input"
 						data-testid="project-search-input"
-						placeholder="Texte à rechercher…"
+						placeholder={t("search.placeholder")}
 						value={input}
 						onChange={(event) => setInput(event.target.value)}
 					/>
@@ -50,19 +52,20 @@ export function ProjectSearch({
 						type="submit"
 						className="icon-button"
 						data-testid="project-search-submit"
-						aria-label="Rechercher"
+						aria-label={t("search.submit")}
 					>
 						<Search size={14} />
 					</button>
 				</div>
 			</form>
-			<p className="small muted">Texte exact · fichiers non ignorés · liens non suivis</p>
-			{results.isFetching && <p className="inline-status">Recherche…</p>}
+			<p className="small muted">{t("search.description")}</p>
+			{results.isFetching && <p className="inline-status">{t("search.loading")}</p>}
 			{results.error && <p className="inline-error">{String(results.error)}</p>}
 			{results.data && (
 				<>
 					<p className="small muted">
-						{results.data.matches.length} résultats{results.data.limited ? " (limite atteinte)" : ""}
+						{t("search.results", { count: results.data.matches.length })}
+						{results.data.limited ? t("search.limited") : ""}
 					</p>
 					{results.data.warning && <p className="inline-error">{results.data.warning}</p>}
 					<div className="search-results">
@@ -83,7 +86,7 @@ export function ProjectSearch({
 							>
 								<strong>
 									{match.path}
-									<span>L{match.line}</span>
+									<span>{t("search.line", { line: match.line })}</span>
 								</strong>
 								<code>{match.text}</code>
 							</button>

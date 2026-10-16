@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
+	Archive,
+	ArchiveRestore,
 	ArrowDown,
 	ArrowUp,
 	ArrowUpRight,
@@ -17,22 +19,50 @@ import {
 	Pin,
 	RefreshCw,
 	Search,
+	Settings,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
+import { useTranslation } from "react-i18next";
 import { api } from "./api";
+import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
+import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
+import { SettingsView } from "./settings-view";
 import "./workspace.css";
 
 export default function App() {
+	const { t } = useTranslation("dashboard");
 	const client = useQueryClient();
-	const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-	const ordered = [...(projects.data ?? [])].sort(
-		(a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name),
-	);
+	const settings = useQuery({
+		queryKey: ["settings"],
+		queryFn: api.settings,
+		refetchInterval: 10_000,
+		refetchIntervalInBackground: true,
+	});
+	const projects = useQuery({
+		queryKey: ["projects"],
+		queryFn: api.projects,
+		refetchInterval: 10_000,
+		refetchIntervalInBackground: true,
+	});
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const language = settings.data?.language;
+	useEffect(() => {
+		if (!language) return;
+		const changed = i18n.language !== language;
+		void setInterfaceLanguage(language).then(() => {
+			if (changed) void client.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "settings" });
+		});
+	}, [language, client]);
+	const [archivesOpen, setArchivesOpen] = useState(false);
+	const archived = (projects.data ?? []).filter((project) => project.archived);
+	const ordered = [...(projects.data ?? [])]
+		.filter((project) => !project.archived)
+		.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
 	const summaries = useQueries({
 		queries: ordered.map((project) => ({
 			queryKey: ["summary", project.path],
@@ -62,8 +92,12 @@ export default function App() {
 				if (!raw) return;
 				const request = parseNavigation(raw);
 				const target = await api.navigate(request.file);
+				await api.add(target.project);
+				await client.invalidateQueries({ queryKey: ["projects"] });
 				if (disposed || pausedRef.current) return;
 				setSelectedPath(target.project);
+				setSettingsOpen(false);
+				setArchivesOpen(false);
 				setNavigation({
 					...target,
 					line: request.line,
@@ -72,7 +106,7 @@ export default function App() {
 					navigationId: crypto.randomUUID(),
 				});
 			} catch (error) {
-				if (!disposed) setNotice(String(error));
+				if (!disposed) setNotice(localizeNativeText(String(error)));
 			}
 		};
 		const subscribe = async (): Promise<void> => {
@@ -88,7 +122,7 @@ export default function App() {
 				const urls = await getCurrent();
 				if (urls) await handleLinks(urls);
 			} catch (error) {
-				if (!disposed) setNotice(`Navigation CLI indisponible : ${String(error)}`);
+				if (!disposed) setNotice(t("cliNavigationUnavailable", { error: localizeNativeText(String(error)) }));
 			}
 		};
 		void subscribe();
@@ -107,7 +141,9 @@ export default function App() {
 				if (disposed) unlisten();
 				else cleanup = unlisten;
 			})
-			.catch((error: unknown) => setNotice(`Actualisation CLI indisponible : ${String(error)}`));
+			.catch((error: unknown) =>
+				setNotice(t("cliRefreshUnavailable", { error: localizeNativeText(String(error)) })),
+			);
 		return () => {
 			disposed = true;
 			cleanup?.();
@@ -127,18 +163,28 @@ export default function App() {
 			await api.pin(project.path, !project.pinned);
 			await client.invalidateQueries({ queryKey: ["projects"] });
 		} catch (error) {
-			setNotice(String(error));
+			setNotice(localizeNativeText(String(error)));
+		}
+	};
+	const handleArchive = async (project: Project, value: boolean): Promise<void> => {
+		try {
+			await api.archive(project.path, value);
+			await client.invalidateQueries({ queryKey: ["projects"] });
+		} catch (error) {
+			setNotice(localizeNativeText(String(error)));
 		}
 	};
 	const handleImport = async (): Promise<void> => {
 		try {
-			const path = await open({ directory: true, multiple: false, title: "Ajouter un projet à BOA" });
+			const path = await open({ directory: true, multiple: false, title: t("importTitle") });
 			if (typeof path !== "string") return;
 			const project = await api.add(path);
 			await client.invalidateQueries({ queryKey: ["projects"] });
 			setSelectedPath(project.path);
+			setSettingsOpen(false);
+			setArchivesOpen(false);
 		} catch (error) {
-			setNotice(String(error));
+			setNotice(localizeNativeText(String(error)));
 		}
 	};
 	const handleProjectRefresh = (): void => {
@@ -184,7 +230,7 @@ export default function App() {
 					<span className="brand-mark">b.</span>
 					<strong>boa</strong>
 					<span className="brand-divider" />
-					<span className="muted">Project space</span>
+					<span className="muted">{t("projectSpace")}</span>
 				</div>
 				<div className="titlebar-right">
 					{navigation && (
@@ -192,40 +238,44 @@ export default function App() {
 							type="button"
 							data-testid="guidance-toggle"
 							className="guidance-badge"
-							title="Source déclarée par la commande reçue ; cliquer pour suspendre ou reprendre le guidage"
+							title={t("guidanceTitle")}
 							onClick={() => setGuidancePaused(!guidancePaused)}
 						>
-							{guidancePaused ? "Guidage suspendu" : `Repère reçu · ${navigation.source}`}
-							<span>{guidancePaused ? "Reprendre" : "Reprendre la main"}</span>
+							{guidancePaused ? t("paused") : t("guidanceReceived", { source: navigation.source })}
+							<span>{guidancePaused ? t("resume") : t("takeControl")}</span>
 						</button>
 					)}
 					<span className="local-dot" />
-					Sur ce Mac
+					{t("onThisMac")}
 					<button
 						type="button"
 						data-testid="refresh-all"
 						className="icon-button"
 						onClick={handleRefresh}
-						title="Actualiser les projets"
+						title={t("refreshProjects")}
 					>
 						<RefreshCw size={14} className={scanning ? "spin" : ""} />
 					</button>
 				</div>
 			</header>
 			<div className="app-content">
-				<nav className="navigation" aria-label="Navigation principale">
-					<div className="nav-section-title">ESPACE DE TRAVAIL</div>
+				<nav className="navigation" aria-label={t("mainNavigation")}>
+					<div className="nav-section-title">{t("workspaceHeading")}</div>
 					<button
 						type="button"
 						data-testid="dashboard-nav"
-						className={`nav-button ${!selected ? "selected" : ""}`}
-						onClick={() => setSelectedPath(null)}
+						className={`nav-button ${!selected && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+						onClick={() => {
+							setSelectedPath(null);
+							setSettingsOpen(false);
+							setArchivesOpen(false);
+						}}
 					>
 						<LayoutDashboard size={16} />
-						Vue d’ensemble
+						{t("overview")}
 					</button>
 					<div className="nav-section-title pinned-heading">
-						PROJETS ÉPINGLÉS <span>{ordered.filter((project) => project.pinned).length}</span>
+						{t("pinnedProjects")} <span>{ordered.filter((project) => project.pinned).length}</span>
 					</div>
 					<div className="pinned-list">
 						{ordered
@@ -237,8 +287,12 @@ export default function App() {
 										type="button"
 										key={project.path}
 										data-testid={`nav-project-${project.name}`}
-										className={`nav-project ${selected?.path === project.path ? "selected" : ""}`}
-										onClick={() => setSelectedPath(project.path)}
+										className={`nav-project ${!settingsOpen && !archivesOpen && selected?.path === project.path ? "selected" : ""}`}
+										onClick={() => {
+											setSelectedPath(project.path);
+											setSettingsOpen(false);
+											setArchivesOpen(false);
+										}}
 										title={project.path}
 									>
 										<span className="project-initial">{project.name[0]?.toUpperCase()}</span>
@@ -253,11 +307,11 @@ export default function App() {
 					<div className="sidebar-legend">
 						<span>
 							<FilePenLine size={11} />
-							Fichiers à committer
+							{t("filesToCommitLabel")}
 						</span>
 						<span>
 							<ArrowUp size={11} />
-							Commits à pousser
+							{t("commitsToPushLabel")}
 						</span>
 					</div>
 					<button
@@ -269,14 +323,45 @@ export default function App() {
 						}}
 					>
 						<FolderPlus size={15} />
-						Ajouter un projet
+						{t("addProject")}
 					</button>
 					<div className="nav-bottom">
-						<HardDrive size={13} />
-						Local · Git système
+						<button
+							type="button"
+							className={`nav-button ${archivesOpen ? "selected" : ""}`}
+							data-testid="archives-nav"
+							onClick={() => {
+								setArchivesOpen(true);
+								setSettingsOpen(false);
+							}}
+						>
+							<Archive size={16} />
+							{t("archives")} <span>{archived.length}</span>
+						</button>
+						<button
+							type="button"
+							className={`nav-button ${settingsOpen ? "selected" : ""}`}
+							data-testid="settings-nav"
+							onClick={() => {
+								setSettingsOpen(true);
+								setArchivesOpen(false);
+							}}
+						>
+							<Settings size={16} />
+							{t("settings")}
+						</button>
+						<span className="nav-local">
+							<HardDrive size={13} />
+							{t("localGit")}
+						</span>
 					</div>
 				</nav>
 				<main className="main-content">
+					{settings.data?.watchError && !settingsOpen && (
+						<div className="app-notice" role="alert">
+							{t("watchError", { error: settings.data.watchError })}
+						</div>
+					)}
 					{notice && (
 						<div className="app-notice" role="alert" data-testid="app-notice">
 							<span>{notice}</span>
@@ -290,16 +375,61 @@ export default function App() {
 							</button>
 						</div>
 					)}
-					{projects.error ? (
+					{settingsOpen ? (
+						settings.data ? (
+							<SettingsView
+								settings={settings.data}
+								onChanged={async (value) => {
+									client.setQueryData(["settings"], value);
+									await client.invalidateQueries();
+								}}
+							/>
+						) : (
+							<div className="empty-view">
+								{settings.error ? String(settings.error) : t("loadingSettings")}
+							</div>
+						)
+					) : archivesOpen ? (
+						<div className="dashboard settings-view" data-testid="archives-view">
+							<div className="eyebrow">{t("workspaceEyebrow")}</div>
+							<h1>{t("archives")}</h1>
+							<p className="dashboard-intro">{t("archivesIntro")}</p>
+							{!archived.length && <p className="muted">{t("archivesEmpty")}</p>}
+							{archived.map((project) => (
+								<div
+									className="settings-card archive-row"
+									key={project.path}
+									data-testid={`archived-${project.name}`}
+								>
+									<Archive size={18} />
+									<div>
+										<strong>{project.name}</strong>
+										<p className="muted">{project.path}</p>
+									</div>
+									<button
+										type="button"
+										className="quiet-button"
+										data-testid={`restore-${project.name}`}
+										onClick={() => void handleArchive(project, false)}
+									>
+										<ArchiveRestore size={14} />
+										{t("restore")}
+									</button>
+								</div>
+							))}
+						</div>
+					) : projects.error ? (
 						<div className="empty-view error">{String(projects.error)}</div>
 					) : projects.isPending ? (
 						<div className="empty-view" data-testid="projects-loading">
-							Chargement des projets…
+							{t("loadingProjects")}
 						</div>
 					) : selected ? (
 						<ErrorBoundary
 							key={selected.path}
-							fallbackRender={({ error }) => <div className="empty-view error">{String(error)}</div>}
+							fallbackRender={({ error }) => (
+								<div className="empty-view error">{localizeNativeText(String(error))}</div>
+							)}
 						>
 							<ProjectView
 								key={selected.path}
@@ -313,34 +443,36 @@ export default function App() {
 						</ErrorBoundary>
 					) : (
 						<div className="dashboard" data-testid="dashboard">
-							<div className="eyebrow">VOTRE ESPACE DE TRAVAIL</div>
-							<h1>Les projets, en un regard.</h1>
-							<p className="dashboard-intro">Ce qui a changé. Ce qui reste à relire.</p>
+							<div className="eyebrow">{t("workspaceEyebrow")}</div>
+							<h1>{t("dashboardTitle")}</h1>
+							<p className="dashboard-intro">{t("dashboardIntro")}</p>
 							<div className="dashboard-summary" data-testid="dashboard-counts">
 								<div>
 									<strong>{ordered.length}</strong>
-									<span>projets suivis</span>
+									<span>{t("trackedProjects", { count: ordered.length })}</span>
 								</div>
 								<div>
 									<strong>{counts.files}</strong>
-									<span>fichiers à committer</span>
+									<span>{t("filesToCommit", { count: counts.files })}</span>
 								</div>
 								<div>
 									<strong>{counts.ahead}</strong>
-									<span>commits à pousser connus</span>
+									<span>{t("knownCommitsToPush", { count: counts.ahead })}</span>
 								</div>
 								<div className="summary-caption">
-									{scanning ? `${scanning} projets en cours d’analyse…` : "Actualisation toutes les minutes"}
-									{counts.errors > 0 && <span className="error">{counts.errors} dépôts inaccessibles</span>}
+									{scanning ? t("scanningCount", { count: scanning }) : t("refreshInterval")}
+									{counts.errors > 0 && (
+										<span className="error">{t("inaccessibleRepos", { count: counts.errors })}</span>
+									)}
 								</div>
 							</div>
 							<div className="dashboard-toolbar">
 								<h2>
-									Vos projets <span>{filtered.length}</span>
+									{t("yourProjects")} <span>{filtered.length}</span>
 								</h2>
 								<div className="dashboard-filters">
 									<select
-										aria-label="Trier les projets"
+										aria-label={t("sortProjects")}
 										data-testid="project-sort"
 										value={sort}
 										onChange={(event) => {
@@ -348,13 +480,13 @@ export default function App() {
 											localStorage.setItem("boa-project-sort", event.target.value);
 										}}
 									>
-										<option value="name">Nom A → Z</option>
-										<option value="reverse">Nom Z → A</option>
-										<option value="recent">Activité récente</option>
-										<option value="changes">Fichiers à committer</option>
+										<option value="name">{t("sortName")}</option>
+										<option value="reverse">{t("sortReverse")}</option>
+										<option value="recent">{t("sortRecent")}</option>
+										<option value="changes">{t("filesToCommitLabel")}</option>
 									</select>
 									<select
-										aria-label="Présentation des projets"
+										aria-label={t("displayProjects")}
 										data-testid="project-display"
 										value={display}
 										onChange={(event) => {
@@ -362,17 +494,17 @@ export default function App() {
 											localStorage.setItem("boa-project-display", event.target.value);
 										}}
 									>
-										<option value="grid">Grille</option>
-										<option value="list">Liste</option>
+										<option value="grid">{t("grid")}</option>
+										<option value="list">{t("list")}</option>
 									</select>
 									<label className="search-field">
 										<Search size={14} />
 										<input
 											data-testid="project-search"
-											placeholder="Rechercher un projet"
+											placeholder={t("searchProjects")}
 											value={search}
 											onChange={(event) => setSearch(event.target.value)}
-											aria-label="Rechercher un projet"
+											aria-label={t("searchProjects")}
 										/>
 									</label>
 									<button
@@ -382,7 +514,8 @@ export default function App() {
 										className={`quiet-button ${onlyChanges ? "selected" : ""}`}
 										onClick={() => setOnlyChanges(!onlyChanges)}
 									>
-										<FilePenLine size={13} />À vérifier
+										<FilePenLine size={13} />
+										{t("needsReview")}
 									</button>
 								</div>
 							</div>
@@ -401,19 +534,16 @@ export default function App() {
 											onPin={() => {
 												void handlePin(project);
 											}}
+											onArchive={() => void handleArchive(project, true)}
 										/>
 									);
 								})}
 							</div>
 							{!filtered.length && (
 								<div className="empty-view">
-									<p>
-										{ordered.length
-											? "Aucun projet dans cette vue."
-											: "Votre espace est prêt. Ajoutez votre premier projet."}
-									</p>
-									{!ordered.length && <span>Aucun dossier n’est parcouru avant votre sélection.</span>}
-									{onlyChanges && scanning > 0 && <span>L’analyse des projets est encore en cours.</span>}
+									<p>{ordered.length ? t("emptyView") : t("firstProject")}</p>
+									{!ordered.length && <span>{t("noFolderScan")}</span>}
+									{onlyChanges && scanning > 0 && <span>{t("scanningProjects")}</span>}
 									<button
 										type="button"
 										className="quiet-button"
@@ -423,14 +553,11 @@ export default function App() {
 										}}
 									>
 										<FolderPlus size={14} />
-										Ajouter un dossier
+										{t("addFolder")}
 									</button>
 								</div>
 							)}
-							<p className="dashboard-footnote">
-								Les compteurs distants utilisent les références Git présentes sur le Mac. BOA ne lance aucun
-								fetch automatique.
-							</p>
+							<p className="dashboard-footnote">{t("remoteFootnote")}</p>
 						</div>
 					)}
 				</main>
@@ -438,27 +565,31 @@ export default function App() {
 			<footer className="statusbar">
 				<span>
 					<span className="local-dot" />
-					Espace local
+					{t("localWorkspace")}
 				</span>
 				<span>
 					{selected?.path ??
-						`${ordered.length} projets · ${scanning ? "analyse en cours" : "dernière lecture locale"}`}
+						t("statusProjects", {
+							count: ordered.length,
+							status: scanning ? t("statusScanning") : t("statusLocalRead"),
+						})}
 				</span>
-				<span>BOA 0.1 · fichiers en lecture seule</span>
+				<span>{t("readOnly")}</span>
 			</footer>
 		</div>
 	);
 }
 
 function SidebarCounts({ summary, error }: { summary?: Summary; error: boolean }) {
+	const { t } = useTranslation("dashboard");
 	if (error)
 		return (
 			<small className="error">
 				<CircleAlert size={11} />
-				Lecture impossible
+				{t("readFailed")}
 			</small>
 		);
-	if (!summary) return <small className="muted">Analyse…</small>;
+	if (!summary) return <small className="muted">{t("scanning")}</small>;
 	const counts = countRepos(summary.repos);
 	return (
 		<small className="sidebar-counts">
@@ -466,17 +597,16 @@ function SidebarCounts({ summary, error }: { summary?: Summary; error: boolean }
 				<span className="error">! {counts.errors}</span>
 			) : (
 				<>
-					<span className={counts.files ? "changed" : "muted"} title={`${counts.files} fichiers à committer`}>
+					<span
+						className={counts.files ? "changed" : "muted"}
+						title={t("filesToCommitCount", { count: counts.files })}
+					>
 						<FilePenLine size={11} />
 						{counts.files}
 					</span>
 					<span
 						className={counts.ahead ? "outgoing" : "muted"}
-						title={
-							counts.unknown
-								? "Certaines branches ne suivent aucun upstream"
-								: `${counts.ahead} commits à pousser`
-						}
+						title={counts.unknown ? t("unknownUpstream") : t("commitsToPushCount", { count: counts.ahead })}
 					>
 						<ArrowUp size={11} />
 						{counts.ahead || (counts.unknown ? "?" : "0")}
@@ -495,6 +625,7 @@ function ProjectCard({
 	error,
 	onOpen,
 	onPin,
+	onArchive,
 }: {
 	project: Project;
 	summary?: Summary;
@@ -502,7 +633,9 @@ function ProjectCard({
 	error?: string;
 	onOpen: () => void;
 	onPin: () => void;
+	onArchive: () => void;
 }) {
+	const { t } = useTranslation("dashboard");
 	const counts = countRepos(summary?.repos ?? []);
 	const root = summary?.repos.find((repo) => repo.path === project.path) ?? summary?.repos[0];
 	return (
@@ -520,10 +653,20 @@ function ProjectCard({
 				</button>
 				<button
 					type="button"
+					className="icon-button"
+					title={t("archiveTitle")}
+					aria-label={t("archiveProject", { name: project.name })}
+					data-testid={`archive-project-${project.name}`}
+					onClick={onArchive}
+				>
+					<Archive size={14} />
+				</button>
+				<button
+					type="button"
 					data-testid={`pin-project-${project.name}`}
 					className={`icon-button pin-button ${project.pinned ? "pinned" : ""}`}
 					onClick={onPin}
-					title={project.pinned ? "Désépingler" : "Épingler"}
+					title={project.pinned ? t("unpin") : t("pin")}
 					aria-pressed={project.pinned}
 				>
 					<Pin size={13} fill={project.pinned ? "currentColor" : "none"} />
@@ -538,54 +681,50 @@ function ProjectCard({
 				<div className="branch">
 					<GitBranch size={12} />
 					<span>
-						{pending
-							? "Lecture Git…"
-							: error || counts.errors
-								? "Git à vérifier"
-								: root?.branch || "Dossier sans Git"}
+						{pending ? t("readingGit") : error || counts.errors ? t("checkGit") : root?.branch || t("noGit")}
 					</span>
 				</div>
 				<div className="project-stats">
 					{error || counts.errors ? (
 						<span className="error">
 							<CircleAlert size={12} />
-							{error || `${counts.errors} dépôts à vérifier`}
+							{error || t("reposToCheck", { count: counts.errors })}
 						</span>
 					) : pending ? (
-						<span className="muted">Analyse de l’état local…</span>
+						<span className="muted">{t("scanningLocal")}</span>
 					) : (
 						<>
 							<span className={counts.files ? "changed" : "good"}>
 								{counts.files ? <FilePenLine size={12} /> : <Check size={12} />}
-								{counts.files ? `${counts.files} à committer` : "Aucun changement"}
+								{counts.files ? t("toCommit", { count: counts.files }) : t("noChanges")}
 							</span>
 							{counts.ahead > 0 && (
 								<span className="outgoing">
 									<ArrowUp size={12} />
-									{counts.ahead} à pousser
+									{t("toPush", { count: counts.ahead })}
 								</span>
 							)}
 							{counts.behind > 0 && (
 								<span>
 									<ArrowDown size={12} />
-									{counts.behind} à récupérer
+									{t("toPull", { count: counts.behind })}
 								</span>
 							)}
 						</>
 					)}
 				</div>
 				<div className="card-footer">
-					<span>{summary ? `${summary.repos.length} dépôts / worktrees` : "Découverte…"}</span>
+					<span>{summary ? t("repoWorktrees", { count: summary.repos.length }) : t("discovering")}</span>
 					<span>
 						{summary?.updatedAt
-							? new Date(summary.updatedAt * 1000).toLocaleString("fr-FR", {
+							? new Date(summary.updatedAt * 1000).toLocaleString(getLocale(), {
 									day: "numeric",
 									month: "short",
 									hour: "2-digit",
 									minute: "2-digit",
 								})
 							: summary?.scanLimited
-								? "Scan partiel"
+								? t("partialScan")
 								: ""}
 					</span>
 				</div>

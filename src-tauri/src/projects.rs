@@ -38,11 +38,39 @@ pub(crate) struct Project {
     pub path: String,
     pub name: String,
     pub pinned: bool,
+    #[serde(default)]
+    pub archived: bool,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Config {
     pub projects: Vec<Project>,
+    #[serde(default)]
+    pub watch_directory: Option<String>,
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "fr".into()
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            projects: Vec::new(),
+            watch_directory: None,
+            language: default_language(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Settings {
+    pub watch_directory: Option<String>,
+    pub watch_error: Option<String>,
+    pub language: String,
 }
 
 #[derive(Serialize)]
@@ -80,6 +108,7 @@ pub(crate) struct AppState {
     pub config_path: PathBuf,
     pub repo_cache: Mutex<RepoCache>,
     pub workers: std::sync::Arc<tokio::sync::Semaphore>,
+    watch_error: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -96,9 +125,76 @@ impl AppState {
             config_path,
             repo_cache: Mutex::new(HashMap::new()),
             workers: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
+            watch_error: Mutex::new(None),
         };
         state.save()?;
         Ok(state)
+    }
+
+    pub fn settings(&self) -> Result<Settings, String> {
+        let config = self.config.lock().map_err(|e| e.to_string())?;
+        Ok(Settings {
+            watch_directory: config.watch_directory.clone(),
+            watch_error: self.watch_error.lock().map_err(|e| e.to_string())?.clone(),
+            language: config.language.clone(),
+        })
+    }
+
+    /// Poll only the explicitly configured directory; keep prior projects on transient errors.
+    pub fn list_projects(&self) -> Result<Vec<Project>, String> {
+        let mut config = self.config.lock().map_err(|e| e.to_string())?;
+        let mut candidate = config.clone();
+        let refresh = discover_project_folders(&mut candidate).and_then(|()| {
+            if candidate.projects.len() != config.projects.len() {
+                self.write_config(&candidate)?;
+                *config = candidate;
+            }
+            Ok(())
+        });
+        *self.watch_error.lock().map_err(|e| e.to_string())? = refresh.err();
+        Ok(config.projects.clone())
+    }
+
+    pub fn set_watch_directory(&self, directory: Option<&Path>) -> Result<Settings, String> {
+        let directory = directory
+            .map(|path| -> Result<String, String> {
+                let path = path.canonicalize().map_err(|e| e.to_string())?;
+                if !path.is_dir() {
+                    return Err("Sélectionnez un dossier".into());
+                }
+                path.into_os_string()
+                    .into_string()
+                    .map_err(|_| "Chemin non UTF-8".into())
+            })
+            .transpose()?;
+        let mut config = self.config.lock().map_err(|e| e.to_string())?;
+        let mut candidate = config.clone();
+        candidate.watch_directory = directory;
+        discover_project_folders(&mut candidate)?;
+        self.write_config(&candidate)?;
+        *config = candidate;
+        *self.watch_error.lock().map_err(|e| e.to_string())? = None;
+        Ok(Settings {
+            watch_directory: config.watch_directory.clone(),
+            watch_error: None,
+            language: config.language.clone(),
+        })
+    }
+
+    pub fn set_language(&self, language: &str) -> Result<Settings, String> {
+        if !["fr", "en"].contains(&language) {
+            return Err("Langue non prise en charge".into());
+        }
+        let mut config = self.config.lock().map_err(|e| e.to_string())?;
+        let mut candidate = config.clone();
+        candidate.language = language.to_owned();
+        self.write_config(&candidate)?;
+        *config = candidate;
+        Ok(Settings {
+            watch_directory: config.watch_directory.clone(),
+            watch_error: self.watch_error.lock().map_err(|e| e.to_string())?.clone(),
+            language: config.language.clone(),
+        })
     }
 
     /// Register only an explicit user/CLI choice; first launch never scans the home folder.
@@ -109,8 +205,14 @@ impl AppState {
         }
         let mut config = self.config.lock().map_err(|e| e.to_string())?;
         let canonical = path.to_string_lossy().into_owned();
-        if let Some(existing) = config.projects.iter().find(|p| p.path == canonical) {
-            return Ok(existing.clone());
+        if let Some(index) = config.projects.iter().position(|p| p.path == canonical) {
+            if config.projects[index].archived {
+                let mut candidate = config.clone();
+                candidate.projects[index].archived = false;
+                self.write_config(&candidate)?;
+                *config = candidate;
+            }
+            return Ok(config.projects[index].clone());
         }
         let project = Project {
             name: path
@@ -120,6 +222,7 @@ impl AppState {
                 .into_owned(),
             path: canonical,
             pinned: false,
+            archived: false,
         };
         let mut candidate = config.clone();
         candidate.projects.push(project.clone());
@@ -145,6 +248,20 @@ impl AppState {
         self.write_config(&candidate)?;
         *config = candidate;
         Ok(result)
+    }
+
+    pub fn archive_project(&self, path: &str, archived: bool) -> Result<(), String> {
+        let mut config = self.config.lock().map_err(|e| e.to_string())?;
+        let mut candidate = config.clone();
+        candidate
+            .projects
+            .iter_mut()
+            .find(|project| project.path == path)
+            .ok_or("Projet non enregistré dans BOA")?
+            .archived = archived;
+        self.write_config(&candidate)?;
+        *config = candidate;
+        Ok(())
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -225,6 +342,51 @@ impl AppState {
         }
         Ok(repo)
     }
+}
+
+fn discover_project_folders(config: &mut Config) -> Result<(), String> {
+    let Some(root) = &config.watch_directory else {
+        return Ok(());
+    };
+    let entries =
+        fs::read_dir(root).map_err(|e| format!("Dossier surveillé inaccessible : {e}"))?;
+    let mut known: BTreeSet<String> = config
+        .projects
+        .iter()
+        .map(|project| project.path.clone())
+        .collect();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Lecture du dossier surveillé : {e}"))?;
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with('.') || !entry.path().is_dir() {
+            continue;
+        }
+        let Ok(path) = entry.path().canonicalize() else {
+            continue;
+        };
+        let Some(path) = path.to_str() else {
+            continue;
+        };
+        if known.insert(path.to_owned()) {
+            config.projects.push(Project {
+                name: path_name(Path::new(path)),
+                path: path.to_owned(),
+                pinned: false,
+                archived: false,
+            });
+        }
+    }
+    config
+        .projects
+        .sort_by_key(|project| project.name.to_lowercase());
+    Ok(())
+}
+
+fn path_name(path: &Path) -> String {
+    path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub(crate) fn discover_repositories(root: &Path) -> Result<(Vec<PathBuf>, bool), String> {

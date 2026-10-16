@@ -1,5 +1,6 @@
 /** Mouse/keyboard splitter; pointer motion updates CSS without rerendering the editor. */
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export function PanelResizer({
 	container,
@@ -8,6 +9,7 @@ export function PanelResizer({
 	container: RefObject<HTMLDivElement | null>;
 	vertical?: boolean;
 }) {
+	const { t } = useTranslation("workspace");
 	const storageKey = vertical ? "boa-git-width" : "boa-git-height";
 	const property = vertical ? "--git-list-size" : "--git-size";
 	const minimum = vertical ? 20 : 18;
@@ -36,12 +38,8 @@ export function PanelResizer({
 			aria-valuenow={Math.round(value)}
 			aria-valuemin={minimum}
 			aria-valuemax={maximum}
-			aria-label={vertical ? "Largeur de la liste des changements" : "Hauteur du panneau Git"}
-			title={
-				vertical
-					? "Glisser pour redimensionner · flèches gauche/droite au clavier"
-					: "Glisser pour redimensionner Git · flèches haut/bas au clavier"
-			}
+			aria-label={vertical ? t("resizer.width") : t("resizer.height")}
+			title={vertical ? t("resizer.widthHint") : t("resizer.heightHint")}
 			data-testid={vertical ? "git-width-resizer" : "git-resizer"}
 			className={vertical ? "git-resizer vertical" : "git-resizer"}
 			onPointerDown={(event) => {

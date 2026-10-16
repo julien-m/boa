@@ -559,3 +559,99 @@ fn discovery_keeps_healthy_siblings_when_a_descendant_is_unreadable() {
     assert!(root_result.is_err());
     assert!(discover_repositories(&root.join("missing")).is_err());
 }
+
+#[test]
+fn configured_directory_discovers_direct_children_without_duplicates_and_preserves_archives() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("alpha/nested")).unwrap();
+    fs::create_dir(root.join(".hidden")).unwrap();
+    fs::write(root.join("file.txt"), "not a directory").unwrap();
+    let config = temp.path().join("settings.json");
+    let state = AppState::new(config.clone()).unwrap();
+    assert!(state.list_projects().unwrap().is_empty());
+    let alpha = state.add_project(&root.join("alpha")).unwrap();
+    state.pin_project(&alpha.path, true).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    let projects = state.list_projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert!(projects[0].pinned);
+    fs::create_dir(root.join("beta")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.join("alpha"), root.join("alias")).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    state.archive_project(&alpha.path, true).unwrap();
+    assert!(
+        state
+            .list_projects()
+            .unwrap()
+            .iter()
+            .find(|p| p.path == alpha.path)
+            .unwrap()
+            .archived
+    );
+    let next = AppState::new(config).unwrap();
+    assert!(next.settings().unwrap().watch_directory.is_some());
+    assert!(next.list_projects().unwrap()[0].archived);
+    assert!(!next.add_project(&root.join("alpha")).unwrap().archived);
+    assert!(next.list_projects().unwrap()[0].pinned);
+    next.archive_project(&alpha.path, true).unwrap();
+    next.archive_project(&alpha.path, false).unwrap();
+    assert!(!next.list_projects().unwrap()[0].archived);
+    next.set_watch_directory(None).unwrap();
+    fs::create_dir(root.join("gamma")).unwrap();
+    assert_eq!(next.list_projects().unwrap().len(), 2);
+}
+
+#[test]
+fn settings_migrate_old_configuration_and_do_not_publish_failed_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.json");
+    fs::write(&config, r#"{"projects":[]}"#).unwrap();
+    let state = AppState::new(config.clone()).unwrap();
+    assert!(state.settings().unwrap().watch_directory.is_none());
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("first")).unwrap();
+    let blocker = config.with_extension("json.tmp");
+    fs::create_dir(&blocker).unwrap();
+    assert!(state.set_watch_directory(Some(&root)).is_err());
+    assert!(state.settings().unwrap().watch_directory.is_none());
+    assert!(state.list_projects().unwrap().is_empty());
+    fs::remove_dir(&blocker).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    fs::create_dir(root.join("second")).unwrap();
+    fs::create_dir(&blocker).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 1);
+    assert!(state.settings().unwrap().watch_error.is_some());
+    let project = state.list_projects().unwrap()[0].clone();
+    assert!(state.archive_project(&project.path, true).is_err());
+    assert!(!state.list_projects().unwrap()[0].archived);
+    fs::remove_dir(&blocker).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    assert!(state.settings().unwrap().watch_error.is_none());
+    fs::rename(&root, temp.path().join("moved")).unwrap();
+    assert_eq!(state.list_projects().unwrap().len(), 2);
+    assert!(state.settings().unwrap().watch_error.is_some());
+    state.set_watch_directory(None).unwrap();
+    assert!(state.settings().unwrap().watch_error.is_none());
+}
+
+#[test]
+fn interface_language_is_validated_persisted_and_independent_of_project_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.json");
+    let state = AppState::new(config.clone()).unwrap();
+    assert_eq!(state.settings().unwrap().language, "fr");
+    assert!(state.set_language("de").is_err());
+    let root = temp.path().join("projects");
+    fs::create_dir_all(root.join("one")).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    state.set_language("en").unwrap();
+    let next = AppState::new(config.clone()).unwrap();
+    assert_eq!(next.settings().unwrap().language, "en");
+    assert!(next.settings().unwrap().watch_directory.is_some());
+    assert_eq!(next.list_projects().unwrap().len(), 1);
+    fs::create_dir(config.with_extension("json.tmp")).unwrap();
+    assert!(next.set_language("fr").is_err());
+    assert_eq!(next.settings().unwrap().language, "en");
+}
