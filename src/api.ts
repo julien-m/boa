@@ -39,6 +39,11 @@ export const api = {
 		warning: string | null;
 	}> => invoke("search_project", { project, query }),
 	projects: (): Promise<Project[]> => invoke("list_projects"),
+	repositoryUrl: (project: string, repo: string): Promise<string | null> =>
+		invoke("repository_web_url", { project, repo }),
+	openRepository: (project: string, repo: string): Promise<void> =>
+		invoke("open_repository", { project, repo }),
+	openProjectFolder: (project: string): Promise<void> => invoke("open_project_folder", { project }),
 	settings: (): Promise<ProjectSettings> => invoke<ProjectSettings>("get_settings").then(settingsLabels),
 	setLanguage: (language: "fr" | "en"): Promise<ProjectSettings> => invoke("set_language", { language }),
 	setWatchDirectory: (path: string | null): Promise<ProjectSettings> =>

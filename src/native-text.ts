@@ -2,6 +2,8 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"Aucun dépôt distant web configuré": "No web remote configured",
+	"Ouverture impossible": "Unable to open",
 	"Lien BOA inconnu": "Unknown BOA link",
 	"Chemin ou lignes invalides dans le lien BOA": "Invalid path or lines in the BOA link",
 	"Langue non prise en charge": "Unsupported language",
@@ -71,6 +73,7 @@ const englishText: Record<string, string> = {
 
 // Replace only the known wrapper. Everything after it is opaque OS/Git/path data.
 const englishPrefixes: [string, string][] = [
+	["Ouverture impossible : ", "Unable to open: "],
 	["Surveillance indisponible : ", "File monitoring unavailable: "],
 	["Configuration BOA illisible : ", "Cannot read BOA configuration: "],
 	["Projet inaccessible : ", "Project inaccessible: "],

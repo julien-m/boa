@@ -16,6 +16,7 @@ BOA helps you see which projects need attention and understand what changed with
 - Inspect staged/local changes, commit history and a branch's changes since its common ancestor with a base. Compare before/after and jump between changed blocks.
 - Use Files, Git or a combined layout; resize the Git panels and hide the file tree.
 - Search in a file or across a selected project.
+- Open the selected repository in your browser (HTTP(S) and common SSH remotes), or open the project folder in Finder. The web button prefers `origin`, then the first supported remote; it is disabled when none is available. Credentials, query strings and fragments are removed from browser URLs.
 - Prepare a small AI context: selected text plus your comment, or just the file path plus your comment. Copy it to an assistant of your choice. No conversation history, model backend or automatic AI submission.
 - Let a CLI or coding agent add/pin projects and open a file at exact lines.
 

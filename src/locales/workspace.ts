@@ -1,6 +1,7 @@
 /** Workspace UI and generated context prompts. */
 export const workspaceFr = {
 	project: {
+		openFolder: "Ouvrir dans le Finder",
 		layout: "Disposition",
 		filesAndGit: "Fichiers et Git",
 		mixed: "Mixte",
@@ -98,6 +99,7 @@ export const workspaceFr = {
 
 export const workspaceEn = {
 	project: {
+		openFolder: "Open in Finder",
 		layout: "Layout",
 		filesAndGit: "Files and Git",
 		mixed: "Mixed",

@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
 	Check,
 	ChevronDown,
+	ExternalLink,
 	FileCode2,
 	FolderGit2,
 	GitBranch,
@@ -33,6 +34,12 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 	const [branch, setBranch] = useState("");
 	const [commitHash, setCommitHash] = useState("");
 	const repo = repos.find((item) => item.path === repoPath) ?? repos[0];
+	const [openError, setOpenError] = useState("");
+	const remote = useQuery({
+		queryKey: ["repository-url", project.path, repo?.path],
+		queryFn: () => api.repositoryUrl(project.path, repo?.path ?? ""),
+		enabled: Boolean(repo && !repo.error),
+	});
 	const detailRef = useRef<HTMLDivElement>(null);
 	const changesSelection = useRef<Selection | null>(null);
 	const selectTab = (next: "changes" | "history" | "compare"): void => {
@@ -63,6 +70,7 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 			});
 	}, [expanded, tab, repo, selection, project.path, onSelect]);
 	const handleRepository = (path: string): void => {
+		setOpenError("");
 		setRepoPath(path);
 		changesSelection.current = null;
 		onSelect(null);
@@ -101,7 +109,34 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 					{t("compareBranches")}
 				</button>
 				<span className="muted small">{t("repositoryCount", { count: repos.length })}</span>
+				{repo && (
+					<button
+						type="button"
+						className="quiet-button git-remote-button"
+						data-testid="open-repository"
+						disabled={!remote.data}
+						title={
+							remote.data
+								? t("openRepositoryUrl", { url: remote.data })
+								: remote.error
+									? String(remote.error)
+									: t("noRemote")
+						}
+						onClick={() => {
+							setOpenError("");
+							void api.openRepository(project.path, repo.path).catch((error) => setOpenError(String(error)));
+						}}
+					>
+						<ExternalLink size={13} />
+						<span>{t("openRepository")}</span>
+					</button>
+				)}
 			</div>
+			{openError && (
+				<div className="operation-banner error" role="alert">
+					{openError}
+				</div>
+			)}
 			{!repo ? (
 				<div className="empty-view" data-testid="git-empty">
 					<FolderGit2 size={28} />

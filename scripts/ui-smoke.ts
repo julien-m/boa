@@ -32,6 +32,9 @@ let registeredProjects: (typeof project)[] = [];
 let summaryCalls = 0;
 let projectListCalls = 0;
 let historyCalls = 0;
+let remoteUrl: string | null = "https://github.com/example/project";
+const openedFolders: string[] = [];
+const openedRepositories: string[] = [];
 let clipboard = "";
 let exportsCreated = 0;
 const browser = await chromium.launch({
@@ -55,6 +58,14 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "repository_web_url":
+			return remoteUrl;
+		case "open_repository":
+			openedRepositories.push(String(args.repo));
+			return null;
+		case "open_project_folder":
+			openedFolders.push(String(args.project));
+			return null;
 		case "list_projects":
 			projectListCalls++;
 			if (
@@ -226,6 +237,34 @@ try {
 	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("empty-add-project").click();
 	await expect(page.getByTestId("project-view")).toBeVisible();
+	await page.getByTestId("open-project-folder").click();
+	await expect.poll(() => openedFolders.at(-1)).toBe(directory);
+	await page.getByTestId("open-repository").click();
+	await expect.poll(() => openedRepositories.at(-1)).toBe(directory);
+	remoteUrl = null;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByTestId("open-repository")).toBeDisabled();
+	await expect(page.getByTestId("open-repository")).toHaveAttribute(
+		"title",
+		"Aucun dépôt distant web configuré",
+	);
+	remoteUrl = "https://github.com/example/project";
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByTestId("open-repository")).toBeEnabled();
 	await page.getByTestId("dashboard-nav").click();
 	await expect(page.getByTestId("project-card-BOA QA")).toBeVisible();
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
@@ -514,6 +553,9 @@ try {
 	await page.getByTestId("layout-git").click();
 	await page.getByTestId("git-history-tab").click();
 	await expect(page.getByTestId(`commit-${hash}`)).toBeVisible();
+	await expect(page.getByTestId("open-repository")).toContainText("Open repository");
+	await page.getByTestId("open-repository").click();
+	await expect.poll(() => openedRepositories.at(-1)).toBe(repo.path);
 	const previousHistoryCalls = historyCalls;
 	await page.evaluate(
 		(project) =>

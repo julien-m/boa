@@ -115,6 +115,74 @@ async fn read_directory(
 }
 
 #[tauri::command]
+async fn repository_web_url(
+    state: NativeState<'_>,
+    project: String,
+    repo: String,
+) -> Result<Option<String>, String> {
+    work(state.inner().clone(), move |state| {
+        git::repository_web_url(&state.repository(&project, &repo)?)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_repository(
+    state: NativeState<'_>,
+    project: String,
+    repo: String,
+) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let url = git::repository_web_url(&state.repository(&project, &repo)?)?
+            .ok_or("Aucun dépôt distant web configuré")?;
+        open_external(&[&url])
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_project_folder(state: NativeState<'_>, project: String) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let root = state.registered(&project)?;
+        if !root.is_dir() {
+            return Err("Sélectionnez un dossier".into());
+        }
+        open_external(&[
+            "-b",
+            "com.apple.finder",
+            root.to_str().ok_or("Chemin non UTF-8")?,
+        ])
+    })
+    .await
+}
+
+fn open_external(args: &[&str]) -> Result<(), String> {
+    use wait_timeout::ChildExt;
+    let mut child = std::process::Command::new("/usr/bin/open")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Ouverture impossible : {error}"))?;
+    let status = match child
+        .wait_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| format!("Ouverture impossible : {error}"))?
+    {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Ouverture impossible".into());
+        }
+    };
+    if !status.success() {
+        return Err("Ouverture impossible".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn read_file(
     state: NativeState<'_>,
     project: String,
@@ -367,6 +435,9 @@ pub fn run() {
             add_project,
             project_summary,
             read_directory,
+            repository_web_url,
+            open_repository,
+            open_project_folder,
             read_file,
             git_history,
             git_branches,

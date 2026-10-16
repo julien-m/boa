@@ -1,5 +1,8 @@
 /** Git interface copy. Repository content and Git identifiers stay untouched. */
 export const gitFr = {
+	openRepository: "Ouvrir le dépôt",
+	openRepositoryUrl: "Ouvrir {{url}} dans le navigateur",
+	noRemote: "Aucun dépôt distant web configuré",
 	changes: "Changements",
 	history: "Historique",
 	compareBranches: "Comparer les branches",
@@ -54,6 +57,9 @@ export const gitFr = {
 } as const;
 
 export const gitEn: Record<keyof typeof gitFr, string> = {
+	openRepository: "Open repository",
+	openRepositoryUrl: "Open {{url}} in your browser",
+	noRemote: "No web remote configured",
 	changes: "Changes",
 	history: "History",
 	compareBranches: "Compare branches",

@@ -2,6 +2,7 @@
 import {
 	Columns2,
 	FileCode2,
+	FolderOpen,
 	GitBranch,
 	GitFork,
 	PanelLeftClose,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { api } from "./api";
 import { CodeViewer } from "./code-viewer";
 import { FileTree } from "./file-tree";
 import { GitPanel } from "./git-panel";
@@ -40,6 +42,7 @@ export function ProjectView({
 	});
 	const [showTree, setShowTree] = useState(true);
 	const [searching, setSearching] = useState(false);
+	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const shortcut = (event: KeyboardEvent): void => {
@@ -85,6 +88,19 @@ export function ProjectView({
 				<div className="view-switcher" role="group" aria-label={t("project.layout")}>
 					<button
 						type="button"
+						data-testid="open-project-folder"
+						title={t("project.openFolder")}
+						aria-label={t("project.openFolder")}
+						onClick={() => {
+							setFolderError("");
+							void api.openProjectFolder(project.path).catch((error) => setFolderError(String(error)));
+						}}
+					>
+						<FolderOpen size={14} />
+						<span>Finder</span>
+					</button>
+					<button
+						type="button"
 						data-testid="layout-split"
 						className={layout === "split" ? "active" : ""}
 						aria-pressed={layout === "split"}
@@ -125,6 +141,11 @@ export function ProjectView({
 					</button>
 				</div>
 			</header>
+			{folderError && (
+				<div className="operation-banner error" role="alert">
+					{folderError}
+				</div>
+			)}
 			{error && (
 				<div className="operation-banner error" data-testid="project-error">
 					{error}

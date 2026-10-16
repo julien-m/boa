@@ -655,3 +655,84 @@ fn interface_language_is_validated_persisted_and_independent_of_project_settings
     assert!(next.set_language("fr").is_err());
     assert_eq!(next.settings().unwrap().language, "en");
 }
+
+#[test]
+fn repository_links_normalize_git_transports_without_credentials_or_unsafe_schemes() {
+    for (remote, expected) in [
+        (
+            "https://git.example.org:8443/team/app.git?token=example#readme",
+            "https://git.example.org:8443/team/app",
+        ),
+        (
+            "git@gitlab.example.org:group/subgroup/app.git",
+            "https://gitlab.example.org/group/subgroup/app",
+        ),
+        (
+            "github.com:example/project.git",
+            "https://github.com/example/project",
+        ),
+        (
+            "ssh://git@git.example.org:2222/team/app.git",
+            "https://git.example.org/team/app",
+        ),
+        (
+            "http://localhost:3000/team/app.git/",
+            "http://localhost:3000/team/app",
+        ),
+    ] {
+        assert_eq!(git::web_url(remote).as_deref(), Some(expected));
+    }
+    let mut authenticated = tauri::Url::parse("https://git.example.org/team/app.git").unwrap();
+    authenticated.set_username("example-user").unwrap();
+    authenticated
+        .set_password(Some("example-password"))
+        .unwrap();
+    assert_eq!(
+        git::web_url(authenticated.as_str()).as_deref(),
+        Some("https://git.example.org/team/app")
+    );
+    for remote in [
+        "file:///tmp/repo",
+        "/tmp/repo.git",
+        "javascript:alert(1)",
+        "https://example.org/",
+        "https://example.org/team/app\nextra",
+        "",
+    ] {
+        assert!(git::web_url(remote).is_none(), "{remote}");
+    }
+}
+
+#[test]
+fn repository_link_prefers_origin_and_falls_back_to_a_supported_remote() {
+    let (_temp, path) = fixture();
+    assert!(git::repository_web_url(&path).unwrap().is_none());
+    run(&path, &["remote", "add", "origin", "/tmp/local.git"]);
+    assert!(git::repository_web_url(&path).unwrap().is_none());
+    run(
+        &path,
+        &[
+            "remote",
+            "add",
+            "upstream",
+            "git@gitlab.example.org:team/app.git",
+        ],
+    );
+    assert_eq!(
+        git::repository_web_url(&path).unwrap().as_deref(),
+        Some("https://gitlab.example.org/team/app")
+    );
+    run(
+        &path,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/example/project.git",
+        ],
+    );
+    assert_eq!(
+        git::repository_web_url(&path).unwrap().as_deref(),
+        Some("https://github.com/example/project")
+    );
+}

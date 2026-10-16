@@ -1592,3 +1592,8 @@ details:not([open]) > summary > svg {
 	width: 2px;
 	height: 40px;
 }
+
+.git-remote-button {
+	margin-left: auto;
+	white-space: nowrap;
+}
