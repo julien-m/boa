@@ -179,6 +179,37 @@ fn relevant_file(root: &Path, metadata: bool, path: &Path) -> bool {
     true
 }
 
+fn configure_state(
+    state: &AppState,
+    watcher: &mut RecommendedWatcher,
+    watched: &mut BTreeMap<PathBuf, bool>,
+    current: &mut Targets,
+) -> Update {
+    let next = targets(state);
+    let desired = desired_paths(&next);
+    let root_changed = current.discovery != next.discovery;
+    let watch_changed = next
+        .discovery
+        .as_ref()
+        .is_some_and(|root| watched.get(root) != desired.get(root));
+    *current = next;
+    let mut update = Update {
+        settings: state.set_watch_service_error(configure(watcher, watched, current)),
+        ..Update::default()
+    };
+    let discovery = current.discovery.as_ref().is_some_and(|root| {
+        root_changed || watch_changed && watched.get(root) == desired.get(root)
+    });
+    if discovery {
+        // Scan after installing the root watch: subsequent creations now produce events.
+        let _ = state.list_projects();
+        *current = targets(state);
+        update.settings |= state.set_watch_service_error(configure(watcher, watched, current));
+        update.discovery = true;
+    }
+    update
+}
+
 fn classify(event: &Event, targets: &Targets, update: &mut Update) {
     if matches!(event.kind, EventKind::Access(_)) {
         return;
@@ -257,25 +288,21 @@ pub(crate) fn start(
     })
     .map_err(|e| e.to_string())?;
     let _ = state.list_projects()?;
-    let mut current = targets(&state);
+    let mut current = Targets::default();
     let mut watched = BTreeMap::new();
-    state.set_watch_service_error(configure(&mut watcher, &mut watched, &current));
+    let initial = configure_state(&state, &mut watcher, &mut watched, &mut current);
+    if initial.discovery || initial.settings {
+        emit(initial);
+    }
     *state.watch_control.lock().map_err(|e| e.to_string())? = Some(sender.clone());
     let thread = thread::spawn(move || {
         while let Ok(message) = receiver.recv() {
             match message {
                 Message::Stop => break,
                 Message::Configure => {
-                    current = targets(&state);
-                    if state.set_watch_service_error(configure(
-                        &mut watcher,
-                        &mut watched,
-                        &current,
-                    )) {
-                        emit(Update {
-                            settings: true,
-                            ..Update::default()
-                        });
+                    let update = configure_state(&state, &mut watcher, &mut watched, &mut current);
+                    if update.discovery || update.settings {
+                        emit(update);
                     }
                 }
                 Message::Event(event) => {
@@ -291,7 +318,6 @@ pub(crate) fn start(
                             Message::Stop => return,
                             Message::Configure => {
                                 reconfigure = true;
-                                current = targets(&state);
                             }
                             Message::Event(event) => absorb(event, &current, &state, &mut update),
                         }
@@ -299,20 +325,15 @@ pub(crate) fn start(
                             break;
                         }
                     }
-                    if reconfigure {
-                        current = targets(&state);
-                    }
                     if update.discovery {
                         let _ = state.list_projects();
-                        current = targets(&state);
                         reconfigure = true;
                     }
                     if reconfigure {
-                        state.set_watch_service_error(configure(
-                            &mut watcher,
-                            &mut watched,
-                            &current,
-                        ));
+                        let configured =
+                            configure_state(&state, &mut watcher, &mut watched, &mut current);
+                        update.discovery |= configured.discovery;
+                        update.settings |= configured.settings;
                     }
                     if !update.rescan.is_empty() {
                         let mut cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -347,6 +368,34 @@ fn absorb(event: notify::Result<Event>, targets: &Targets, state: &AppState, upd
 mod tests {
     use super::*;
     use notify::event::{AccessKind, DataChange, RenameMode};
+
+    #[test]
+    fn configuring_discovery_reconciles_folders_created_after_the_initial_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("projects");
+        std::fs::create_dir(&root).unwrap();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+        let mut watched = BTreeMap::new();
+        let mut current = Targets::default();
+        configure_state(&state, &mut watcher, &mut watched, &mut current);
+        // Reproduce the gap: the preference scan finished, but Configure has not run.
+        state.set_watch_directory(Some(&root)).unwrap();
+        std::fs::create_dir(root.join("late-project")).unwrap();
+        let update = configure_state(&state, &mut watcher, &mut watched, &mut current);
+        assert!(
+            state
+                .config
+                .lock()
+                .unwrap()
+                .projects
+                .iter()
+                .any(|p| p.name == "late-project")
+        );
+        assert!(update.discovery);
+        // Repeated Configure messages must not trigger a reconciliation loop.
+        assert!(!configure_state(&state, &mut watcher, &mut watched, &mut current).discovery);
+    }
 
     #[test]
     fn routes_only_direct_directories_and_relevant_project_writes() {
