@@ -111,6 +111,7 @@ Project commands return `{ "ok": true, "result": ... }` with `--json`; failures 
 - An empty first launch performs no project scan. BOA reads registered projects and an optional explicitly configured discovery folder. Imported configuration from an earlier BOA version remains intact.
 - A selected project can contain nested repositories and external Git worktrees. Explicit symbolic links in its file tree can lead outside the project; BOA follows these when you browse them. File contents remain on the Mac until you explicitly copy and share them.
 - BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
+- The macOS bundle permits HTTP loads in its webview so cleartext image URLs also work. The content security policy allows these remote loads only for images; remote scripts and other remote connections remain blocked.
 - The current context dialog stores no history and creates no export files. Older prototypes may have left exports in the local application-data directory; those are not distributed.
 
 ## Limits

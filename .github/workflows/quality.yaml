@@ -57,6 +57,7 @@ jobs:
         run: |
           codesign --force --deep --sign - src-tauri/target/release/bundle/macos/BOA.app
           codesign --verify --deep --strict src-tauri/target/release/bundle/macos/BOA.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent' src-tauri/target/release/bundle/macos/BOA.app/Contents/Info.plist)" = true
       - name: Archive build
         run: ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/BOA.app "$RUNNER_TEMP/BOA-${{ matrix.runner }}.zip"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

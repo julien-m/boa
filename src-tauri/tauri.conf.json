@@ -27,6 +27,7 @@
   "plugins": { "deep-link": { "desktop": { "schemes": ["boa"] } } },
   "bundle": {
     "active": true,
+    "macOS": { "infoPlist": "info.plist" },
     "targets": ["app"],
     "icon": [
       "icons/32x32.png",
