@@ -1573,8 +1573,10 @@ details:not([open]) > summary > svg {
 	display: inline-block;
 	vertical-align: middle;
 	max-width: 100%;
-	height: auto;
 	border-radius: 6px;
+}
+.markdown-local-image:not([height]) {
+	height: auto;
 }
 
 .git-detail-workspace {

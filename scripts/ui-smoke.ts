@@ -134,7 +134,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				original: "",
 				modified:
 					args.path === "README.md"
-						? '# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" onerror="window.boaUnsafe = true"></a></p>\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
+						? '# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -379,6 +379,10 @@ try {
 		)
 		.toBe(90);
 	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).toHaveAttribute("width", "90");
+	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).toHaveAttribute("height", "40");
+	const badgeBounds = await page.getByRole("img", { name: "Quality badge", exact: true }).boundingBox();
+	expect(badgeBounds?.width).toBe(90);
+	expect(badgeBounds?.height).toBe(40);
 	await expect(page.getByRole("img", { name: "Quality badge", exact: true })).not.toHaveAttribute("onerror");
 	await expect(page.locator(".markdown-image").filter({ hasText: "Unavailable" })).toBeVisible();
 	await expect(page.locator(".markdown-preview iframe, .markdown-preview script")).toHaveCount(0);
