@@ -5,7 +5,7 @@ import { chromium, expect } from "@playwright/test";
 
 const output = resolve("docs/images");
 mkdirSync(output, { recursive: true });
-const names = ["Aurora", "Atlas", "Nimbus", "Orbit", "Quartz", "Studio"];
+const names = ["Cedar", "Atlas", "Nimbus", "Orbit", "Quartz", "Studio"];
 const projects = names.map((name, index) => ({
 	name,
 	path: `/Users/example/Projects/${name.toLowerCase()}`,
@@ -67,7 +67,7 @@ const subjects = [
 	"docs: update getting started guide",
 	"refactor: extract shared theme tokens",
 	"test: cover billing calculations",
-	"chore: initialize Aurora workspace",
+	"chore: initialize Cedar workspace",
 ];
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1050 }, deviceScaleFactor: 1 });
@@ -104,7 +104,7 @@ await page.exposeFunction("boaDemoInvoke", async (command: string, args: Record<
 			};
 		}
 		case "repository_web_url":
-			return "https://github.com/example/aurora";
+			return "https://github.com/example/cedar";
 		case "read_directory": {
 			const path = String(args.path);
 			const entries: Record<string, string[]> = {
@@ -177,11 +177,11 @@ await page.addInitScript(() => {
 });
 try {
 	await page.goto(process.env.BOA_DEMO_URL ?? "http://localhost:1420");
-	await expect(page.getByTestId("project-card-Aurora")).toBeVisible();
+	await expect(page.getByTestId("project-card-Cedar")).toBeVisible();
 	await expect(page.getByTestId("dashboard-counts")).toContainText("11");
 	await page.evaluate(() => document.fonts.ready);
 	await page.screenshot({ path: resolve(output, "dashboard.png") });
-	await page.getByTestId("open-project-Aurora").click();
+	await page.getByTestId("open-project-Cedar").click();
 	await page.getByTestId("file-src").click();
 	await page.getByTestId("file-src/lib").click();
 	await page.getByTestId("file-src/lib/pricing.ts").click();
