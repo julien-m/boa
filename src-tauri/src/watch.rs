@@ -79,6 +79,14 @@ fn targets(state: &AppState) -> Targets {
         }
         result.projects.insert(project.path.clone(), roots);
     }
+    for roots in result.projects.values() {
+        for (path, _) in roots {
+            result
+                .directory_identities
+                .entry(path.clone())
+                .or_insert_with(|| directory_identity(path));
+        }
+    }
     result
 }
 
@@ -281,14 +289,13 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             .directory_identities
             .get(path)
             .is_some_and(|previous| *previous != directory_identity(path));
-        if identity_changed
-            && targets
-                .projects
-                .contains_key(&path.to_string_lossy().into_owned())
-        {
-            let project = path.to_string_lossy().into_owned();
-            update.projects.insert(project.clone());
-            update.rescan.insert(project);
+        if identity_changed {
+            for (project, roots) in &targets.projects {
+                if roots.iter().any(|(root, _)| root == path) {
+                    update.projects.insert(project.clone());
+                    update.rescan.insert(project.clone());
+                }
+            }
         }
         if let Some(root) = &targets.discovery {
             let child = path.parent() == Some(root.as_path());
@@ -829,6 +836,61 @@ mod tests {
                 configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
                 assert_eq!(watched.get(&project), present.then_some(&true));
             }
+        }
+    }
+
+    #[test]
+    fn ambiguous_external_watch_root_replacement_refreshes_each_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let project = root.join("app");
+        let external = root.join("external");
+        let admin = root.join("admin");
+        for path in [&project, &external, &admin] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let state = AppState::new(root.join("config.json")).unwrap();
+        state.add_project(&project).unwrap();
+        state.repo_cache.lock().unwrap().insert(
+            project.clone(),
+            crate::projects::RepositorySnapshot {
+                captured_at: Instant::now(),
+                repos: vec![project.clone(), external.clone()],
+                limited: false,
+                metadata: vec![admin.clone()],
+            },
+        );
+        let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+        let mut watched = BTreeMap::new();
+        let mut current = Targets::default();
+        let routing = RwLock::new(Targets::default());
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        for path in [&external, &admin] {
+            std::fs::rename(path, path.with_extension("old")).unwrap();
+            std::fs::create_dir(path).unwrap();
+            let mut update = Update::default();
+            classify(
+                &Event::new(EventKind::Any).add_path(path.clone()),
+                &current,
+                &mut update,
+            );
+            assert!(
+                update
+                    .projects
+                    .contains(&project.to_string_lossy().into_owned())
+            );
+            assert!(
+                update
+                    .rescan
+                    .contains(&project.to_string_lossy().into_owned())
+            );
+            assert!(!update.discovery);
+            configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+            assert_eq!(watched.get(path), Some(&true));
+            assert_eq!(
+                current.directory_identities.get(path),
+                Some(&directory_identity(path))
+            );
         }
     }
 

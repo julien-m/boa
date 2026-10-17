@@ -104,3 +104,44 @@ it("restoring during the first scan starts a fresh request and ignores the old r
 		client.clear();
 	}
 });
+
+it.each(["projects", "settings"] as const)(
+	"queues a trailing %s read behind an obsolete IPC reply",
+	async (name) => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+		const releases: (() => void)[] = [];
+		let state = 0;
+		let calls = 0;
+		let active = 0;
+		let peak = 0;
+		const observer = new QueryObserver(client, {
+			queryKey: [name],
+			queryFn: async () => {
+				const captured = state;
+				calls++;
+				peak = Math.max(peak, ++active);
+				await new Promise<void>((resolve) => releases.push(resolve));
+				active--;
+				return captured;
+			},
+		});
+		const stop = observer.subscribe(() => {});
+		const refresh = createFilesystemRefresh(client);
+		state = 1;
+		for (let n = 0; n < 10_000; n++) refresh.collection(name);
+		expect(calls).toBe(1);
+		releases[0]();
+		await vi.waitFor(() => expect(calls).toBe(2));
+		state = 2;
+		refresh.collection(name);
+		releases[1]();
+		await vi.waitFor(() => expect(calls).toBe(3));
+		releases[2]();
+		await vi.waitFor(() => expect(client.isFetching()).toBe(0));
+		expect(client.getQueryData([name])).toBe(2);
+		expect(peak).toBe(1);
+		refresh.dispose();
+		stop();
+		client.clear();
+	},
+);

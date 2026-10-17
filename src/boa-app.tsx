@@ -148,10 +148,8 @@ export default function App() {
 		void listen<{ discovery: boolean; settings: boolean; projects: string[] }>(
 			"boa:filesystem-changed",
 			({ payload }) => {
-				if (payload.discovery)
-					void client.invalidateQueries({ queryKey: ["projects"] }, { cancelRefetch: false });
-				if (payload.discovery || payload.settings)
-					void client.invalidateQueries({ queryKey: ["settings"] }, { cancelRefetch: false });
+				if (payload.discovery) refresh.collection("projects");
+				if (payload.discovery || payload.settings) refresh.collection("settings");
 				for (const project of payload.projects) refresh.project(project);
 			},
 		)
