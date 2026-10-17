@@ -821,6 +821,10 @@ try {
 	await page.clock.fastForward(120_000);
 	expect(summaryCalls).toBe(idleSummaries);
 	expect(projectListCalls).toBe(idleLists);
+	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+	await page.clock.fastForward(1_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
 	await page.evaluate(() =>
 		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),

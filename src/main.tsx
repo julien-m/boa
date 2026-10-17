@@ -4,7 +4,9 @@ import ReactDOM from "react-dom/client";
 import App from "./boa-app";
 import { FileEditingProvider } from "./file-editing";
 
-const client = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: true } } });
+const client = new QueryClient({
+	defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+});
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 	<React.StrictMode>

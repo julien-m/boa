@@ -26,6 +26,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { DraftIndicator } from "./file-editing";
+import { createFilesystemRefresh } from "./filesystem-refresh";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
@@ -64,7 +65,7 @@ export default function App() {
 		queries: ordered.map((project) => ({
 			queryKey: ["summary", project.path],
 			queryFn: () => api.summary(project.path),
-			staleTime: 25_000,
+			staleTime: Number.POSITIVE_INFINITY,
 			retry: false,
 		})),
 	});
@@ -148,26 +149,15 @@ export default function App() {
 	useEffect(() => {
 		let disposed = false;
 		let cleanup: (() => void) | undefined;
+		const refresh = createFilesystemRefresh(client);
 		void listen<{ discovery: boolean; settings: boolean; projects: string[] }>(
 			"boa:filesystem-changed",
 			({ payload }) => {
-				if (payload.discovery) void client.invalidateQueries({ queryKey: ["projects"] });
-				if (payload.discovery || payload.settings) void client.invalidateQueries({ queryKey: ["settings"] });
-				if (payload.projects.length)
-					void client.invalidateQueries({
-						predicate: (query) => {
-							const key = query.queryKey;
-							return payload.projects.some(
-								(project) =>
-									key.includes(project) ||
-									(key[0] === "preview" &&
-										typeof key[1] === "object" &&
-										key[1] !== null &&
-										"project" in key[1] &&
-										key[1].project === project),
-							);
-						},
-					});
+				if (payload.discovery)
+					void client.invalidateQueries({ queryKey: ["projects"] }, { cancelRefetch: false });
+				if (payload.discovery || payload.settings)
+					void client.invalidateQueries({ queryKey: ["settings"] }, { cancelRefetch: false });
+				for (const project of payload.projects) refresh.project(project);
 			},
 		)
 			.then((unlisten) => {
@@ -177,6 +167,7 @@ export default function App() {
 			.catch((error: unknown) => setNotice(localizeNativeText(String(error))));
 		return () => {
 			disposed = true;
+			refresh.dispose();
 			cleanup?.();
 		};
 	}, [client]);

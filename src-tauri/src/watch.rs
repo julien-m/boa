@@ -8,14 +8,13 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, RwLock, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
 pub(crate) enum Message {
     Configure,
-    Event(notify::Result<Event>),
     Stop,
 }
 
@@ -28,7 +27,7 @@ pub(crate) struct Update {
     rescan: BTreeSet<String>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Targets {
     discovery: Option<PathBuf>,
     known_directories: BTreeSet<PathBuf>,
@@ -150,6 +149,11 @@ fn relevant_file(root: &Path, metadata: bool, path: &Path) -> bool {
                 | "__pycache__"
                 | "uv-cache"
                 | ".uv-cache"
+                | ".next"
+                | ".turbo"
+                | ".pytest_cache"
+                | ".mypy_cache"
+                | ".ruff_cache"
         )
     }) {
         return false;
@@ -229,17 +233,32 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             ) || path.is_dir()
                 && matches!(event.kind, EventKind::Create(_) | EventKind::Remove(_));
             let directory_event = directory_event
-                || matches!(
+                || matches!(event.kind, EventKind::Modify(ModifyKind::Name(_)))
+                    && (path.is_dir() || targets.known_directories.contains(path));
+            let directory_event = directory_event
+                || matches!(event.kind, EventKind::Any)
+                    && ((path.is_dir() && !targets.known_directories.contains(path))
+                        || (targets.known_directories.contains(path) && !path.exists()));
+            let root_lifecycle = path == root
+                && matches!(
                     event.kind,
-                    EventKind::Modify(ModifyKind::Name(_)) | EventKind::Any
-                ) && (path.is_dir() || targets.known_directories.contains(path));
-            update.discovery |= path == root || child && directory_event;
+                    EventKind::Create(_)
+                        | EventKind::Remove(_)
+                        | EventKind::Modify(ModifyKind::Name(_))
+                );
+            update.discovery |= root_lifecycle || child && directory_event;
         }
         for (project, roots) in &targets.projects {
-            if roots
-                .iter()
-                .any(|(root, metadata)| relevant_file(root, *metadata, path))
-            {
+            if roots.iter().any(|(root, metadata)| {
+                relevant_file(root, *metadata, path)
+                    && !(path.is_dir()
+                        && matches!(
+                            event.kind,
+                            EventKind::Modify(ModifyKind::Metadata(_))
+                                | EventKind::Modify(ModifyKind::Data(_))
+                                | EventKind::Any
+                        ))
+            }) {
                 update.projects.insert(project.clone());
                 if matches!(
                     event.kind,
@@ -258,13 +277,82 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
     }
 }
 
+// Only one wake-up is queued. Events merge into sets of registered projects,
+// so a producer cannot allocate an unbounded queue of paths while Git is busy.
+#[derive(Default)]
+struct Pending {
+    update: Update,
+    error: Option<String>,
+    configure: bool,
+    stop: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct Control {
+    pending: Arc<Mutex<Pending>>,
+    wake: mpsc::SyncSender<()>,
+}
+impl Control {
+    fn event(&self, event: notify::Result<Event>, targets: &Targets) {
+        let mut update = Update::default();
+        let error = match event {
+            Ok(event) => {
+                classify(&event, targets, &mut update);
+                None
+            }
+            Err(error) => Some(format!("Surveillance indisponible : {error}")),
+        };
+        if !update.changed() && error.is_none() {
+            return;
+        }
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        pending.update.merge(update);
+        if error.is_some() {
+            pending.error = error;
+        }
+        drop(pending);
+        let _ = self.wake.try_send(());
+    }
+
+    pub fn send(&self, message: Message) {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        match message {
+            Message::Configure => pending.configure = true,
+            Message::Stop => pending.stop = true,
+        }
+        drop(pending);
+        let _ = self.wake.try_send(());
+    }
+}
+
+impl Update {
+    fn changed(&self) -> bool {
+        self.discovery || self.settings || !self.projects.is_empty()
+    }
+    fn merge(&mut self, other: Self) {
+        self.discovery |= other.discovery;
+        self.settings |= other.settings;
+        self.projects.extend(other.projects);
+        self.rescan.extend(other.rescan);
+    }
+}
+
+const GROUP_WINDOW: Duration = Duration::from_millis(750);
+const REFRESH_INTERVAL: Duration = Duration::from_secs(3);
+
+// A fixed deadline ensures the last event is delivered even if writes never stop.
+fn refresh_deadline(now: Instant, last_emit: Option<Instant>) -> Instant {
+    let grouped = now + GROUP_WINDOW;
+    last_emit.map_or(grouped, |last| grouped.max(last + REFRESH_INTERVAL))
+}
+
 pub(crate) struct Service {
-    sender: mpsc::Sender<Message>,
+    control: Control,
     thread: Option<thread::JoinHandle<()>>,
 }
 impl Drop for Service {
     fn drop(&mut self) {
-        let _ = self.sender.send(Message::Stop);
+        self.control.send(Message::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -275,99 +363,146 @@ pub(crate) fn start(
     state: Arc<AppState>,
     emit: impl Fn(Update) + Send + 'static,
 ) -> Result<Service, String> {
-    let (sender, receiver) = mpsc::channel();
-    let events = sender.clone();
+    let (wake, receiver) = mpsc::sync_channel(1);
+    let control = Control {
+        pending: Arc::new(Mutex::new(Pending::default())),
+        wake,
+    };
+    let pending_events = control.clone();
+    let routing = Arc::new(RwLock::new(Targets::default()));
+    let event_targets = routing.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        if event
-            .as_ref()
-            .is_ok_and(|event| matches!(event.kind, EventKind::Access(_)))
-        {
-            return;
-        }
-        let _ = events.send(Message::Event(event));
+        pending_events.event(
+            event,
+            &event_targets.read().unwrap_or_else(|e| e.into_inner()),
+        );
     })
     .map_err(|e| e.to_string())?;
     let _ = state.list_projects()?;
     let mut current = Targets::default();
     let mut watched = BTreeMap::new();
     let initial = configure_state(&state, &mut watcher, &mut watched, &mut current);
-    if initial.discovery || initial.settings {
+    *routing.write().unwrap_or_else(|e| e.into_inner()) = current;
+    if initial.changed() {
         emit(initial);
     }
-    *state.watch_control.lock().map_err(|e| e.to_string())? = Some(sender.clone());
+    *state.watch_control.lock().map_err(|e| e.to_string())? = Some(control.clone());
+    let worker = control.clone();
     let thread = thread::spawn(move || {
-        while let Ok(message) = receiver.recv() {
-            match message {
-                Message::Stop => break,
-                Message::Configure => {
-                    let update = configure_state(&state, &mut watcher, &mut watched, &mut current);
-                    if update.discovery || update.settings {
-                        emit(update);
+        let mut update = Update::default();
+        let mut deadline: Option<Instant> = None;
+        let mut last_emit = None;
+        loop {
+            let received = match deadline {
+                Some(end) => receiver.recv_timeout(end.saturating_duration_since(Instant::now())),
+                None => receiver
+                    .recv()
+                    .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+            };
+            if matches!(received, Err(mpsc::RecvTimeoutError::Disconnected)) {
+                break;
+            }
+            let pending =
+                std::mem::take(&mut *worker.pending.lock().unwrap_or_else(|e| e.into_inner()));
+            if pending.stop {
+                break;
+            }
+            update.merge(pending.update);
+            if let Some(error) = pending.error {
+                update.settings |= state.set_watch_service_error(Some(error));
+            }
+            if pending.configure {
+                let mut next = routing.read().unwrap_or_else(|e| e.into_inner()).clone();
+                update.merge(configure_state(
+                    &state,
+                    &mut watcher,
+                    &mut watched,
+                    &mut next,
+                ));
+                *routing.write().unwrap_or_else(|e| e.into_inner()) = next;
+            }
+            if update.changed() && deadline.is_none() {
+                deadline = Some(refresh_deadline(Instant::now(), last_emit));
+            }
+            if deadline.is_some_and(|end| Instant::now() >= end) {
+                if update.discovery {
+                    let _ = state.list_projects();
+                    let mut next = routing.read().unwrap_or_else(|e| e.into_inner()).clone();
+                    update.merge(configure_state(
+                        &state,
+                        &mut watcher,
+                        &mut watched,
+                        &mut next,
+                    ));
+                    *routing.write().unwrap_or_else(|e| e.into_inner()) = next;
+                }
+                if !update.rescan.is_empty() {
+                    let mut cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
+                    for project in &update.rescan {
+                        cache.remove(Path::new(project));
                     }
                 }
-                Message::Event(event) => {
-                    let mut update = Update::default();
-                    absorb(event, &current, &state, &mut update);
-                    // Fixed window groups a burst without starving updates during continuous writes.
-                    let deadline = Instant::now() + Duration::from_millis(750);
-                    let mut reconfigure = false;
-                    while let Ok(message) =
-                        receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                    {
-                        match message {
-                            Message::Stop => return,
-                            Message::Configure => {
-                                reconfigure = true;
-                            }
-                            Message::Event(event) => absorb(event, &current, &state, &mut update),
-                        }
-                        if Instant::now() >= deadline {
-                            break;
-                        }
-                    }
-                    if update.discovery {
-                        let _ = state.list_projects();
-                        reconfigure = true;
-                    }
-                    if reconfigure {
-                        let configured =
-                            configure_state(&state, &mut watcher, &mut watched, &mut current);
-                        update.discovery |= configured.discovery;
-                        update.settings |= configured.settings;
-                    }
-                    if !update.rescan.is_empty() {
-                        let mut cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
-                        for project in &update.rescan {
-                            cache.remove(Path::new(project));
-                        }
-                    }
-                    if update.discovery || update.settings || !update.projects.is_empty() {
-                        emit(update);
-                    }
+                if update.changed() {
+                    emit(std::mem::take(&mut update));
+                    last_emit = Some(Instant::now());
                 }
+                deadline = None;
             }
         }
     });
     Ok(Service {
-        sender,
+        control,
         thread: Some(thread),
     })
-}
-
-fn absorb(event: notify::Result<Event>, targets: &Targets, state: &AppState, update: &mut Update) {
-    match event {
-        Ok(event) => classify(&event, targets, update),
-        Err(error) => {
-            state.set_watch_service_error(Some(format!("Surveillance indisponible : {error}")));
-            update.settings = true;
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use notify::event::{AccessKind, DataChange, RenameMode};
+
+    #[test]
+    fn event_storm_keeps_one_wakeup_and_one_project_without_postponing_deadlines() {
+        let (wake, receiver) = mpsc::sync_channel(1);
+        let control = Control {
+            pending: Arc::new(Mutex::new(Pending::default())),
+            wake,
+        };
+        let root = PathBuf::from("/projects/app");
+        let targets = Targets {
+            projects: BTreeMap::from([("/projects/app".into(), vec![(root.clone(), false)])]),
+            ..Targets::default()
+        };
+        for index in 0..10_000 {
+            control.event(
+                Ok(Event::new(EventKind::Create(CreateKind::File))
+                    .add_path(root.join(format!("source-{index}.ts")))),
+                &targets,
+            );
+        }
+        assert_eq!(control.pending.lock().unwrap().update.projects.len(), 1);
+        assert!(receiver.try_recv().is_ok());
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        control.event(
+            Ok(Event::new(EventKind::Create(CreateKind::File))
+                .add_path(root.join("node_modules/ignored.js"))),
+            &targets,
+        );
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
+        control.send(Message::Configure);
+        control.send(Message::Stop);
+        let pending = control.pending.lock().unwrap();
+        assert!(pending.stop && pending.configure); // Control messages survive a full wake queue.
+        let now = Instant::now();
+        assert_eq!(refresh_deadline(now, None), now + GROUP_WINDOW);
+        assert_eq!(refresh_deadline(now, Some(now)), now + REFRESH_INTERVAL);
+    }
 
     #[test]
     fn configuring_discovery_reconciles_folders_created_after_the_initial_scan() {
@@ -414,6 +549,12 @@ mod tests {
         };
         for (kind, path, discovery, dirty) in [
             (
+                EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                root.clone(),
+                false,
+                false,
+            ),
+            (
                 EventKind::Create(CreateKind::Folder),
                 root.join("new"),
                 true,
@@ -446,6 +587,12 @@ mod tests {
             (
                 EventKind::Modify(ModifyKind::Data(DataChange::Content)),
                 project.join("src/file.ts"),
+                false,
+                true,
+            ),
+            (
+                EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                project.join("src/build/config.ts"),
                 false,
                 true,
             ),
@@ -494,6 +641,46 @@ mod tests {
             );
             assert_eq!(update.discovery, discovery, "{path:?}");
             assert_eq!(!update.projects.is_empty(), dirty, "{path:?}");
+        }
+    }
+
+    #[test]
+    fn directory_metadata_and_build_output_do_not_refresh_projects() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let project = root.join("app");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        let targets = Targets {
+            discovery: Some(root.to_path_buf()),
+            known_directories: BTreeSet::from([project.clone()]),
+            projects: BTreeMap::from([(
+                project.to_string_lossy().into_owned(),
+                vec![(project.clone(), false)],
+            )]),
+        };
+        for path in [
+            root.to_path_buf(),
+            project.clone(),
+            project.join(".git"),
+            project.join("target/bundle.js"),
+        ] {
+            let mut update = Update::default();
+            classify(
+                &Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                    .add_path(path.clone()),
+                &targets,
+                &mut update,
+            );
+            assert!(!update.changed(), "{path:?}");
+            classify(
+                &Event::new(EventKind::Any).add_path(path.clone()),
+                &targets,
+                &mut update,
+            );
+            assert!(
+                !update.changed(),
+                "ambiguous directory notification: {path:?}"
+            );
         }
     }
 
@@ -563,6 +750,17 @@ mod tests {
                 .iter()
                 .any(|project| project.name == "new-project")
         );
+        let first = Instant::now();
+        std::fs::write(Path::new(&project).join("final.ts"), "last write").unwrap();
+        loop {
+            let update = receiver
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if update.projects.contains(&project) {
+                break;
+            }
+        }
+        assert!(first.elapsed() >= Duration::from_millis(2_900));
         state.archive_project(&project, true).unwrap();
         let current = targets(&state);
         assert!(!current.projects.contains_key(&project));

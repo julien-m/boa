@@ -110,7 +110,7 @@ pub(crate) struct AppState {
     pub workers: std::sync::Arc<tokio::sync::Semaphore>,
     watch_error: Mutex<Option<String>>,
     watch_service_error: Mutex<Option<String>>,
-    pub watch_control: Mutex<Option<std::sync::mpsc::Sender<crate::watch::Message>>>,
+    pub watch_control: Mutex<Option<crate::watch::Control>>,
 }
 
 impl AppState {
@@ -158,7 +158,7 @@ impl AppState {
         if let Ok(control) = self.watch_control.lock()
             && let Some(control) = control.as_ref()
         {
-            let _ = control.send(crate::watch::Message::Configure);
+            control.send(crate::watch::Message::Configure);
         }
     }
 
@@ -172,7 +172,7 @@ impl AppState {
         changed
     }
 
-    /// Refresh on startup, native notifications, focus or an explicit user request.
+    /// Refresh on startup, native notifications or an explicit user request.
     pub fn list_projects(&self) -> Result<Vec<Project>, String> {
         let mut config = self.config.lock().map_err(|e| e.to_string())?;
         let mut candidate = config.clone();
