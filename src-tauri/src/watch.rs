@@ -34,13 +34,41 @@ struct Targets {
     projects: BTreeMap<String, Vec<(PathBuf, bool)>>,
 }
 
+// Git pointer files are tiny regular files. Nonblocking open also closes the
+// stat/open race when an untrusted checkout replaces one with a FIFO.
+fn metadata_text(path: &Path) -> Option<String> {
+    use std::{fs::OpenOptions, io::Read, os::unix::fs::OpenOptionsExt};
+    const LIMIT: u64 = 16 * 1024;
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return None;
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(LIMIT + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= LIMIT).then_some(text)
+}
+
 fn targets(state: &AppState) -> Targets {
     let config = state
         .config
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
+    // Never hold the shared cache lock across filesystem I/O.
+    let cache = state
+        .repo_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let mut result = Targets {
         discovery: config.watch_directory.map(PathBuf::from),
         ..Targets::default()
@@ -59,11 +87,11 @@ fn targets(state: &AppState) -> Targets {
         }
         for (path, _) in roots.clone() {
             // Worktree/submodule metadata can live outside the selected project.
-            if let Ok(link) = std::fs::read_to_string(path.join(".git"))
+            if let Some(link) = metadata_text(&path.join(".git"))
                 && let Some(gitdir) = link.trim().strip_prefix("gitdir: ")
                 && let Ok(gitdir) = path.join(gitdir).canonicalize()
             {
-                if let Ok(common) = std::fs::read_to_string(gitdir.join("commondir"))
+                if let Some(common) = metadata_text(&gitdir.join("commondir"))
                     && let Ok(common) = gitdir.join(common.trim()).canonicalize()
                 {
                     roots.push((common, true));
@@ -568,6 +596,49 @@ mod tests {
                 .contains(root.to_str().unwrap()),
             "an event delivered during watch registration must not be lost"
         );
+    }
+
+    #[test]
+    fn special_git_metadata_cannot_block_target_configuration() {
+        use std::{
+            ffi::CString,
+            io::Write,
+            os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        std::fs::create_dir(&root).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
+        state.add_project(&root).unwrap();
+        let fifo = root.join(".git");
+        let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        // Keep a writer present so the old blocking reader can be rescued after measurement.
+        let mut rescue = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let _ = targets(&state);
+            sender.send(()).unwrap();
+        });
+        let completed = receiver.recv_timeout(Duration::from_millis(250)).is_ok();
+        rescue.write_all(b"not a git directory").unwrap();
+        drop(rescue);
+        worker.join().unwrap();
+        assert!(
+            completed,
+            "a FIFO Git metadata entry must not block the watcher"
+        );
+        let large = temp.path().join("large-git-pointer");
+        std::fs::File::create(&large)
+            .unwrap()
+            .set_len(16 * 1024 + 1)
+            .unwrap();
+        assert!(metadata_text(&large).is_none());
     }
 
     #[test]
