@@ -56,12 +56,28 @@ The packaged app does not need Bun or Rust at runtime. It does use system Git, a
 git clone https://github.com/julien-m/boa.git
 cd boa
 bun install --frozen-lockfile
-bun run mac:build
 ```
 
-The bundle is generated at `src-tauri/target/release/bundle/macos/BOA.app`. Copy it to `/Applications` or `~/Applications`, then open it. Click **Ajouter un dossier** to choose your first project. Adding a folder does not pin it automatically; use its pin button if you want it in the sidebar.
+### Stable local signing and updates
 
-There is no Apple Developer-signed or notarized public installer yet. CI archives are development artifacts; building from source is the documented installation route. See [Tauri's macOS prerequisites](https://tauri.app/start/prerequisites/#macos) for environment setup.
+macOS privacy permissions are associated with an application's signing identity. An ad-hoc signature changes with the code and can cause Documents access to be requested again after updates. Use the same valid Keychain signing identity and the same bundle identifier for installed updates. See [Apple's signing requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+List the available identities, then replace `CERTIFICATE_SHA1` below with the exact fingerprint of your existing Apple Development or Developer ID Application certificate:
+
+```bash
+security find-identity -v -p codesigning
+bun run mac:signing -- CERTIFICATE_SHA1
+bun run mac:build
+bun run mac:install
+```
+
+The shared local profile stores only the certificate fingerprint in `~/Library/Application Support/local-app-signing/identity.json`, outside the repository. The private key stays in Keychain. This identity can be reused for other locally built apps; each must retain its own bundle identifier and permissions. Missing/expired certificates fail explicitly instead of falling back to ad-hoc signing. Unlock your login Keychain if macOS refuses access to the signing key. Do not change Keychain access controls or export a private key to make a build pass.
+
+The bundle is generated at `src-tauri/target/release/bundle/macos/BOA.app`. Quit BOA before updating, preserving unsaved edits. `mac:install` signs a staged copy, verifies the bundle, checks that an existing certificate signature's designated requirement remains mutually compatible, then replaces `~/Applications/BOA.app`. It preserves user settings and moves the previous bundle to Trash. Incompatible signers are rejected before replacement. Switching from an ad-hoc build to a stable certificate may require one final authorization. At certificate renewal, configure the renewed identity and keep the same signing class/team; incompatible requirements remain blocked.
+
+To install an extracted CI artifact with your local identity, use `bun run mac:install -- /path/to/BOA.app`. Avoid overwriting the installed app directly with an ad-hoc CI build: that discards the stable identity. For disposable unsigned-identity development artifacts only, use `bun run mac:build -- --adhoc`; CI explicitly uses that mode and never receives your private key. Ad-hoc artifacts are not accepted by the installer without re-signing.
+
+There is no Developer ID-signed, notarized public installer yet. Local Apple Development signing is not public distribution or notarization. See [Tauri's macOS prerequisites](https://tauri.app/start/prerequisites/#macos) for environment setup. Open BOA after installation and click **Ajouter un dossier** to choose your first project. Adding a folder does not pin it automatically; use its pin button if you want it in the sidebar.
 
 For local development:
 

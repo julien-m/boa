@@ -52,7 +52,7 @@ jobs:
           done
           bun scripts/ui-smoke.ts
       - name: Build desktop app
-        run: bun run mac:build
+        run: bun run mac:build -- --adhoc
       - name: Verify local bundle signature
         run: |
           codesign --force --deep --sign - src-tauri/target/release/bundle/macos/BOA.app

@@ -12,9 +12,11 @@
 		"check:fix": "biome check --write .",
 		"test": "vitest run",
 		"verify": "bun run check && bun run build && bun run test",
-		"mac:build": "tauri build --bundles app",
+		"mac:build": "bun scripts/mac-signing.ts build",
 		"test:ui": "bun scripts/ui-smoke.ts",
-		"check:public": "bun scripts/check-public.ts"
+		"check:public": "bun scripts/check-public.ts",
+		"mac:signing": "bun scripts/mac-signing.ts configure",
+		"mac:install": "bun scripts/mac-signing.ts install"
 	},
 	"dependencies": {
 		"@crabnebula/tauri-plugin-drag": "^2.1.0",
