@@ -653,6 +653,28 @@ fn configured_directory_discovers_direct_children_without_duplicates_and_preserv
 }
 
 #[test]
+fn restoring_projects_rediscovers_repositories_changed_while_archived() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let state = AppState::new(temp.path().join("config.json")).unwrap();
+    let project = state.add_project(&root).unwrap();
+    assert!(state.repositories(&root).unwrap().0.is_empty());
+    state.archive_project(&project.path, true).unwrap();
+    let nested = root.join("nested");
+    fs::create_dir(&nested).unwrap();
+    run(&nested, &["init", "-q"]);
+    state.archive_project(&project.path, false).unwrap();
+    assert_eq!(state.repositories(&root).unwrap().0, vec![nested.clone()]);
+    state.archive_project(&project.path, true).unwrap();
+    let moved = temp.path().join("moved");
+    fs::rename(&nested, moved).unwrap();
+    state.add_project(&root).unwrap();
+    assert!(state.repositories(&root).unwrap().0.is_empty());
+}
+
+#[test]
 fn settings_migrate_old_configuration_and_do_not_publish_failed_writes() {
     let temp = tempfile::tempdir().unwrap();
     let config = temp.path().join("config.json");

@@ -245,6 +245,10 @@ impl AppState {
                 candidate.projects[index].archived = false;
                 self.write_config(&candidate)?;
                 *config = candidate;
+                self.repo_cache
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .remove(&path);
                 self.notify_watchers();
             }
             return Ok(config.projects[index].clone());
@@ -297,6 +301,11 @@ impl AppState {
             .archived = archived;
         self.write_config(&candidate)?;
         *config = candidate;
+        // Archived trees are not watched; both restoration routes must rediscover topology.
+        self.repo_cache
+            .lock()
+            .map_err(|e| e.to_string())?
+            .remove(Path::new(path));
         self.notify_watchers();
         Ok(())
     }
