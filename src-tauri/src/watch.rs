@@ -32,6 +32,7 @@ struct Targets {
     discovery: Option<PathBuf>,
     discovery_identity: Option<(u64, u64)>,
     known_directories: BTreeSet<PathBuf>,
+    directory_identities: BTreeMap<PathBuf, Option<(u64, u64)>>,
     projects: BTreeMap<String, Vec<(PathBuf, bool)>>,
 }
 
@@ -39,29 +40,6 @@ fn directory_identity(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
     let metadata = path.metadata().ok()?;
     metadata.is_dir().then(|| (metadata.dev(), metadata.ino()))
-}
-
-// Git pointer files are tiny regular files. Nonblocking open also closes the
-// stat/open race when an untrusted checkout replaces one with a FIFO.
-fn metadata_text(path: &Path) -> Option<String> {
-    use std::{fs::OpenOptions, io::Read, os::unix::fs::OpenOptionsExt};
-    const LIMIT: u64 = 16 * 1024;
-    let metadata = std::fs::metadata(path).ok()?;
-    if !metadata.is_file() || metadata.len() > LIMIT {
-        return None;
-    }
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)
-        .ok()?;
-    let metadata = file.metadata().ok()?;
-    if !metadata.is_file() || metadata.len() > LIMIT {
-        return None;
-    }
-    let mut text = String::new();
-    file.take(LIMIT + 1).read_to_string(&mut text).ok()?;
-    (text.len() as u64 <= LIMIT).then_some(text)
 }
 
 fn targets(state: &AppState) -> Targets {
@@ -87,25 +65,17 @@ fn targets(state: &AppState) -> Targets {
             .iter()
             .map(|project| PathBuf::from(&project.path)),
     );
+    result.directory_identities = result
+        .known_directories
+        .iter()
+        .map(|path| (path.clone(), directory_identity(path)))
+        .collect();
     for project in config.projects.iter().filter(|project| !project.archived) {
         let root = PathBuf::from(&project.path);
         let mut roots = vec![(root.clone(), false)];
-        if let Some((_, repos, _)) = cache.get(&root) {
-            roots.extend(repos.iter().cloned().map(|path| (path, false)));
-        }
-        for (path, _) in roots.clone() {
-            // Worktree/submodule metadata can live outside the selected project.
-            if let Some(link) = metadata_text(&path.join(".git"))
-                && let Some(gitdir) = link.trim().strip_prefix("gitdir: ")
-                && let Ok(gitdir) = path.join(gitdir).canonicalize()
-            {
-                if let Some(common) = metadata_text(&gitdir.join("commondir"))
-                    && let Ok(common) = gitdir.join(common.trim()).canonicalize()
-                {
-                    roots.push((common, true));
-                }
-                roots.push((gitdir, true));
-            }
+        if let Some(snapshot) = cache.get(&root) {
+            roots.extend(snapshot.repos.iter().cloned().map(|path| (path, false)));
+            roots.extend(snapshot.metadata.iter().cloned().map(|path| (path, true)));
         }
         result.projects.insert(project.path.clone(), roots);
     }
@@ -253,6 +223,23 @@ fn configure_state(
             watched.remove(&path);
         }
     }
+    for (path, identity) in &next.directory_identities {
+        if current
+            .directory_identities
+            .get(path)
+            .is_some_and(|previous| previous != identity)
+        {
+            for watched_path in watched
+                .keys()
+                .filter(|watched_path| watched_path.starts_with(path))
+                .cloned()
+                .collect::<Vec<_>>()
+            {
+                let _ = watcher.unwatch(&watched_path);
+                watched.remove(&watched_path);
+            }
+        }
+    }
     let watch_changed = next
         .discovery
         .as_ref()
@@ -292,6 +279,20 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
     for path in &event.paths {
         if let Some(root) = &targets.discovery {
             let child = path.parent() == Some(root.as_path());
+            let child_lifecycle = child
+                && targets
+                    .directory_identities
+                    .get(path)
+                    .is_some_and(|previous| *previous != directory_identity(path));
+            if child_lifecycle
+                && targets
+                    .projects
+                    .contains_key(&path.to_string_lossy().into_owned())
+            {
+                let project = path.to_string_lossy().into_owned();
+                update.projects.insert(project.clone());
+                update.rescan.insert(project);
+            }
             let directory_event = matches!(
                 event.kind,
                 EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
@@ -303,7 +304,7 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             let directory_event = directory_event
                 || matches!(event.kind, EventKind::Any)
                     && ((path.is_dir() && !targets.known_directories.contains(path))
-                        || (targets.known_directories.contains(path) && !path.exists()));
+                        || child_lifecycle);
             let root_lifecycle = path == root
                 && (matches!(
                     event.kind,
@@ -677,12 +678,6 @@ mod tests {
             completed,
             "a FIFO Git metadata entry must not block the watcher"
         );
-        let large = temp.path().join("large-git-pointer");
-        std::fs::File::create(&large)
-            .unwrap()
-            .set_len(16 * 1024 + 1)
-            .unwrap();
-        assert!(metadata_text(&large).is_none());
     }
 
     #[test]
@@ -730,6 +725,100 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_known_child_recreation_reinstalls_its_recursive_watch() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let child = root.join("app");
+        std::fs::create_dir(&child).unwrap();
+        let state = AppState::new(root.join("config.json")).unwrap();
+        state.set_watch_directory(Some(&root)).unwrap();
+        let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+        let mut watched = BTreeMap::new();
+        let mut current = Targets::default();
+        let routing = RwLock::new(Targets::default());
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        std::fs::remove_dir(&child).unwrap();
+        let mut removed = Update::default();
+        classify(
+            &Event::new(EventKind::Any).add_path(child.clone()),
+            &current,
+            &mut removed,
+        );
+        assert!(removed.discovery);
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        assert!(!watched.contains_key(&child));
+        std::fs::create_dir(&child).unwrap();
+        let mut recreated = Update::default();
+        classify(
+            &Event::new(EventKind::Any).add_path(child.clone()),
+            &current,
+            &mut recreated,
+        );
+        assert!(
+            recreated.discovery,
+            "a known child must be rediscovered after recreation"
+        );
+        assert!(
+            recreated
+                .rescan
+                .contains(&child.to_string_lossy().into_owned())
+        );
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        assert_eq!(watched.get(&child), Some(&true));
+        let mut written = Update::default();
+        classify(
+            &Event::new(EventKind::Any).add_path(child.join("new.ts")),
+            &current,
+            &mut written,
+        );
+        assert!(
+            written
+                .projects
+                .contains(&child.to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
+    fn target_configuration_uses_cached_metadata_instead_of_opening_git_pointer_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        let trusted = temp.path().join("cached-admin");
+        let unverified = temp.path().join("unverified-admin");
+        for path in [&root, &trusted, &unverified] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let root = root.canonicalize().unwrap();
+        let trusted = trusted.canonicalize().unwrap();
+        let unverified = unverified.canonicalize().unwrap();
+        std::fs::write(
+            root.join(".git"),
+            format!("gitdir: {}", unverified.display()),
+        )
+        .unwrap();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let project = state.add_project(&root).unwrap();
+        state.repo_cache.lock().unwrap().insert(
+            root.clone(),
+            crate::projects::RepositorySnapshot {
+                captured_at: Instant::now(),
+                repos: vec![root.clone()],
+                limited: false,
+                metadata: vec![trusted.clone()],
+            },
+        );
+        let targets = targets(&state);
+        let roots = targets.projects.get(&project.path).unwrap();
+        assert!(
+            roots.contains(&(trusted, true)),
+            "use metadata resolved by bounded Git commands"
+        );
+        assert!(
+            !roots.iter().any(|(path, _)| path == &unverified),
+            "do not open or parse pointer files on the watch thread"
+        );
+    }
+
+    #[test]
     fn configuring_discovery_reconciles_folders_created_after_the_initial_scan() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("projects");
@@ -768,6 +857,7 @@ mod tests {
             discovery: Some(root.clone()),
             discovery_identity: directory_identity(&root),
             known_directories: BTreeSet::from([project.clone()]),
+            directory_identities: BTreeMap::from([(project.clone(), directory_identity(&project))]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
                 vec![
@@ -883,6 +973,7 @@ mod tests {
             discovery: Some(root.to_path_buf()),
             discovery_identity: directory_identity(root),
             known_directories: BTreeSet::from([project.clone()]),
+            directory_identities: BTreeMap::from([(project.clone(), directory_identity(&project))]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
                 vec![(project.clone(), false)],

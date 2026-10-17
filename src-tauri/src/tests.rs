@@ -146,6 +146,9 @@ fn reads_initial_commit_history_and_diffs_with_newline_paths() {
 #[test]
 fn discovers_nested_repos_and_external_worktrees() {
     let (temp, path) = fixture();
+    let renamed = path.with_file_name("repo\nspace");
+    fs::rename(&path, &renamed).unwrap();
+    let path = renamed;
     fs::write(path.join("a"), "a").unwrap();
     commit(&path, "first");
     let nested = path.join("packages/inner");
@@ -169,6 +172,12 @@ fn discovers_nested_repos_and_external_worktrees() {
     let repositories = state.repositories(&path).unwrap().0;
     assert!(repositories.contains(&external.canonicalize().unwrap()));
     assert!(!repositories.contains(&dependency));
+    let external = external.canonicalize().unwrap();
+    state.repositories(&external).unwrap();
+    let cache = state.repo_cache.lock().unwrap();
+    let metadata = &cache.get(&external).unwrap().metadata;
+    assert!(metadata.contains(&path.join(".git").canonicalize().unwrap()));
+    assert!(metadata.iter().all(|path| path.is_absolute()));
 }
 
 #[test]

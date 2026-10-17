@@ -102,7 +102,14 @@ pub(crate) fn activity(repos: &[git::RepoStatus]) -> Option<u64> {
     latest
 }
 
-type RepoCache = HashMap<PathBuf, (Instant, Vec<PathBuf>, bool)>;
+#[derive(Clone)]
+pub(crate) struct RepositorySnapshot {
+    pub captured_at: Instant,
+    pub repos: Vec<PathBuf>,
+    pub limited: bool,
+    pub metadata: Vec<PathBuf>,
+}
+type RepoCache = HashMap<PathBuf, RepositorySnapshot>;
 pub(crate) struct AppState {
     pub config: Mutex<Config>,
     pub config_path: PathBuf,
@@ -337,14 +344,14 @@ impl AppState {
 
     pub fn repositories(&self, project: &Path) -> Result<(Vec<PathBuf>, bool), String> {
         let generation = self.repository_generation(project);
-        if let Some((time, repos, limited)) = self
+        if let Some(snapshot) = self
             .repo_cache
             .lock()
             .map_err(|e| e.to_string())?
             .get(project)
-            && time.elapsed() < Duration::from_secs(60)
+            && snapshot.captured_at.elapsed() < Duration::from_secs(60)
         {
-            return Ok((repos.clone(), *limited));
+            return Ok((snapshot.repos.clone(), snapshot.limited));
         }
         let (mut repos, limited) = discover_repositories(project)?;
         let roots = repos.clone();
@@ -363,7 +370,13 @@ impl AppState {
                 }
             }
         }
-        if self.store_repositories(project, generation, &repos, limited)? {
+        let metadata: BTreeSet<PathBuf> = repos
+            .iter()
+            .flat_map(|repo| git::metadata_directories(repo))
+            .filter(|path| !path.starts_with(project))
+            .collect();
+        let metadata: Vec<PathBuf> = metadata.into_iter().collect();
+        if self.store_repositories(project, generation, &repos, limited, &metadata)? {
             self.notify_watchers();
         }
         Ok((repos, limited))
@@ -395,6 +408,7 @@ impl AppState {
         generation: u64,
         repos: &[PathBuf],
         limited: bool,
+        metadata: &[PathBuf],
     ) -> Result<bool, String> {
         let mut cache = self.repo_cache.lock().map_err(|e| e.to_string())?;
         // Publication and invalidation share the cache lock, then the version lock.
@@ -403,7 +417,12 @@ impl AppState {
         }
         cache.insert(
             project.to_path_buf(),
-            (Instant::now(), repos.to_vec(), limited),
+            RepositorySnapshot {
+                captured_at: Instant::now(),
+                repos: repos.to_vec(),
+                limited,
+                metadata: metadata.to_vec(),
+            },
         );
         Ok(true)
     }
@@ -417,7 +436,7 @@ impl AppState {
             .lock()
             .map_err(|e| e.to_string())?
             .get(&project)
-            .is_some_and(|(_, repos, _)| repos.contains(&repo));
+            .is_some_and(|snapshot| snapshot.repos.contains(&repo));
         if !known && !self.repositories(&project)?.0.contains(&repo) {
             return Err("Dépôt non rattaché à ce projet".into());
         }
@@ -541,17 +560,17 @@ mod cache_tests {
         let state = AppState::new(temp.path().join("config.json")).unwrap();
         let generation = state.repository_generation(&root);
         state
-            .store_repositories(&other, generation, &[], false)
+            .store_repositories(&other, generation, &[], false, &[])
             .unwrap();
         // Simulate a traversal paused before cache publication, then a directory event.
         state.invalidate_repositories(&root);
         assert!(
             state
-                .store_repositories(&other, generation, &[], false)
+                .store_repositories(&other, generation, &[], false, &[])
                 .unwrap()
         );
         state
-            .store_repositories(&root, generation, &[], false)
+            .store_repositories(&root, generation, &[], false, &[])
             .unwrap();
         let cache = state.repo_cache.lock().unwrap();
         assert!(
@@ -565,7 +584,7 @@ mod cache_tests {
         drop(cache);
         let generation = state.repository_generation(&root);
         state
-            .store_repositories(&root, generation, &[], false)
+            .store_repositories(&root, generation, &[], false, &[])
             .unwrap();
         assert!(state.repo_cache.lock().unwrap().contains_key(&root));
     }

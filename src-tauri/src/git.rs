@@ -1,8 +1,9 @@
 //! Read-only Git queries with bounded subprocesses and NUL-delimited paths.
 use serde::Serialize;
 use std::{
+    collections::BTreeSet,
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
     time::Duration,
@@ -77,6 +78,30 @@ pub(crate) fn read_bounded(mut stream: impl Read) -> Result<Vec<u8>, String> {
 pub(crate) fn text(path: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(git(path, args)?)
         .map_err(|_| "Git renvoie des noms de fichiers non UTF-8.".into())
+}
+
+/// Resolve administrative directories through the existing bounded Git process.
+/// Do not open pointer files on the notification thread (regular files can hydrate/block too).
+pub(crate) fn metadata_directories(path: &Path) -> Vec<PathBuf> {
+    let Ok(private) = text(path, &["rev-parse", "--absolute-git-dir"]) else {
+        return Vec::new();
+    };
+    let mut directories = BTreeSet::new();
+    let private = PathBuf::from(private.strip_suffix('\n').unwrap_or(&private));
+    if private.is_absolute() {
+        directories.insert(private);
+    }
+    if let Ok(common) = text(
+        path,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ) {
+        // Strip only Git's terminator, preserving whitespace/newlines in directory names.
+        let common = PathBuf::from(common.strip_suffix('\n').unwrap_or(&common));
+        if common.is_absolute() {
+            directories.insert(common);
+        }
+    }
+    directories.into_iter().collect()
 }
 
 #[derive(Clone, Debug, Serialize)]
