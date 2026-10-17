@@ -329,6 +329,8 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             if roots.iter().any(|(root, metadata)| {
                 relevant_file(root, *metadata, path)
                     && !(path.is_dir()
+                        && !(matches!(event.kind, EventKind::Any)
+                            && path.file_name().is_some_and(|name| name == ".git"))
                         && matches!(
                             event.kind,
                             EventKind::Modify(ModifyKind::Metadata(_))
@@ -1050,10 +1052,24 @@ mod tests {
                 &targets,
                 &mut update,
             );
-            assert!(
-                !update.changed(),
-                "ambiguous directory notification: {path:?}"
-            );
+            if path == project.join(".git") {
+                assert!(
+                    update
+                        .projects
+                        .contains(&project.to_string_lossy().into_owned())
+                );
+                assert!(
+                    update
+                        .rescan
+                        .contains(&project.to_string_lossy().into_owned())
+                );
+                assert!(!update.discovery);
+            } else {
+                assert!(
+                    !update.changed(),
+                    "ambiguous directory notification: {path:?}"
+                );
+            }
         }
         std::fs::remove_dir(project.join(".git")).unwrap();
         std::fs::remove_dir(&project).unwrap();
