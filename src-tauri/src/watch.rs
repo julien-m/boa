@@ -240,12 +240,12 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
                     && ((path.is_dir() && !targets.known_directories.contains(path))
                         || (targets.known_directories.contains(path) && !path.exists()));
             let root_lifecycle = path == root
-                && matches!(
+                && (matches!(
                     event.kind,
                     EventKind::Create(_)
                         | EventKind::Remove(_)
                         | EventKind::Modify(ModifyKind::Name(_))
-                );
+                ) || matches!(event.kind, EventKind::Any) && !root.exists());
             update.discovery |= root_lifecycle || child && directory_event;
         }
         for (project, roots) in &targets.projects {
@@ -682,6 +682,19 @@ mod tests {
                 "ambiguous directory notification: {path:?}"
             );
         }
+        std::fs::remove_dir(project.join(".git")).unwrap();
+        std::fs::remove_dir(&project).unwrap();
+        std::fs::remove_dir(root).unwrap();
+        let mut update = Update::default();
+        classify(
+            &Event::new(EventKind::Any).add_path(root.to_path_buf()),
+            &targets,
+            &mut update,
+        );
+        assert!(
+            update.discovery,
+            "a missing discovery root must be reconciled"
+        );
     }
 
     #[test]

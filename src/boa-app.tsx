@@ -66,6 +66,8 @@ export default function App() {
 			queryKey: ["summary", project.path],
 			queryFn: () => api.summary(project.path),
 			staleTime: Number.POSITIVE_INFINITY,
+			// Archived projects are not watched; returning observers must read current state.
+			refetchOnMount: "always" as const,
 			retry: false,
 		})),
 	});

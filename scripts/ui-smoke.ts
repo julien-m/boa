@@ -845,6 +845,12 @@ try {
 		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
 	);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	const beforeRestore = summaryCalls;
+	await page.getByTestId("archives-nav").click();
+	await page.getByTestId("restore-Auto QA").click();
+	await expect.poll(() => summaryCalls).toBe(beforeRestore + 1);
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("archive-project-Auto QA").click();
 	await page.getByTestId("settings-nav").click();
 	await page.getByTestId("interface-language").selectOption("en");
 	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
