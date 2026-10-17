@@ -185,6 +185,13 @@ export function installBundle(source: string, destination: string, identity: str
 		} else console.error(`Previous application retained for recovery: ${backup}`);
 	}
 }
+export function installationDestination(userHome = homedir(), systemApp = "/Applications/BOA.app") {
+	if (existsSync(systemApp))
+		throw new Error(
+			`Found a legacy installation at ${systemApp}. Quit BOA, then use Finder to move that application to ~/Applications/BOA.app (preserve the old copy if both locations exist). Remove the duplicate from /Applications and update Dock shortcuts before running mac:install again. No application was changed.`,
+		);
+	return join(userHome, "Applications/BOA.app");
+}
 async function main(args: string[]) {
 	if (process.platform !== "darwin") throw new Error("Local app signing requires macOS.");
 	const [command, ...raw] = args;
@@ -201,11 +208,7 @@ async function main(args: string[]) {
 		return;
 	}
 	if (command === "install" && options.length <= 1) {
-		const expression = installBundle(
-			options[0] ?? builtApp,
-			join(homedir(), "Applications/BOA.app"),
-			localIdentity(),
-		);
+		const expression = installBundle(options[0] ?? builtApp, installationDestination(), localIdentity());
 		console.log(`Installed BOA with stable identity. Designated requirement: ${expression}`);
 		return;
 	}

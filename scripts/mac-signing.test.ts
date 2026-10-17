@@ -1,9 +1,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { compatibleUpdate, identityFromProfile, installBundle, requirement } from "./mac-signing";
+import {
+	compatibleUpdate,
+	identityFromProfile,
+	installationDestination,
+	installBundle,
+	requirement,
+} from "./mac-signing";
 
 const fingerprint = "A".repeat(40);
 const available = `  1) ${fingerprint} "Example Signing Identity"\n     1 valid identities found`;
@@ -24,6 +30,21 @@ it("refuses missing or expired identities instead of silently changing signer", 
 
 it.skipIf(process.platform !== "darwin")("reads native codesign requirements from stdout", () => {
 	expect(requirement("/usr/bin/true")).toMatch(/identifier|anchor/);
+});
+
+it("stops a legacy system installation from silently creating a second application", () => {
+	const root = mkdtempSync(join(tmpdir(), "boa-legacy-test-"));
+	try {
+		const home = join(root, "home");
+		const systemApp = join(root, "Applications/BOA.app");
+		expect(installationDestination(home, systemApp)).toBe(join(home, "Applications/BOA.app"));
+		mkdirSync(systemApp, { recursive: true });
+		writeFileSync(join(systemApp, "preserve.txt"), "original");
+		expect(() => installationDestination(home, systemApp)).toThrow("legacy installation");
+		expect(readFileSync(join(systemApp, "preserve.txt"), "utf8")).toBe("original");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 // Opt-in acceptance check: use a real existing identity, never create/export a private key.
