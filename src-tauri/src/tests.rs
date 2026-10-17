@@ -146,6 +146,9 @@ fn reads_initial_commit_history_and_diffs_with_newline_paths() {
 #[test]
 fn discovers_nested_repos_and_external_worktrees() {
     let (temp, path) = fixture();
+    let renamed = path.with_file_name("repo\nspace");
+    fs::rename(&path, &renamed).unwrap();
+    let path = renamed;
     fs::write(path.join("a"), "a").unwrap();
     commit(&path, "first");
     let nested = path.join("packages/inner");
@@ -169,6 +172,12 @@ fn discovers_nested_repos_and_external_worktrees() {
     let repositories = state.repositories(&path).unwrap().0;
     assert!(repositories.contains(&external.canonicalize().unwrap()));
     assert!(!repositories.contains(&dependency));
+    let external = external.canonicalize().unwrap();
+    state.repositories(&external).unwrap();
+    let cache = state.repo_cache.lock().unwrap();
+    let metadata = &cache.get(&external).unwrap().metadata;
+    assert!(metadata.contains(&path.join(".git").canonicalize().unwrap()));
+    assert!(metadata.iter().all(|path| path.is_absolute()));
 }
 
 #[test]
@@ -650,6 +659,28 @@ fn configured_directory_discovers_direct_children_without_duplicates_and_preserv
     next.set_watch_directory(None).unwrap();
     fs::create_dir(root.join("gamma")).unwrap();
     assert_eq!(next.list_projects().unwrap().len(), 2);
+}
+
+#[test]
+fn restoring_projects_rediscovers_repositories_changed_while_archived() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("workspace");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let state = AppState::new(temp.path().join("config.json")).unwrap();
+    let project = state.add_project(&root).unwrap();
+    assert!(state.repositories(&root).unwrap().0.is_empty());
+    state.archive_project(&project.path, true).unwrap();
+    let nested = root.join("nested");
+    fs::create_dir(&nested).unwrap();
+    run(&nested, &["init", "-q"]);
+    state.archive_project(&project.path, false).unwrap();
+    assert_eq!(state.repositories(&root).unwrap().0, vec![nested.clone()]);
+    state.archive_project(&project.path, true).unwrap();
+    let moved = temp.path().join("moved");
+    fs::rename(&nested, moved).unwrap();
+    state.add_project(&root).unwrap();
+    assert!(state.repositories(&root).unwrap().0.is_empty());
 }
 
 #[test]

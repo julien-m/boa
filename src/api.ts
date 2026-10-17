@@ -50,15 +50,19 @@ export const api = {
 	setLanguage: (language: "fr" | "en"): Promise<ProjectSettings> => invoke("set_language", { language }),
 	setWatchDirectory: (path: string | null): Promise<ProjectSettings> =>
 		invoke("set_watch_directory", { path }),
-	summary: (project: string): Promise<Summary> =>
-		invoke<Summary>("project_summary", { project }).then((summary) => ({
-			...summary,
-			repos: summary.repos.map((repo) => ({
-				...repo,
-				operation: repo.operation ? localizeNativeText(repo.operation) : null,
-				error: repo.error ? localizeNativeText(repo.error) : null,
-			})),
-		})),
+	summary: (project: string, signal?: AbortSignal): Promise<Summary> =>
+		invoke<Summary>("project_summary", { project }).then((summary) => {
+			// IPC work may finish after deactivation; never publish its obsolete reply.
+			signal?.throwIfAborted();
+			return {
+				...summary,
+				repos: summary.repos.map((repo) => ({
+					...repo,
+					operation: repo.operation ? localizeNativeText(repo.operation) : null,
+					error: repo.error ? localizeNativeText(repo.error) : null,
+				})),
+			};
+		}),
 	pin: (project: string, pinned: boolean): Promise<void> => invoke("pin_project", { project, pinned }),
 	add: (path: string): Promise<Project> => invoke("add_project", { path }),
 	archive: (project: string, archived: boolean): Promise<void> =>

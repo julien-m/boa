@@ -821,6 +821,10 @@ try {
 	await page.clock.fastForward(120_000);
 	expect(summaryCalls).toBe(idleSummaries);
 	expect(projectListCalls).toBe(idleLists);
+	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+	await page.clock.fastForward(1_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
 	await page.evaluate(() =>
 		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
@@ -841,6 +845,12 @@ try {
 		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
 	);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
+	const beforeRestore = summaryCalls;
+	await page.getByTestId("archives-nav").click();
+	await page.getByTestId("restore-Auto QA").click();
+	await expect.poll(() => summaryCalls).toBe(beforeRestore + 1);
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("archive-project-Auto QA").click();
 	await page.getByTestId("settings-nav").click();
 	await page.getByTestId("interface-language").selectOption("en");
 	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();

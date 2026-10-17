@@ -26,6 +26,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { DraftIndicator } from "./file-editing";
+import { createFilesystemRefresh, projectSummaryOptions } from "./filesystem-refresh";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
@@ -61,12 +62,7 @@ export default function App() {
 		.filter((project) => !project.archived)
 		.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
 	const summaries = useQueries({
-		queries: ordered.map((project) => ({
-			queryKey: ["summary", project.path],
-			queryFn: () => api.summary(project.path),
-			staleTime: 25_000,
-			retry: false,
-		})),
+		queries: ordered.map((project) => projectSummaryOptions(project.path)),
 	});
 	const [navigation, setNavigation] = useState<(Selection & { source: string }) | null>(null);
 	const [guidancePaused, setGuidancePaused] = useState(false);
@@ -148,26 +144,13 @@ export default function App() {
 	useEffect(() => {
 		let disposed = false;
 		let cleanup: (() => void) | undefined;
+		const refresh = createFilesystemRefresh(client);
 		void listen<{ discovery: boolean; settings: boolean; projects: string[] }>(
 			"boa:filesystem-changed",
 			({ payload }) => {
-				if (payload.discovery) void client.invalidateQueries({ queryKey: ["projects"] });
-				if (payload.discovery || payload.settings) void client.invalidateQueries({ queryKey: ["settings"] });
-				if (payload.projects.length)
-					void client.invalidateQueries({
-						predicate: (query) => {
-							const key = query.queryKey;
-							return payload.projects.some(
-								(project) =>
-									key.includes(project) ||
-									(key[0] === "preview" &&
-										typeof key[1] === "object" &&
-										key[1] !== null &&
-										"project" in key[1] &&
-										key[1].project === project),
-							);
-						},
-					});
+				if (payload.discovery) refresh.collection("projects");
+				if (payload.discovery || payload.settings) refresh.collection("settings");
+				for (const project of payload.projects) refresh.project(project);
 			},
 		)
 			.then((unlisten) => {
@@ -177,6 +160,7 @@ export default function App() {
 			.catch((error: unknown) => setNotice(localizeNativeText(String(error))));
 		return () => {
 			disposed = true;
+			refresh.dispose();
 			cleanup?.();
 		};
 	}, [client]);
