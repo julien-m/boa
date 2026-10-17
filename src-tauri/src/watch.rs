@@ -1,7 +1,7 @@
 //! Native notifications, grouped before invalidating only affected projects.
 use crate::projects::AppState;
 use notify::{
-    Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    Event, EventKind, RecursiveMode, Watcher,
     event::{CreateKind, ModifyKind, RemoveKind},
 };
 use serde::Serialize;
@@ -96,7 +96,7 @@ fn desired_paths(targets: &Targets) -> BTreeMap<PathBuf, bool> {
 }
 
 fn configure(
-    watcher: &mut RecommendedWatcher,
+    watcher: &mut impl Watcher,
     watched: &mut BTreeMap<PathBuf, bool>,
     targets: &Targets,
 ) -> Option<String> {
@@ -185,9 +185,10 @@ fn relevant_file(root: &Path, metadata: bool, path: &Path) -> bool {
 
 fn configure_state(
     state: &AppState,
-    watcher: &mut RecommendedWatcher,
+    watcher: &mut impl Watcher,
     watched: &mut BTreeMap<PathBuf, bool>,
     current: &mut Targets,
+    routing: &RwLock<Targets>,
 ) -> Update {
     let next = targets(state);
     let desired = desired_paths(&next);
@@ -197,6 +198,8 @@ fn configure_state(
         .as_ref()
         .is_some_and(|root| watched.get(root) != desired.get(root));
     *current = next;
+    // watch() may immediately deliver an event on the callback thread.
+    *routing.write().unwrap_or_else(|e| e.into_inner()) = current.clone();
     let mut update = Update {
         settings: state.set_watch_service_error(configure(watcher, watched, current)),
         ..Update::default()
@@ -208,6 +211,7 @@ fn configure_state(
         // Scan after installing the root watch: subsequent creations now produce events.
         let _ = state.list_projects();
         *current = targets(state);
+        *routing.write().unwrap_or_else(|e| e.into_inner()) = current.clone();
         update.settings |= state.set_watch_service_error(configure(watcher, watched, current));
         update.discovery = true;
     }
@@ -381,8 +385,7 @@ pub(crate) fn start(
     let _ = state.list_projects()?;
     let mut current = Targets::default();
     let mut watched = BTreeMap::new();
-    let initial = configure_state(&state, &mut watcher, &mut watched, &mut current);
-    *routing.write().unwrap_or_else(|e| e.into_inner()) = current;
+    let initial = configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
     if initial.changed() {
         emit(initial);
     }
@@ -418,8 +421,8 @@ pub(crate) fn start(
                     &mut watcher,
                     &mut watched,
                     &mut next,
+                    &routing,
                 ));
-                *routing.write().unwrap_or_else(|e| e.into_inner()) = next;
             }
             if update.changed() && deadline.is_none() {
                 deadline = Some(refresh_deadline(Instant::now(), last_emit));
@@ -433,8 +436,8 @@ pub(crate) fn start(
                         &mut watcher,
                         &mut watched,
                         &mut next,
+                        &routing,
                     ));
-                    *routing.write().unwrap_or_else(|e| e.into_inner()) = next;
                 }
                 if !update.rescan.is_empty() {
                     let mut cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -505,6 +508,70 @@ mod tests {
     }
 
     #[test]
+    fn routing_is_visible_to_events_during_watch_registration() {
+        struct EarlyWatcher {
+            root: PathBuf,
+            routing: Arc<RwLock<Targets>>,
+            control: Control,
+        }
+        impl Watcher for EarlyWatcher {
+            fn new<F: notify::EventHandler>(_: F, _: notify::Config) -> notify::Result<Self> {
+                unreachable!()
+            }
+            fn watch(&mut self, path: &Path, _: RecursiveMode) -> notify::Result<()> {
+                if path == self.root {
+                    self.control.event(
+                        Ok(Event::new(EventKind::Create(CreateKind::File))
+                            .add_path(self.root.join("raced.ts"))),
+                        &self.routing.read().unwrap(),
+                    );
+                }
+                Ok(())
+            }
+            fn unwatch(&mut self, _: &Path) -> notify::Result<()> {
+                Ok(())
+            }
+            fn kind() -> notify::WatcherKind {
+                notify::WatcherKind::NullWatcher
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        std::fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        state.add_project(&root).unwrap();
+        let routing = Arc::new(RwLock::new(Targets::default()));
+        let (wake, _) = mpsc::sync_channel(1);
+        let control = Control {
+            pending: Arc::new(Mutex::new(Pending::default())),
+            wake,
+        };
+        let mut watcher = EarlyWatcher {
+            root: root.clone(),
+            routing: routing.clone(),
+            control: control.clone(),
+        };
+        configure_state(
+            &state,
+            &mut watcher,
+            &mut BTreeMap::new(),
+            &mut Targets::default(),
+            &routing,
+        );
+        assert!(
+            control
+                .pending
+                .lock()
+                .unwrap()
+                .update
+                .projects
+                .contains(root.to_str().unwrap()),
+            "an event delivered during watch registration must not be lost"
+        );
+    }
+
+    #[test]
     fn configuring_discovery_reconciles_folders_created_after_the_initial_scan() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("projects");
@@ -513,11 +580,12 @@ mod tests {
         let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
         let mut watched = BTreeMap::new();
         let mut current = Targets::default();
-        configure_state(&state, &mut watcher, &mut watched, &mut current);
+        let routing = RwLock::new(Targets::default());
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
         // Reproduce the gap: the preference scan finished, but Configure has not run.
         state.set_watch_directory(Some(&root)).unwrap();
         std::fs::create_dir(root.join("late-project")).unwrap();
-        let update = configure_state(&state, &mut watcher, &mut watched, &mut current);
+        let update = configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
         assert!(
             state
                 .config
@@ -529,7 +597,9 @@ mod tests {
         );
         assert!(update.discovery);
         // Repeated Configure messages must not trigger a reconciliation loop.
-        assert!(!configure_state(&state, &mut watcher, &mut watched, &mut current).discovery);
+        assert!(
+            !configure_state(&state, &mut watcher, &mut watched, &mut current, &routing).discovery
+        );
     }
 
     #[test]
