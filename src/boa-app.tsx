@@ -26,7 +26,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { DraftIndicator } from "./file-editing";
-import { createFilesystemRefresh } from "./filesystem-refresh";
+import { createFilesystemRefresh, projectSummaryOptions } from "./filesystem-refresh";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
@@ -62,14 +62,7 @@ export default function App() {
 		.filter((project) => !project.archived)
 		.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
 	const summaries = useQueries({
-		queries: ordered.map((project) => ({
-			queryKey: ["summary", project.path],
-			queryFn: () => api.summary(project.path),
-			staleTime: Number.POSITIVE_INFINITY,
-			// Archived projects are not watched; returning observers must read current state.
-			refetchOnMount: "always" as const,
-			retry: false,
-		})),
+		queries: ordered.map((project) => projectSummaryOptions(project.path)),
 	});
 	const [navigation, setNavigation] = useState<(Selection & { source: string }) | null>(null);
 	const [guidancePaused, setGuidancePaused] = useState(false);

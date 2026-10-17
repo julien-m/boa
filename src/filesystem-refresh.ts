@@ -1,4 +1,17 @@
-import type { Query, QueryClient } from "@tanstack/react-query";
+import { type Query, type QueryClient, queryOptions } from "@tanstack/react-query";
+import { api } from "./api";
+
+/** Archived projects are not watched; returning observers must read current state. */
+export function projectSummaryOptions(project: string) {
+	return queryOptions({
+		queryKey: ["summary", project],
+		// Consume the signal so archive/remount cannot join an obsolete initial request.
+		queryFn: ({ signal }) => api.summary(project, signal),
+		staleTime: Number.POSITIVE_INFINITY,
+		refetchOnMount: "always",
+		retry: false,
+	});
+}
 
 /** Keep one scan per project in flight, plus one trailing refresh for newer writes. */
 export function createFilesystemRefresh(client: QueryClient) {
