@@ -107,6 +107,7 @@ pub(crate) struct AppState {
     pub config: Mutex<Config>,
     pub config_path: PathBuf,
     pub repo_cache: Mutex<RepoCache>,
+    repo_generations: Mutex<HashMap<PathBuf, u64>>,
     pub workers: std::sync::Arc<tokio::sync::Semaphore>,
     watch_error: Mutex<Option<String>>,
     watch_service_error: Mutex<Option<String>>,
@@ -126,6 +127,7 @@ impl AppState {
             config: Mutex::new(config),
             config_path,
             repo_cache: Mutex::new(HashMap::new()),
+            repo_generations: Mutex::new(HashMap::new()),
             workers: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
             watch_error: Mutex::new(None),
             watch_service_error: Mutex::new(None),
@@ -245,10 +247,7 @@ impl AppState {
                 candidate.projects[index].archived = false;
                 self.write_config(&candidate)?;
                 *config = candidate;
-                self.repo_cache
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .remove(&path);
+                self.invalidate_repositories(&path);
                 self.notify_watchers();
             }
             return Ok(config.projects[index].clone());
@@ -302,10 +301,7 @@ impl AppState {
         self.write_config(&candidate)?;
         *config = candidate;
         // Archived trees are not watched; both restoration routes must rediscover topology.
-        self.repo_cache
-            .lock()
-            .map_err(|e| e.to_string())?
-            .remove(Path::new(path));
+        self.invalidate_repositories(Path::new(path));
         self.notify_watchers();
         Ok(())
     }
@@ -340,6 +336,7 @@ impl AppState {
     }
 
     pub fn repositories(&self, project: &Path) -> Result<(Vec<PathBuf>, bool), String> {
+        let generation = self.repository_generation(project);
         if let Some((time, repos, limited)) = self
             .repo_cache
             .lock()
@@ -366,12 +363,49 @@ impl AppState {
                 }
             }
         }
-        self.repo_cache.lock().map_err(|e| e.to_string())?.insert(
-            project.to_path_buf(),
-            (Instant::now(), repos.clone(), limited),
-        );
-        self.notify_watchers();
+        if self.store_repositories(project, generation, &repos, limited)? {
+            self.notify_watchers();
+        }
         Ok((repos, limited))
+    }
+
+    fn repository_generation(&self, project: &Path) -> u64 {
+        self.repo_generations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(project)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    pub fn invalidate_repositories(&self, project: &Path) {
+        let mut cache = self.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut versions = self
+            .repo_generations
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let generation = versions.entry(project.to_path_buf()).or_default();
+        *generation = generation.wrapping_add(1);
+        cache.remove(project);
+    }
+
+    fn store_repositories(
+        &self,
+        project: &Path,
+        generation: u64,
+        repos: &[PathBuf],
+        limited: bool,
+    ) -> Result<bool, String> {
+        let mut cache = self.repo_cache.lock().map_err(|e| e.to_string())?;
+        // Publication and invalidation share the cache lock, then the version lock.
+        if self.repository_generation(project) != generation {
+            return Ok(false);
+        }
+        cache.insert(
+            project.to_path_buf(),
+            (Instant::now(), repos.to_vec(), limited),
+        );
+        Ok(true)
     }
 
     pub fn repository(&self, project: &str, repo: &str) -> Result<PathBuf, String> {
@@ -493,4 +527,46 @@ pub(crate) fn discover_repositories(root: &Path) -> Result<(Vec<PathBuf>, bool),
         }
     }
     Ok((repos.into_iter().collect(), limited))
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn invalidated_scan_cannot_repopulate_topology_but_other_cached_projects_stay_valid() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("app");
+        let other = temp.path().join("other");
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let generation = state.repository_generation(&root);
+        state
+            .store_repositories(&other, generation, &[], false)
+            .unwrap();
+        // Simulate a traversal paused before cache publication, then a directory event.
+        state.invalidate_repositories(&root);
+        assert!(
+            state
+                .store_repositories(&other, generation, &[], false)
+                .unwrap()
+        );
+        state
+            .store_repositories(&root, generation, &[], false)
+            .unwrap();
+        let cache = state.repo_cache.lock().unwrap();
+        assert!(
+            !cache.contains_key(&root),
+            "a stale traversal must not repopulate the cache"
+        );
+        assert!(
+            cache.contains_key(&other),
+            "unrelated cached projects remain valid"
+        );
+        drop(cache);
+        let generation = state.repository_generation(&root);
+        state
+            .store_repositories(&root, generation, &[], false)
+            .unwrap();
+        assert!(state.repo_cache.lock().unwrap().contains_key(&root));
+    }
 }

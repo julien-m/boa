@@ -440,9 +440,8 @@ pub(crate) fn start(
                     ));
                 }
                 if !update.rescan.is_empty() {
-                    let mut cache = state.repo_cache.lock().unwrap_or_else(|e| e.into_inner());
                     for project in &update.rescan {
-                        cache.remove(Path::new(project));
+                        state.invalidate_repositories(Path::new(project));
                     }
                 }
                 if update.changed() {
