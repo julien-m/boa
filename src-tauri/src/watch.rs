@@ -277,22 +277,22 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
         return;
     }
     for path in &event.paths {
+        let identity_changed = targets
+            .directory_identities
+            .get(path)
+            .is_some_and(|previous| *previous != directory_identity(path));
+        if identity_changed
+            && targets
+                .projects
+                .contains_key(&path.to_string_lossy().into_owned())
+        {
+            let project = path.to_string_lossy().into_owned();
+            update.projects.insert(project.clone());
+            update.rescan.insert(project);
+        }
         if let Some(root) = &targets.discovery {
             let child = path.parent() == Some(root.as_path());
-            let child_lifecycle = child
-                && targets
-                    .directory_identities
-                    .get(path)
-                    .is_some_and(|previous| *previous != directory_identity(path));
-            if child_lifecycle
-                && targets
-                    .projects
-                    .contains_key(&path.to_string_lossy().into_owned())
-            {
-                let project = path.to_string_lossy().into_owned();
-                update.projects.insert(project.clone());
-                update.rescan.insert(project);
-            }
+            let child_lifecycle = child && identity_changed;
             let directory_event = matches!(
                 event.kind,
                 EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
@@ -503,6 +503,12 @@ pub(crate) fn start(
             if deadline.is_some_and(|end| Instant::now() >= end) {
                 if update.discovery {
                     let _ = state.list_projects();
+                }
+                for project in &update.rescan {
+                    state.invalidate_repositories(Path::new(project));
+                }
+                if update.discovery || !update.rescan.is_empty() {
+                    // Rebind manually added roots even if their summary cannot be read while missing.
                     let mut next = routing.read().unwrap_or_else(|e| e.into_inner()).clone();
                     update.merge(configure_state(
                         &state,
@@ -511,11 +517,6 @@ pub(crate) fn start(
                         &mut next,
                         &routing,
                     ));
-                }
-                if !update.rescan.is_empty() {
-                    for project in &update.rescan {
-                        state.invalidate_repositories(Path::new(project));
-                    }
                 }
                 if update.changed() {
                     emit(std::mem::take(&mut update));
@@ -776,6 +777,57 @@ mod tests {
                 .projects
                 .contains(&child.to_string_lossy().into_owned())
         );
+    }
+
+    #[test]
+    fn ambiguous_manual_project_recreation_is_targeted_without_discovery() {
+        for discovery_enabled in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let project = root.join("manual");
+            std::fs::create_dir(&project).unwrap();
+            let state = AppState::new(root.join("config.json")).unwrap();
+            state.add_project(&project).unwrap();
+            if discovery_enabled {
+                let discovery = root.join("discovery");
+                std::fs::create_dir(&discovery).unwrap();
+                state.set_watch_directory(Some(&discovery)).unwrap();
+            }
+            let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+            let mut watched = BTreeMap::new();
+            let mut current = Targets::default();
+            let routing = RwLock::new(Targets::default());
+            configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+            for present in [false, true] {
+                if present {
+                    std::fs::create_dir(&project).unwrap();
+                } else {
+                    std::fs::remove_dir(&project).unwrap();
+                }
+                let mut update = Update::default();
+                classify(
+                    &Event::new(EventKind::Any).add_path(project.clone()),
+                    &current,
+                    &mut update,
+                );
+                assert!(
+                    update
+                        .projects
+                        .contains(&project.to_string_lossy().into_owned())
+                );
+                assert!(
+                    update
+                        .rescan
+                        .contains(&project.to_string_lossy().into_owned())
+                );
+                assert!(
+                    !update.discovery,
+                    "manual roots do not need global discovery"
+                );
+                configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+                assert_eq!(watched.get(&project), present.then_some(&true));
+            }
+        }
     }
 
     #[test]
