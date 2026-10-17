@@ -30,8 +30,15 @@ pub(crate) struct Update {
 #[derive(Clone, Default)]
 struct Targets {
     discovery: Option<PathBuf>,
+    discovery_identity: Option<(u64, u64)>,
     known_directories: BTreeSet<PathBuf>,
     projects: BTreeMap<String, Vec<(PathBuf, bool)>>,
+}
+
+fn directory_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = path.metadata().ok()?;
+    metadata.is_dir().then(|| (metadata.dev(), metadata.ino()))
 }
 
 // Git pointer files are tiny regular files. Nonblocking open also closes the
@@ -73,6 +80,7 @@ fn targets(state: &AppState) -> Targets {
         discovery: config.watch_directory.map(PathBuf::from),
         ..Targets::default()
     };
+    result.discovery_identity = result.discovery.as_deref().and_then(directory_identity);
     result.known_directories.extend(
         config
             .projects
@@ -131,12 +139,20 @@ fn configure(
     let desired = desired_paths(targets);
     let mut error = None;
     for (path, recursive) in watched.clone() {
-        if desired.get(&path) != Some(&recursive) {
+        if desired.get(&path) != Some(&recursive) || !path.exists() {
             let _ = watcher.unwatch(&path);
             watched.remove(&path);
         }
     }
     for (path, recursive) in desired {
+        if !path.exists() {
+            error = Some(format!(
+                "Surveillance indisponible : {} : {}",
+                path.display(),
+                std::io::Error::from(std::io::ErrorKind::NotFound)
+            ));
+            continue;
+        }
         if watched.get(&path) == Some(&recursive) {
             continue;
         }
@@ -221,6 +237,22 @@ fn configure_state(
     let next = targets(state);
     let desired = desired_paths(&next);
     let root_changed = current.discovery != next.discovery;
+    let identity_changed = current.discovery_identity != next.discovery_identity;
+    if !root_changed
+        && identity_changed
+        && let Some(root) = &next.discovery
+    {
+        // Rebind descendant watches too if replacement happened between notifications.
+        for path in watched
+            .keys()
+            .filter(|path| path.starts_with(root))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            let _ = watcher.unwatch(&path);
+            watched.remove(&path);
+        }
+    }
     let watch_changed = next
         .discovery
         .as_ref()
@@ -233,7 +265,8 @@ fn configure_state(
         ..Update::default()
     };
     let discovery = current.discovery.as_ref().is_some_and(|root| {
-        root_changed || watch_changed && watched.get(root) == desired.get(root)
+        root_changed
+            || (watch_changed || identity_changed) && watched.get(root) == desired.get(root)
     });
     if discovery {
         // Scan after installing the root watch: subsequent creations now produce events.
@@ -277,7 +310,18 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
                     EventKind::Create(_)
                         | EventKind::Remove(_)
                         | EventKind::Modify(ModifyKind::Name(_))
-                ) || matches!(event.kind, EventKind::Any) && !root.exists());
+                ) || matches!(event.kind, EventKind::Any)
+                    && directory_identity(root) != targets.discovery_identity);
+            if root_lifecycle {
+                for project in targets
+                    .projects
+                    .keys()
+                    .filter(|project| Path::new(project).starts_with(root))
+                {
+                    update.projects.insert(project.clone());
+                    update.rescan.insert(project.clone());
+                }
+            }
             update.discovery |= root_lifecycle || child && directory_event;
         }
         for (project, roots) in &targets.projects {
@@ -642,6 +686,50 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_discovery_root_recreation_reinstalls_watching_and_clears_the_warning() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("projects");
+        std::fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        state.set_watch_directory(Some(&root)).unwrap();
+        let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+        let mut watched = BTreeMap::new();
+        let mut current = Targets::default();
+        let routing = RwLock::new(Targets::default());
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        std::fs::remove_dir(&root).unwrap();
+        let _ = state.list_projects();
+        configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        assert!(state.settings().unwrap().watch_error.is_some());
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("new-project")).unwrap();
+        let mut update = Update::default();
+        classify(
+            &Event::new(EventKind::Any).add_path(root.clone()),
+            &current,
+            &mut update,
+        );
+        assert!(
+            update.discovery,
+            "an ambiguously recreated root must be reconciled"
+        );
+        let update = configure_state(&state, &mut watcher, &mut watched, &mut current, &routing);
+        assert!(update.discovery);
+        assert_eq!(watched.get(&root), Some(&false));
+        assert!(state.settings().unwrap().watch_error.is_none());
+        assert!(
+            state
+                .config
+                .lock()
+                .unwrap()
+                .projects
+                .iter()
+                .any(|p| p.name == "new-project")
+        );
+    }
+
+    #[test]
     fn configuring_discovery_reconciles_folders_created_after_the_initial_scan() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("projects");
@@ -678,6 +766,7 @@ mod tests {
         let project = root.join("app");
         let targets = Targets {
             discovery: Some(root.clone()),
+            discovery_identity: directory_identity(&root),
             known_directories: BTreeSet::from([project.clone()]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
@@ -792,6 +881,7 @@ mod tests {
         std::fs::create_dir_all(project.join(".git")).unwrap();
         let targets = Targets {
             discovery: Some(root.to_path_buf()),
+            discovery_identity: directory_identity(root),
             known_directories: BTreeSet::from([project.clone()]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
@@ -835,6 +925,8 @@ mod tests {
             update.discovery,
             "a missing discovery root must be reconciled"
         );
+        assert!(update.projects.contains(project.to_str().unwrap()));
+        assert!(update.rescan.contains(project.to_str().unwrap()));
     }
 
     #[test]
