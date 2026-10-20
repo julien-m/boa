@@ -14,6 +14,8 @@ playwright-report/
 dist
 dist-ssr
 *.local
+# Versioned repo-owned agent sources
+!.agent-sync.local/
 
 # Editor directories and files
 .vscode/*

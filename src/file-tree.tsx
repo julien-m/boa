@@ -1,9 +1,21 @@
 /** Lazily expands folders without indexing source code. */
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, FileCode2, Folder, FolderGit2, FolderOpen, Link } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	FileCode2,
+	Folder,
+	FolderGit2,
+	FolderOpen,
+	Link,
+	Pin,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
+import { orderedEntries, toggleIncluded, useTreeOptions } from "./file-browser";
+import { selectedPath, visiblePath } from "./file-workspace-api";
+import { useFileLabels } from "./file-workspace-labels";
 import type { DirectoryEntry, RepoStatus } from "./models";
 
 interface TreeProps {
@@ -25,6 +37,8 @@ function FileRow({
 	repos,
 	depth = 0,
 }: TreeProps & { entry: DirectoryEntry }) {
+	const options = useTreeOptions();
+	const l = useFileLabels();
 	const [expanded, setExpanded] = useState(false);
 	const activeRepo = repos
 		.filter((repo) => `${project}/${entry.path}`.startsWith(`${repo.path}/`))
@@ -43,36 +57,70 @@ function FileRow({
 				: FileCode2;
 	return (
 		<>
-			<button
-				type="button"
-				data-testid={`file-${entry.path}`}
-				className={`tree-row ${selected === entry.path ? "selected" : ""}`}
-				style={{ paddingLeft: 12 + depth * 14 }}
-				onClick={handleOpen}
-				onDoubleClick={() => {
-					if (!entry.directory) onKeepOpen?.(entry.path);
-				}}
-				title={entry.path}
-				aria-expanded={entry.directory ? expanded : undefined}
-			>
-				{entry.directory ? (
-					expanded ? (
-						<ChevronDown size={12} />
+			<div className="tree-row-wrapper">
+				{options.manage && (
+					<input
+						type="checkbox"
+						aria-label={`${l.choose} ${entry.path}`}
+						checked={selectedPath(entry.path, options.preferences)}
+						disabled={
+							options.busy ||
+							(options.preferences.filtered &&
+								options.preferences.included.some((p) => entry.path.startsWith(`${p}/`)))
+						}
+						onChange={(e) =>
+							options.update(toggleIncluded(options.preferences, entry.path, e.target.checked))
+						}
+					/>
+				)}
+				<button
+					type="button"
+					data-testid={`file-${entry.path}`}
+					className={`tree-row ${selected === entry.path ? "selected" : ""}`}
+					style={{ paddingLeft: 12 + depth * 14 }}
+					onClick={handleOpen}
+					onDoubleClick={() => {
+						if (!entry.directory) onKeepOpen?.(entry.path);
+					}}
+					title={entry.path}
+					aria-expanded={entry.directory ? expanded : undefined}
+				>
+					{entry.directory ? (
+						expanded ? (
+							<ChevronDown size={12} />
+						) : (
+							<ChevronRight size={12} />
+						)
 					) : (
-						<ChevronRight size={12} />
-					)
-				) : (
-					<span className="tree-spacer" />
-				)}
-				<Icon size={14} />
-				<span className="truncate">{entry.name}</span>
-				{entry.repository && <span className="mini-tag">Git</span>}
-				{change && (
-					<span className="file-state">
-						{change.conflict ? "!" : change.index !== "." ? change.index : change.worktree}
-					</span>
-				)}
-			</button>
+						<span className="tree-spacer" />
+					)}
+					<Icon size={14} />
+					<span className="truncate">{entry.name}</span>
+					{entry.repository && <span className="mini-tag">Git</span>}
+					{change && (
+						<span className="file-state">
+							{change.conflict ? "!" : change.index !== "." ? change.index : change.worktree}
+						</span>
+					)}
+				</button>
+				<button
+					type="button"
+					disabled={options.busy}
+					className={`tree-inline-pin icon-button ${options.preferences.pins.includes(entry.path) ? "pinned" : ""}`}
+					title={l.pin}
+					aria-label={`${l.pin} ${entry.path}`}
+					onClick={() =>
+						options.update({
+							...options.preferences,
+							pins: options.preferences.pins.includes(entry.path)
+								? options.preferences.pins.filter((p) => p !== entry.path)
+								: [...options.preferences.pins, entry.path],
+						})
+					}
+				>
+					<Pin size={12} />
+				</button>
+			</div>
 			{expanded && (
 				<FileTree
 					project={project}
@@ -90,6 +138,7 @@ function FileRow({
 
 export function FileTree({ project, path = "", onOpen, onKeepOpen, selected, repos, depth = 0 }: TreeProps) {
 	const { t } = useTranslation("workspace");
+	const options = useTreeOptions();
 	const query = useQuery({
 		queryKey: ["directory", project, path],
 		queryFn: () => api.directory(project, path),
@@ -110,18 +159,20 @@ export function FileTree({ project, path = "", onOpen, onKeepOpen, selected, rep
 	return (
 		<div data-testid={`directory-${path || "root"}`}>
 			{query.data.length ? (
-				query.data.map((entry) => (
-					<FileRow
-						key={entry.path}
-						entry={entry}
-						project={project}
-						onOpen={onOpen}
-						onKeepOpen={onKeepOpen}
-						selected={selected}
-						repos={repos}
-						depth={depth}
-					/>
-				))
+				orderedEntries(query.data, options.preferences)
+					.filter((entry) => options.showAll || visiblePath(entry.path, options.preferences))
+					.map((entry) => (
+						<FileRow
+							key={entry.path}
+							entry={entry}
+							project={project}
+							onOpen={onOpen}
+							onKeepOpen={onKeepOpen}
+							selected={selected}
+							repos={repos}
+							depth={depth}
+						/>
+					))
 			) : (
 				<p className="inline-status">{t("tree.empty")}</p>
 			)}

@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type ProjectRequest =
+	| { command: "workspace"; request: Record<string, unknown> }
 	| { command: "list" }
 	| { command: "add"; path: string; pin: boolean }
 	| { command: "pin" | "unpin"; path: string };
@@ -14,6 +15,11 @@ type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 const HELP = `BOA — navigation et projets locaux
 
 boa open <fichier> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI] [--dry-run]
+boa spaces list [--json]
+boa spaces save <id> --name <nom> --root <dossier> [--root <autre-dossier>] [--json] [--dry-run]
+boa spaces remove <id> [--json] [--dry-run]
+boa files configure <dossier> [--include <chemin-relatif>] [--pin <chemin-relatif>] [--sort name|modified] [--all] [--json] [--dry-run]
+boa files preferences <dossier> [--json]
 boa projects list [--json]
 boa projects add <dossier> [--pin] [--json] [--dry-run]
 boa projects pin|unpin <dossier> [--json] [--dry-run]
@@ -22,6 +28,9 @@ boa projects favorite|unfavorite <dossier> [--json] [--dry-run]
 Raccourcis : boa add|pin|unpin|favorite|unfavorite <dossier>.
 Favori et épinglé désignent la même préférence. Le CLI ouvre BOA si nécessaire.
 Les dossiers sont ajoutés explicitement ; aucune découverte automatique.
+Markdown : aperçu par défaut ; les lignes ciblées sont révélées et mises en évidence.
+--source désigne l’émetteur, pas le mode source du Markdown.
+open confirme l’envoi à macOS, sans accusé d’affichage ; Reprendre la main suspend le guidage.
 --json renvoie {ok,result} ou {ok:false,error} ; une erreur retourne un code non nul.`;
 
 export function parseProjects(args: string[]): ProjectRequest {
@@ -39,6 +48,79 @@ export function parseProjects(args: string[]): ProjectRequest {
 	if (["pin", "favorite", "unpin", "unfavorite"].includes(action))
 		return { command: action === "pin" || action === "favorite" ? "pin" : "unpin", path };
 	throw new Error("Commande attendue : projects list|add|pin|unpin|favorite|unfavorite");
+}
+
+function relativeItem(value: string): string {
+	const parts = value.split("/");
+	if (value.startsWith("/") || value.includes("\0") || parts.some((p) => p === ".." || p === "."))
+		throw new Error("Invalid relative item path");
+	const result = parts.filter(Boolean).join("/");
+	if (!result) throw new Error("Empty relative item path");
+	return result;
+}
+export function parseWorkspace(args: string[]): ProjectRequest {
+	const [group, action, ...rest] = args;
+	const positional: string[] = [];
+	const values: Record<string, string[]> = {};
+	for (let i = 0; i < rest.length; i++) {
+		const token = rest[i];
+		if (["--json", "--dry-run", "--all"].includes(token)) continue;
+		if (token.startsWith("--")) {
+			if (
+				!["--name", "--root", "--include", "--pin", "--sort"].includes(token) ||
+				!rest[i + 1] ||
+				rest[i + 1].startsWith("--")
+			)
+				throw new Error(`Invalid option: ${token}`);
+			(values[token] ??= []).push(rest[++i]);
+		} else positional.push(token);
+	}
+	const permitted =
+		group === "spaces" && action === "save"
+			? ["--name", "--root"]
+			: group === "files" && action === "configure"
+				? ["--include", "--pin", "--sort"]
+				: [];
+	if (
+		Object.keys(values).some((k) => !permitted.includes(k)) ||
+		(rest.includes("--all") && !(group === "files" && action === "configure")) ||
+		(values["--sort"]?.length ?? 0) > 1
+	)
+		throw new Error("Invalid options for this command");
+	let request: Record<string, unknown>;
+	if (group === "spaces" && action === "list" && !positional.length) request = { action: "list" };
+	else if (group === "spaces" && action === "remove" && positional.length === 1)
+		request = { action: "remove-space", id: positional[0] };
+	else if (
+		group === "spaces" &&
+		action === "save" &&
+		positional.length === 1 &&
+		values["--name"]?.length === 1 &&
+		values["--root"]?.length
+	)
+		request = {
+			action: "save-space",
+			id: positional[0],
+			name: values["--name"][0],
+			roots: values["--root"].map((p) => resolve(p)),
+		};
+	else if (group === "files" && action === "preferences" && positional.length === 1)
+		request = { action: "preferences", root: resolve(positional[0]) };
+	else if (group === "files" && action === "configure" && positional.length === 1) {
+		const sort = values["--sort"]?.[0] ?? "name";
+		if (!["name", "modified"].includes(sort)) throw new Error("Invalid sort");
+		request = {
+			action: "set-preferences",
+			root: resolve(positional[0]),
+			preferences: {
+				filtered: !rest.includes("--all"),
+				included: (values["--include"] ?? []).map(relativeItem),
+				pins: (values["--pin"] ?? []).map(relativeItem),
+				sort,
+			},
+		};
+	} else throw new Error("Invalid spaces/files command; see boa --help");
+	return { command: "workspace", request };
 }
 
 export function cliSocketPath(): string {
@@ -168,7 +250,9 @@ export async function main(args: string[]): Promise<number> {
 			}
 			return 0;
 		}
-		const request = parseProjects(args[0] === "projects" ? args.slice(1) : args);
+		const request = ["spaces", "files"].includes(args[0])
+			? parseWorkspace(args)
+			: parseProjects(args[0] === "projects" ? args.slice(1) : args);
 		const reply: Reply = args.includes("--dry-run")
 			? { ok: true, result: request }
 			: await connectApp(request);

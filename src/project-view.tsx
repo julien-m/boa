@@ -1,26 +1,15 @@
 /** WebStorm-inspired workspace with persisted Files/Git/combined layouts. */
-import {
-	Columns2,
-	FileCode2,
-	FolderOpen,
-	GitBranch,
-	GitFork,
-	PanelLeftClose,
-	PanelLeftOpen,
-	RefreshCw,
-	Search,
-	X,
-} from "lucide-react";
+import { Columns2, FileCode2, FolderOpen, GitBranch, GitFork, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
+import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
-import { FileTree } from "./file-tree";
+import { FileWorkspace } from "./file-workspace";
 import { GitPanel } from "./git-panel";
 import type { Layout, Project, Selection, Summary } from "./models";
 import { PanelResizer } from "./panel-resizer";
-import { ProjectSearch } from "./project-search";
 
 export function ProjectView({
 	project,
@@ -43,11 +32,9 @@ export function ProjectView({
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
 	});
-	const [showTree, setShowTree] = useState(true);
-	const [searching, setSearching] = useState(false);
+	const [treeFolder, setTreeFolder] = useState("");
 	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
-	const filesRef = useRef<HTMLDivElement>(null);
 	const [files, setFiles] = useState<{
 		tabs: Selection[];
 		preview: string | null;
@@ -112,22 +99,11 @@ export function ProjectView({
 			};
 		});
 	};
-	useEffect(() => {
-		const shortcut = (event: KeyboardEvent): void => {
-			if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
-			event.preventDefault();
-			if (event.shiftKey) {
-				setSearching(true);
-				setShowTree(true);
-				setLayout("files");
-			} else window.dispatchEvent(new Event("boa:find"));
-		};
-		window.addEventListener("keydown", shortcut);
-		return () => window.removeEventListener("keydown", shortcut);
-	}, []);
+
 	useEffect(() => {
 		if (navigation) {
-			openFile(navigation);
+			if (navigation.path.endsWith("/")) setTreeFolder(navigation.path.slice(0, -1));
+			else openFile(navigation);
 			setLayout("files");
 		}
 	}, [navigation, openFile]);
@@ -220,51 +196,18 @@ export function ProjectView({
 			)}
 			{summary?.scanLimited && <div className="scan-note">{t("project.scanLimited")}</div>}
 			{layout !== "git" && (
-				<div ref={filesRef} className={`file-workspace ${showTree ? "" : "no-tree"}`}>
-					<aside className={`file-sidebar ${showTree ? "" : "collapsed"}`}>
-						<div className="pane-heading">
-							<span>
-								{showTree ? (searching ? t("project.searchHeading") : t("project.filesHeading")) : ""}
-							</span>
-							<button
-								type="button"
-								className="icon-button"
-								data-testid="toggle-project-search"
-								title={t("project.search")}
-								onClick={() => {
-									setSearching(!searching);
-									setShowTree(true);
-								}}
-							>
-								<Search size={14} />
-							</button>
-							<button
-								type="button"
-								className="icon-button"
-								data-testid="toggle-file-tree"
-								title={showTree ? t("project.hideTree") : t("project.showTree")}
-								onClick={() => setShowTree(!showTree)}
-							>
-								{showTree ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
-							</button>
-						</div>
-						{showTree && (
-							<div className="tree-scroll">
-								{searching ? (
-									<ProjectSearch project={project.path} onOpen={openFile} />
-								) : (
-									<FileTree
-										project={project.path}
-										repos={repos}
-										selected={!selection?.repo ? selection?.path : undefined}
-										onOpen={(path) => openFile({ project: project.path, path })}
-										onKeepOpen={(path) => openFile({ project: project.path, path }, true)}
-									/>
-								)}
-							</div>
-						)}
-					</aside>
-					{showTree && <PanelResizer container={filesRef} vertical fileTree />}
+				<FileWorkspace
+					tree={
+						<FileBrowser
+							root={project.path}
+							folder={treeFolder}
+							repos={repos}
+							selected={!selection?.repo ? selection?.path : undefined}
+							onOpen={openFile}
+							onKeepOpen={(value) => openFile(value, true)}
+						/>
+					}
+				>
 					<div className="file-editor">
 						{tabs.length > 0 && (
 							<div className="file-tabs" role="tablist" aria-label={t("tabs.label")}>
@@ -306,7 +249,7 @@ export function ProjectView({
 						)}
 						<CodeViewer selection={selection} />
 					</div>
-				</div>
+				</FileWorkspace>
 			)}
 			{layout === "split" && <PanelResizer container={containerRef} />}
 			{layout !== "files" && (

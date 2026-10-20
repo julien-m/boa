@@ -936,3 +936,71 @@ fn saves_preserve_macos_xattrs_acl_owner_group_and_mode() {
     assert_eq!(String::from_utf8(tag.stdout).unwrap().trim(), "retained");
     assert_eq!(fs::read_to_string(file).unwrap(), "after");
 }
+
+#[test]
+fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() {
+    let root = tempfile::tempdir().unwrap();
+    let png = root.path().join("plan.PNG");
+    fs::write(&png, b"\x89PNG\r\n\x1a\n\0example").unwrap();
+    // The old text-only route rejects the same selection.
+    assert!(files::text(&png).is_err());
+    let preview = files::file_preview(root.path(), "plan.PNG").unwrap();
+    assert_eq!(preview.kind, "image");
+    assert!(
+        preview
+            .data_url
+            .as_ref()
+            .unwrap()
+            .starts_with("data:image/png;base64,")
+    );
+    let json = serde_json::to_value(preview).unwrap();
+    assert!(json["dataUrl"].is_string());
+    assert_eq!(json["path"], "plan.PNG");
+    fs::write(
+        root.path().join("plan.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    )
+    .unwrap();
+    let svg = files::file_preview(root.path(), "plan.svg").unwrap();
+    assert_eq!(svg.kind, "image");
+    assert!(svg.preview.modified.starts_with("<svg"));
+    fs::write(root.path().join("video.mov"), b"\0\0\0\x14ftypqt  ").unwrap();
+    let video = files::file_preview(root.path(), "video.mov").unwrap();
+    assert_eq!(video.kind, "unsupported");
+    assert!(video.data_url.is_none());
+    fs::write(root.path().join("notes.unknown"), "Readable text").unwrap();
+    assert_eq!(
+        files::file_preview(root.path(), "notes.unknown")
+            .unwrap()
+            .preview
+            .modified,
+        "Readable text"
+    );
+}
+
+#[test]
+fn file_preview_fallbacks_are_bounded_and_external_open_requires_a_regular_registered_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let large = root.path().join("large.png");
+    fs::File::create(&large)
+        .unwrap()
+        .set_len(8 * 1024 * 1024 + 1)
+        .unwrap();
+    let result = files::file_preview(root.path(), "large.png").unwrap();
+    assert_eq!(result.kind, "unsupported");
+    assert!(result.reason.unwrap().contains("8 Mo"));
+    assert!(result.data_url.is_none());
+    fs::write(root.path().join("broken.png"), "not an image").unwrap();
+    assert_eq!(
+        files::file_preview(root.path(), "broken.png").unwrap().kind,
+        "unsupported"
+    );
+    fs::create_dir(root.path().join("folder")).unwrap();
+    for invalid in ["folder", "../private.mov", "/private.mov"] {
+        assert!(files::regular_file(root.path(), invalid).is_err());
+    }
+    assert_eq!(
+        files::regular_file(root.path(), "broken.png").unwrap(),
+        root.path().join("broken.png").canonicalize().unwrap()
+    );
+}

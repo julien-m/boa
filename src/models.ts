@@ -34,8 +34,12 @@ export interface DirectoryEntry {
 	directory: boolean;
 	symlink: boolean;
 	repository: boolean;
+	modified?: number;
 }
 export interface Preview {
+	kind?: "text" | "image" | "unsupported";
+	dataUrl?: string;
+	reason?: string;
 	original: string;
 	modified: string;
 	path: string;

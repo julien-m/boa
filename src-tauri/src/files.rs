@@ -10,7 +10,6 @@ pub(crate) const FILE_LIMIT: u64 = 2 * 1024 * 1024;
 const IMAGE_LIMIT: u64 = 8 * 1024 * 1024;
 
 pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
-    use base64::Engine;
     let document = confined(root, document)?;
     if source.starts_with('/') || source.starts_with('\\') {
         return Err("Chemin hors du projet".into());
@@ -26,11 +25,16 @@ pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Resul
     if !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
         return Err("Chemin hors du projet".into());
     }
-    if !fs::metadata(&path).map_err(|e| e.to_string())?.is_file() {
+    image_data(&path)
+}
+
+fn image_data(path: &Path) -> Result<String, String> {
+    use base64::Engine;
+    if !fs::metadata(path).map_err(|e| e.to_string())?.is_file() {
         return Err("Ce chemin ne désigne pas un fichier régulier".into());
     }
     let mut bytes = Vec::new();
-    fs::File::open(&path)
+    fs::File::open(path)
         .map_err(|e| e.to_string())?
         .take(IMAGE_LIMIT + 1)
         .read_to_end(&mut bytes)
@@ -110,6 +114,7 @@ pub(crate) struct Entry {
     pub directory: bool,
     pub symlink: bool,
     pub repository: bool,
+    pub modified: u64,
 }
 
 pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, String> {
@@ -136,6 +141,12 @@ pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, Strin
         let is_directory = kind.is_dir()
             || (kind.is_symlink() && entry.path().canonicalize().is_ok_and(|path| path.is_dir()));
         result.push(Entry {
+            modified: entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |t| t.as_secs()),
             name,
             path: entry
                 .path()
@@ -163,6 +174,96 @@ pub(crate) struct Preview {
     pub modified: String,
     pub path: String,
     pub label: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FilePreview {
+    #[serde(flatten)]
+    pub preview: Preview,
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub(crate) fn regular_file(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let path = confined(root, relative)?;
+    if !fs::metadata(&path).map_err(|e| e.to_string())?.is_file() {
+        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+    }
+    Ok(path)
+}
+
+pub(crate) fn file_preview(root: &Path, relative: &str) -> Result<FilePreview, String> {
+    let path = regular_file(root, relative)?;
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let image = matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg"
+    );
+    let mut result = FilePreview {
+        preview: Preview {
+            original: String::new(),
+            modified: String::new(),
+            path: relative.into(),
+            label: "Lecture seule".into(),
+        },
+        kind: "unsupported",
+        data_url: None,
+        reason: None,
+    };
+    // Known binary formats are handed to macOS without loading their bytes.
+    if matches!(
+        extension.as_str(),
+        "mp4"
+            | "mov"
+            | "m4v"
+            | "mkv"
+            | "avi"
+            | "webm"
+            | "mp3"
+            | "wav"
+            | "m4a"
+            | "flac"
+            | "ogg"
+            | "pdf"
+            | "zip"
+            | "dmg"
+            | "heic"
+            | "heif"
+            | "tif"
+            | "tiff"
+    ) {
+        return Ok(result);
+    }
+    if image {
+        match image_data(&path) {
+            Ok(data) => {
+                result.kind = "image";
+                result.data_url = Some(data);
+                // SVG retains its explicit source/editing path within the text limit.
+                if extension == "svg" {
+                    result.preview.modified = text(&path).unwrap_or_default();
+                }
+            }
+            Err(error) => result.reason = Some(error),
+        }
+    } else {
+        match text(&path) {
+            Ok(content) => {
+                result.kind = "text";
+                result.preview.modified = content;
+            }
+            Err(error) => result.reason = Some(error),
+        }
+    }
+    Ok(result)
 }
 
 pub(crate) fn git_blob(repo: &Path, revision: &str, path: &str) -> Result<String, String> {

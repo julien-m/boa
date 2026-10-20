@@ -1,6 +1,8 @@
 //! Native command boundary for the BOA project cockpit.
 mod cli;
 mod context;
+#[path = "file-workspace.rs"]
+mod file_workspace;
 mod files;
 mod git;
 mod projects;
@@ -200,16 +202,18 @@ async fn read_file(
     state: NativeState<'_>,
     project: String,
     path: String,
-) -> Result<files::Preview, String> {
+) -> Result<files::FilePreview, String> {
     work(state.inner().clone(), move |state| {
-        let root = state.registered(&project)?;
-        let content = files::text(&files::confined(&root, &path)?)?;
-        Ok(files::Preview {
-            original: String::new(),
-            modified: content,
-            path,
-            label: "Lecture seule".into(),
-        })
+        files::file_preview(&state.registered(&project)?, &path)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_file(state: NativeState<'_>, project: String, path: String) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let file = files::regular_file(&state.registered(&project)?, &path)?;
+        open_external(&["--", file.to_str().ok_or("Chemin non UTF-8")?])
     })
     .await
 }
@@ -379,16 +383,23 @@ fn resolve_navigation(state: NativeState<'_>, file: String) -> Result<Navigation
         return Err("Le chemin doit désigner un fichier".into());
     }
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    let project = config
+    let root = config
         .projects
         .iter()
-        .filter(|p| file.starts_with(&p.path))
-        .max_by_key(|p| p.path.len())
+        .map(|p| p.path.as_str())
+        .chain(
+            config
+                .file_spaces
+                .iter()
+                .flat_map(|s| s.roots.iter().map(String::as_str)),
+        )
+        .filter(|root| file.starts_with(root))
+        .max_by_key(|root| root.len())
         .ok_or("Importez d’abord ce projet dans BOA")?;
     Ok(Navigation {
-        project: project.path.clone(),
+        project: root.into(),
         path: file
-            .strip_prefix(&project.path)
+            .strip_prefix(root)
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .into(),
@@ -403,6 +414,17 @@ async fn search_project(
 ) -> Result<search::Results, String> {
     work(state.inner().clone(), move |state| {
         search::search(&state.registered(&project)?, &query)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn file_workspace(
+    state: NativeState<'_>,
+    request: file_workspace::Request,
+) -> Result<serde_json::Value, String> {
+    work(state.inner().clone(), move |state| {
+        file_workspace::execute(state, request)
     })
     .await
 }
@@ -466,6 +488,7 @@ pub fn run() {
             open_repository,
             open_project_folder,
             read_file,
+            open_file,
             save_file,
             read_markdown_image,
             git_history,
@@ -475,7 +498,8 @@ pub fn run() {
             compare_branch,
             export_context,
             resolve_navigation,
-            search_project
+            search_project,
+            file_workspace
         ])
         .run(tauri::generate_context!());
     if let Err(error) = app {

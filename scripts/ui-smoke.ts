@@ -7,6 +7,12 @@ import { chromium, expect } from "@playwright/test";
 
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
 const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
+let fileSpaces: { id: string; name: string; roots: string[] }[] = [];
+const filePreferences: Record<
+	string,
+	{ filtered: boolean; included: string[]; pins: string[]; sort: string }
+> = {};
+let searchShortcuts = { contextual: "Mod+F", global: "Mod+Shift+F" };
 let watchDirectory: string | null = null;
 let folderChoice: string | null = directory;
 let language = "fr";
@@ -75,6 +81,49 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "file_workspace": {
+			const request = args.request as Record<string, unknown>;
+			const root = String(request.root ?? "");
+			if (request.action === "list") return { spaces: fileSpaces, shortcuts: searchShortcuts };
+			if (request.action === "preferences")
+				return filePreferences[root] ?? { filtered: false, included: [], pins: [], sort: "name" };
+			if (request.action === "set-preferences") {
+				filePreferences[root] = request.preferences as (typeof filePreferences)[string];
+				return filePreferences[root];
+			}
+			if (request.action === "save-space") {
+				fileSpaces = [
+					...fileSpaces.filter((s) => s.id !== request.id),
+					{ id: String(request.id), name: String(request.name), roots: request.roots as string[] },
+				];
+				return fileSpaces.at(-1);
+			}
+			if (request.action === "remove-space") {
+				fileSpaces = fileSpaces.filter((s) => s.id !== request.id);
+				return true;
+			}
+			if (request.action === "set-shortcuts") {
+				searchShortcuts = request.shortcuts as typeof searchShortcuts;
+				return searchShortcuts;
+			}
+			if (request.action === "search")
+				return {
+					matches: [
+						{
+							project: directory,
+							path: "sample.ts",
+							line: 1,
+							text: after.split("\n")[0],
+							directory: false,
+							kind: "content",
+						},
+					],
+					limited: false,
+					warning: "",
+				};
+			throw new Error("Unknown file command");
+		}
+
 		case "read_markdown_image":
 			expect(args.document).toBe("README.md");
 			expect(args.source).toBe("images/plan.png");
@@ -685,14 +734,19 @@ try {
 	await treeGrip.press("ArrowRight");
 	expect(await page.locator(".file-sidebar").evaluate((e) => e.clientWidth)).toBeGreaterThan(filesTreeBefore);
 
-	await page.keyboard.press("Control+Shift+f");
-	await expect(page.getByTestId("project-search-input")).toBeFocused();
-	await page.getByTestId("project-search-input").fill("newFunction");
-	await page.getByTestId("project-search-submit").click();
-	await page.getByTestId("search-result-0").click();
-	await page.getByTestId("toggle-project-search").click();
+	await expect(page.getByTestId("toggle-project-search")).toHaveCount(0);
+	await page.locator("[data-file-browser]").focus();
+	await page.keyboard.type("sample");
+	const speedSearch = page.locator(".tree-speed-search input");
+	await expect(speedSearch).toHaveValue("sample");
+	await page.locator(".tree-speed-search .search-results button").first().click();
+	await speedSearch.press("Escape");
 	await page.getByTestId("toggle-file-tree").click();
-	await expect(page.getByTestId("file-sample.ts")).toHaveCount(0);
+	await expect(page.getByTestId("file-sample.ts")).toBeHidden();
+	await expect(page.getByTestId("toggle-file-tree")).toBeVisible();
+	await page.getByTestId("toggle-file-tree").click();
+	await expect(page.getByTestId("file-sample.ts")).toBeVisible();
+	await page.getByTestId("toggle-file-tree").click();
 	await page.getByTestId("layout-git").click();
 	await expect(page.getByTestId("code-viewer")).toContainText("sample.ts");
 	await expect(page.getByRole("textbox", { name: /modifié/i })).toBeAttached();
@@ -896,6 +950,64 @@ try {
 	await expect(page.getByRole("heading", { name: "Réglages", exact: true })).toBeVisible();
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-fr.png") });
+
+	// File spaces and contextual search share the real tree/editor with project views.
+	await page.getByRole("button", { name: "Nouvel espace", exact: true }).last().click();
+	await page.getByLabel("Nom", { exact: true }).fill("Outils QA");
+	await page.getByRole("button", { name: "Ajouter un dossier", exact: true }).click();
+	await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+	await expect.poll(() => fileSpaces.length).toBe(1);
+	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
+	await expect(page.getByTestId("file-space-view")).toBeVisible();
+	await page.getByTestId("file-sample.ts").click();
+	await expect(page.getByTestId("code-viewer")).toContainText("sample.ts");
+	await page.getByRole("button", { name: "Épingler sample.ts", exact: true }).click();
+	await expect.poll(() => filePreferences[directory]?.pins).toEqual(["sample.ts"]);
+	await page.getByTestId("file-sample.ts").focus();
+	await page.keyboard.press("Control+f");
+	await expect(page.getByTestId("file-search-panel")).toBeVisible();
+	await page.getByRole("textbox", { name: "Rechercher", exact: true }).fill("sample");
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("file-search-panel")).toContainText("sample.ts");
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("file-search-panel")).toHaveCount(0);
+	await page.keyboard.press("Control+Shift+f");
+	await expect(page.getByRole("dialog", { name: "Recherche globale" })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
+	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
+	await expect.poll(() => filePreferences[directory]?.filtered).toBe(true);
+	const selectedItem = page.getByRole("checkbox", { name: "Choisir sample.ts", exact: true });
+	await expect(selectedItem).not.toBeChecked();
+	await expect(selectedItem).toBeEnabled();
+	await selectedItem.check();
+	await expect.poll(() => filePreferences[directory]?.included).toEqual(["sample.ts"]);
+	await page.locator(".file-browser-options").getByRole("button", { name: "Fermer", exact: true }).click();
+	await expect(page.getByTestId("file-config.json")).toHaveCount(0);
+	await page.reload();
+	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
+	await expect(page.locator(".tree-pins")).toContainText("sample.ts");
+
+	await page.getByTestId("settings-nav").click();
+	await page.getByRole("textbox", { name: "Recherche contextuelle", exact: true }).press("Control+g");
+	await expect.poll(() => searchShortcuts.contextual).toBe("Mod+G");
+	await page.getByRole("button", { name: "Modifier l’espace", exact: true }).click();
+	folderChoice = `${directory}/second`;
+	await page.getByRole("button", { name: "Ajouter un dossier", exact: true }).click();
+	await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+	await expect.poll(() => fileSpaces[0].roots.length).toBe(2);
+	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
+	const browsers = page.locator("[data-file-browser]");
+	await browsers.nth(0).getByTestId("file-sample.ts").dblclick();
+	await browsers.nth(1).getByTestId("file-sample.ts").dblclick();
+	await expect(page.getByRole("tab", { name: "sample.ts", exact: true })).toHaveCount(2);
+	await browsers.nth(1).getByTestId("file-sample.ts").focus();
+	await page.keyboard.press("Control+g");
+	await expect(page.getByTestId("file-search-panel")).toBeVisible();
+	await page.keyboard.press("Escape");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "file-space.png") });
+
 	expect(errors).toEqual([]);
 	console.log(
 		"PASS: fichiers, Git, contexte, navigation, réglages, événements natifs, aucun polling, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",

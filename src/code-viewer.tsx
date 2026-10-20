@@ -10,6 +10,7 @@ import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
+import { FileAssetPreview } from "./file-asset-preview";
 import { useFileEditing } from "./file-editing";
 import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
@@ -50,6 +51,7 @@ function language(path: string): string {
 				ts: "typescript",
 				tsx: "typescript",
 				js: "javascript",
+				mjs: "javascript",
 				jsx: "javascript",
 				py: "python",
 				rs: "rust",
@@ -88,12 +90,12 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	const [sideBySide, setSideBySide] = useState(false);
 	const [notice, setNotice] = useState<{ key: string; error?: string } | null>(null);
 	const [markdownMode, setMarkdownMode] = useState<{ key: string; source: boolean } | null>(null);
+	useLayoutEffect(() => setMarkdownMode(null), [selection]);
 	const fileKey = selection
 		? `${selection.project}/${selection.path}:${selection.navigationId ?? selection.line ?? ""}`
 		: "";
 	const isMarkdown = Boolean(selection && !selection.repo && /\.(md|markdown)$/i.test(selection.path));
-	const showMarkdown =
-		isMarkdown && !draft && (markdownMode?.key === fileKey ? !markdownMode.source : !selection?.line);
+
 	const markdownBookmark = useRef<{ key: string; position: MarkdownBookmark; line: number } | null>(null);
 	const rememberMarkdown = (): void => {
 		const container = document.querySelector<HTMLElement>('[data-testid="markdown-preview"]');
@@ -118,6 +120,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	const sideRef = useRef("file");
 	const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 	const findOnMount = useRef(false);
+	const viewerElement = useRef<HTMLElement>(null);
 	const [selectionVersion, setSelectionVersion] = useState(0);
 	void selectionVersion;
 	const query = useQuery({
@@ -130,9 +133,16 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		staleTime: 0,
 		refetchOnWindowFocus: false,
 	});
+	const sourceRequested = markdownMode?.key === fileKey && markdownMode.source;
+	const svgSource =
+		query.data?.kind === "image" && /\.svg$/i.test(selection?.path ?? "") && Boolean(query.data.modified);
+	const nonText =
+		!draft &&
+		(query.data?.kind === "unsupported" || (query.data?.kind === "image" && !(svgSource && sourceRequested)));
+	const showMarkdown = isMarkdown && !draft && !nonText && !sourceRequested;
 	const capture = (): CodeContext | null => {
 		if (!selection || !query.data) return null;
-		const editor = showMarkdown ? null : editorRef.current;
+		const editor = showMarkdown || nonText ? null : editorRef.current;
 		const range = editor?.getSelection();
 		const selected = range && !range.isEmpty();
 		const renderedSelection = showMarkdown ? window.getSelection() : null;
@@ -161,11 +171,14 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 	}, [showMarkdown]);
 
 	const hasSelection = Boolean(
-		!showMarkdown && editorRef.current?.getSelection() && !editorRef.current.getSelection()?.isEmpty(),
+		!showMarkdown &&
+			!nonText &&
+			editorRef.current?.getSelection() &&
+			!editorRef.current.getSelection()?.isEmpty(),
 	);
 	const handleCopy = async (full = false): Promise<void> => {
 		if (!selection || !query.data) return;
-		const editor = showMarkdown ? null : editorRef.current;
+		const editor = showMarkdown || nonText ? null : editorRef.current;
 		const selected = editor?.getSelection();
 		if (!full && (!selected || selected.isEmpty())) {
 			setNotice({ key: "viewer.selectLines" });
@@ -195,7 +208,12 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		}
 	};
 	useEffect(() => {
-		const find = (): void => {
+		const find = (event: Event): void => {
+			const target = (event as CustomEvent).detail?.target as HTMLElement | undefined;
+			const chosen =
+				target?.closest(".code-viewer") ?? document.querySelector(".code-viewer:not(.empty-view)");
+			if (chosen && chosen !== viewerElement.current) return;
+			if (nonText) return;
 			if (showMarkdown) {
 				findOnMount.current = true;
 				setMarkdownMode({ key: fileKey, source: true });
@@ -203,10 +221,10 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 		};
 		window.addEventListener("boa:find", find);
 		return () => window.removeEventListener("boa:find", find);
-	}, [showMarkdown, fileKey]);
+	}, [showMarkdown, fileKey, nonText]);
 	if (!selection)
 		return (
-			<section className="code-viewer empty-view" data-testid="preview-empty">
+			<section ref={viewerElement} className="code-viewer empty-view" data-testid="preview-empty">
 				<FileCode2 size={32} strokeWidth={1} />
 				<h2>{t("viewer.emptyTitle")}</h2>
 				<p>{t("viewer.emptyDescription")}</p>
@@ -214,21 +232,25 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 			</section>
 		);
 	return (
-		<section className={`code-viewer ${compact ? "compact" : ""}`} data-testid="code-viewer">
+		<section
+			ref={viewerElement}
+			className={`code-viewer ${compact ? "compact" : ""}`}
+			data-testid="code-viewer"
+		>
 			<div className="editor-toolbar">
 				<span className="editor-tab">
 					<FileCode2 size={14} />
 					{selection.path.split("/").pop()}
 				</span>
 				<div className="toolbar-actions">
-					{isMarkdown && !draft && (
+					{(isMarkdown || svgSource) && !draft && (
 						<button
 							type="button"
 							className="quiet-button"
 							data-testid="markdown-toggle"
-							onClick={() => setMarkdownMode({ key: fileKey, source: showMarkdown })}
+							onClick={() => setMarkdownMode({ key: fileKey, source: showMarkdown || nonText })}
 						>
-							{showMarkdown ? t("viewer.source") : t("viewer.preview")}
+							{showMarkdown || nonText ? t("viewer.source") : t("viewer.preview")}
 						</button>
 					)}
 					<ContextBubbles capture={capture} context={capture()} />
@@ -276,7 +298,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 						onClick={() => {
 							void handleCopy();
 						}}
-						disabled={!query.data || !hasSelection}
+						disabled={!query.data || nonText || !hasSelection}
 					>
 						<Copy size={13} />
 						{t("viewer.copySelection")}
@@ -285,7 +307,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 						type="button"
 						className="quiet-button"
 						data-testid="copy-whole-file"
-						disabled={!query.data}
+						disabled={!query.data || nonText}
 						onClick={() => {
 							void handleCopy(true);
 						}}
@@ -296,7 +318,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 			</div>
 			<div className="breadcrumb" title={selection.path}>
 				<span className="breadcrumb-path">{selection.path}</span>
-				{selection.repo ? (
+				{selection.repo || nonText ? (
 					<span>{query.data?.label}</span>
 				) : (
 					<div className="editing-controls">
@@ -413,12 +435,19 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				</div>
 			) : (
 				query.data &&
-				(showMarkdown ? (
+				(nonText ? (
+					<FileAssetPreview
+						key={`${selection.project}/${selection.path}`}
+						preview={query.data}
+						selection={selection}
+					/>
+				) : showMarkdown ? (
 					<MarkdownPreview
 						key={`${selection.project}/${selection.path}`}
 						project={selection.project}
 						path={selection.path}
 						content={query.data.modified}
+						navigation={selection.line ? selection : undefined}
 						restorePosition={
 							markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined
 						}

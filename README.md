@@ -17,11 +17,14 @@ These screenshots show BOA's actual interface with fictional projects, paths, co
 
 - Add folders explicitly, pin projects and sort the dashboard by name, activity or changed files.
 - Distinguish files to commit from commits to push; a `?` means the branch has no upstream.
-- Browse files, nested repositories and Git worktrees. Read code with local syntax highlighting, including JSON/JSONC, YAML, XML/SVG and TOML/Wrangler configurations.
-- Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Local image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. HTTP(S) images and badges load directly from their URLs when previewing a document, without sending a referrer. Sanitized HTML supports embedded `<img>` tags and their dimensions; scripts and active HTML are removed. Failed images fall back to their descriptions.
+- Browse files, nested repositories and Git worktrees. Read code with local syntax highlighting, including JavaScript ES modules (`.mjs`), JSON/JSONC, YAML, XML/SVG and TOML/Wrangler configurations.
+- Open Markdown documents (`.md` and `.markdown`, case-insensitive) in preview by default, including CLI line targets, or explicitly switch to Source/editing. Preview Markdown documents with local PNG, JPEG, GIF, WebP and SVG images, or switch to their source. Local image paths resolve relative to the document, stay within the registered project and are limited to 8 MiB each. HTTP(S) images and badges load directly from their URLs when previewing a document, without sending a referrer. Sanitized HTML supports embedded `<img>` tags and their dimensions; scripts and active HTML are removed. Failed images fall back to their descriptions.
+- Select PNG, JPEG, GIF, WebP or SVG files in a project or file-space tree to preview the image (8 MiB maximum). SVG retains an explicit Source/editing view within the 2 MiB text limit. Unsupported files, including videos, show a clear fallback with **Open with macOS**; opening occurs only after clicking the button and uses the associated application. Corrupt or oversized images offer the same fallback. Unknown extensions containing valid UTF-8 text retain the text reader. Image previews and individually expanded Markdown images/diagram images share a discreet zoom bar: −/+, a 25–200% slider, click the percentage for intrinsic 100% size, or **Fit** to adapt to the viewport. Numeric zoom is independent of window size; Fit updates when the viewport changes. Images remain scrollable at large zoom.
+
+Les aperçus image et les images/diagrammes Markdown agrandis individuellement partagent le zoom 25–200 %, le retour à 100 % réel et **Adapter**. Les dimensions du fichier restent inchangées.
 - Inspect staged/local changes, commit history and a branch's changes since its common ancestor with a base. Compare before/after and jump between changed blocks.
 - Click the **Read-only** label to edit in place, preserving the editor position; save explicitly (Cmd/Ctrl+S), undo/redo, or cancel. Edits stay in the same editor. Cancel asks before discarding changes. Unsaved drafts survive tab/project navigation during the session and remain reachable from the Drafts menu. Files changed externally are not silently overwritten. Git diffs stay read-only; editing is restricted to existing UTF-8 files inside the project (2 MB maximum), excluding Git metadata and external symlink targets. On macOS, atomic saves retain extended attributes, ACLs, owner/group and permissions; an inability to preserve metadata aborts the save.
-- Use Files, Git or a combined layout; resize the file tree and Git panels, and hide the file tree. Single-click a file for a temporary preview; double-click to keep it in a tab. Switch between open tabs or close them individually. Retained source tabs preserve their cursor, scroll position and undo history; editing keeps a preview tab open.
+- Use Files, Git or a combined layout; resize the file tree and Git panels, and hide the file tree. Collapsing the tree keeps expanded folders and the reader mounted, with a short transition (disabled when reduced motion is requested). Single-click a file for a temporary preview; double-click to keep it in a tab. Switch between open tabs or close them individually. Retained source tabs preserve their cursor, scroll position and undo history; editing keeps a preview tab open.
 - Search in a file or across a selected project.
 - Open the selected repository in your browser (HTTP(S) and common SSH remotes), or open the project folder in Finder. The web button prefers `origin`, then the first supported remote; it is disabled when none is available. Credentials, query strings and fragments are removed from browser URLs.
 - Prepare a small AI context: selected text plus your comment, or just the file path plus your comment. Copy it to an assistant of your choice. No conversation history, model backend or automatic AI submission.
@@ -109,14 +112,57 @@ boa open "$HOME/Projects/my-app/src/main.ts" --line 12 --end-line 24 --source Co
 
 Project commands return `{ "ok": true, "result": ... }` with `--json`; failures return `{ "ok": false, "error": ... }` and a nonzero exit code. They launch the installed app if needed and communicate through a per-user Unix socket with owner-only permissions, bounded messages and timeouts. The app owns configuration updates and immediately refreshes its view. The CLI never edits the preferences file behind the app's back.
 
-`open` uses the `boa://open` URL scheme. Its source label can be Codex, Claude, Cursor or CLI; it records a declared sender, not an authenticated AI session. **Reprendre la main** suspends incoming navigation. The file must belong to a registered project.
+`open` uses the `boa://open` URL scheme. Its source label can be Codex, Claude, Cursor or CLI; it records a declared sender, not an authenticated AI session. **Reprendre la main** suspends incoming navigation. The file must belong to a registered project or a registered file-space folder. An exit code of zero from `open` confirms that macOS accepted the URL, not that BOA has finished rendering or scrolled; `open` has no display acknowledgement. A paused guidance session ignores incoming navigation, and there is currently no CLI command to resume it.
+
+Markdown tables use the browser’s intrinsic content widths, with no fixed column sizes. A separate, keyboard-focusable horizontal scroll container keeps wide tables accessible. Hover or focus a table, fenced code/diagram block or image to reveal **Expand**. The block opens in a modal filling the BOA window; Escape or Close returns to the same reading position, including table scrolling. The **Expand** action above the preview opens the whole Markdown document with the full available width. Diagram fences retain their existing code rendering.
+
+Les tableaux, blocs de code/diagrammes et images proposent **Agrandir** au survol ou au clavier ; **Agrandir** en haut de l’aperçu ouvre tout le Markdown. Échap ou Fermer revient à la lecture sans perdre sa position. Les diagrammes en blocs de code gardent leur rendu existant.
+
+Markdown line ranges stay in the rendered preview: BOA reveals the first matching block and persistently highlights the smallest matching blocks, including individual table rows. A new request replaces the highlight and scrolls again, even for the same range. Blank lines or syntax with no rendered element (such as a table separator) target the containing or nearest visible block; a range beyond the end targets the last visible block. Source, explicit editing, Find and Git diffs remain available. Existing editing drafts stay in editing mode.
+
+```bash
+boa open "$HOME/Projects/my-app/docs/schema.md" --line 120 --end-line 132 --source Codex
+```
+
+Les images PNG, JPEG, GIF, WebP et SVG sélectionnées dans l’arborescence ont un aperçu intégré, limité à 8 Mio. Les vidéos et autres fichiers non affichables proposent **Ouvrir avec macOS**, sans ouverture automatique. Une image invalide ou trop volumineuse propose aussi ce recours. Le SVG conserve son accès explicite au source dans la limite de lecture texte.
+
+Les Markdown s’ouvrent en aperçu par défaut, par clic comme par CLI. `--line` et `--end-line` révèlent et mettent en évidence les blocs rendus correspondants, y compris les lignes d’un tableau. Une nouvelle demande remplace le surlignage. Une ligne sans élément rendu vise le bloc contenant ou le plus proche. Source et édition restent accessibles ; un brouillon actif reste en édition. Le code retour de `open` confirme l’envoi à macOS, sans accusé d’affichage de BOA. **Reprendre la main** suspend les demandes ; aucune commande CLI ne réactive ce suivi.
+
+Read [the BOA agent skill](.agent-sync.local/skills/boa/SKILL.md) for the complete CLI reference and voice-demo navigation context. Its source lives in this repository. With cc-hub installed, provider links can be generated from a **stable checkout** using:
+
+```bash
+cc-hub skill link ./.agent-sync.local/skills/boa --agent-sync-root ./.agent-sync.local --scope global --targets all --json
+cc-hub skill status --agent-sync-root ./.agent-sync.local --scope global --targets all --name boa --json
+```
+
+The custom root keeps `.agent-sync.local/skills/boa` canonical in BOA and lets cc-hub manage provider links. Do not run these commands from a temporary worktree whose deletion would break the links. The BOA skill documents the CLI; it does not install or update BOA.app. Read [the CLI latency study](docs/cli-latency.md) for measured request-preparation cost, unmeasured display latency and the CLI/MCP comparison plan.
+
+## File spaces and focused browsing
+
+Use **Settings → File spaces** to create a named collection of existing folders. Spaces appear separately in the sidebar and never run Git discovery or status scans. Files stay in their original locations. Each folder has an on-demand visibility/sort menu: choose the files and subfolders to show, temporarily show everything, or sort by name or modification date. Selecting a folder includes its descendants; ancestors remain traversable. Pinned files and folders stay accessible even when excluded from the visible selection. Pins stay above the tree and can be reordered by drag-and-drop or the arrow buttons. Visibility and pins are local preferences, not access-control boundaries.
+
+```bash
+boa spaces save ai-tools --name "AI tools" --root "$HOME/.claude" --root "$HOME/.codex"
+boa spaces list --json
+boa files configure "$HOME/.codex" --include skills --include AGENTS.md --pin AGENTS.md --sort modified
+boa files preferences "$HOME/.codex" --json
+boa spaces remove ai-tools --dry-run
+```
+
+`spaces save` creates or replaces the space with that ID; repeated roots are canonicalized and deduplicated. `files configure` replaces that folder's complete visibility, pin order and sort preferences. Repeat `--include` and `--pin` as needed; `--all` disables filtering. Removing a space only removes its BOA entry, never its files. Registered space folders support `boa open` just like project folders.
+
+Search fields stay hidden until requested. With the file tree focused, start typing to open a temporary path filter above the results; names update after a short pause without pressing Enter. Escape or Close restores the same tree. The collapsed tree keeps a dedicated, always-accessible reopen button. Cmd/Ctrl+F searches names under the focused file tree, or text in the current file when the editor has focus. Cmd/Ctrl+Shift+F opens a temporary global panel for names, contents or both across active projects and file spaces. Enter starts the global search; Escape or clicking the overlay background closes the global panel. Change both shortcuts in Settings. Global/tree search observes explicit folder selections, skips Git metadata and common dependency/cache directories, does not traverse symlinks, and is bounded to 10 seconds, 10,000 visited entries, 32 nested levels, 300 results and 2 MiB per text file. It does not create a background index.
+
+Dans Files, cliquez dans l’arborescence puis tapez pour afficher le filtre de noms, sans bouton Rechercher ni validation par Entrée. Échap ou Fermer retrouve l’arborescence. Le bouton de réouverture reste visible quand le panneau est replié. La recherche globale de noms/contenu conserve son raccourci.
+
+For maintenance instructions, read [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md). Remove obsolete temporary/build outputs after validation while retaining needed deliverables and recovery data.
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | `⌘F` / `Ctrl+F` | Find in the file; Markdown switches to Source |
-| `⌘⇧F` / `Ctrl+⇧F` | Search the selected project |
+| `⌘⇧F` / `Ctrl+⇧F` | Search names and contents across projects and spaces |
 | `⌘⇧B` / `Ctrl+⇧B` | Open the context dialog |
 | `Enter` / `Shift+Enter` in the dialog | Copy context / insert a newline |
 | `Escape` or a click outside the dialog | Close the dialog |
