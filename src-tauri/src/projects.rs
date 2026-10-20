@@ -346,7 +346,15 @@ impl AppState {
             .canonicalize()
             .map_err(|e| format!("Projet inaccessible : {e}"))?;
         let config = self.config.lock().map_err(|e| e.to_string())?;
-        if !config.projects.iter().any(|p| Path::new(&p.path) == path)
+        let file_entry = config
+            .file_spaces
+            .iter()
+            .any(|s| s.files.iter().any(|p| Path::new(p) == path));
+        if file_entry && !path.is_file() {
+            return Err("Ce chemin ne désigne pas un fichier régulier".into());
+        }
+        if !file_entry
+            && !config.projects.iter().any(|p| Path::new(&p.path) == path)
             && !config
                 .file_spaces
                 .iter()

@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, X } from "lucide-react";
 import { useState } from "react";
-import { defaultShortcuts, type FileSpace, fileWorkspace } from "./file-workspace-api";
+import { defaultShortcuts, type FileSpace, fileWorkspace, spaceEntries } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { validSearchShortcuts } from "./search-shortcuts";
 export function FileWorkspaceSettings() {
@@ -34,8 +34,8 @@ export function FileWorkspaceSettings() {
 				{(state.data?.spaces ?? []).map((space) => (
 					<div className="space-settings-row" key={space.id}>
 						<strong>{space.name}</strong>
-						<span className="muted truncate" title={space.roots.join("\n")}>
-							{space.roots.join(" · ")}
+						<span className="muted truncate" title={spaceEntries(space).join("\n")}>
+							{spaceEntries(space).join(" · ")}
 						</span>
 						<button
 							type="button"
@@ -84,7 +84,7 @@ export function FileWorkspaceSettings() {
 								onChange={(e) => setDraft({ ...draft, name: e.target.value })}
 							/>
 						</label>
-						{draft.roots.map((root) => (
+						{spaceEntries(draft).map((root) => (
 							<div className="space-settings-row" key={root}>
 								<span className="truncate" title={root}>
 									{root}
@@ -93,7 +93,13 @@ export function FileWorkspaceSettings() {
 									type="button"
 									className="icon-button"
 									aria-label={`${l.remove} ${root}`}
-									onClick={() => setDraft({ ...draft, roots: draft.roots.filter((r) => r !== root) })}
+									onClick={() =>
+										setDraft({
+											...draft,
+											roots: draft.roots.filter((r) => r !== root),
+											files: draft.files?.filter((r) => r !== root),
+										})
+									}
 								>
 									<X size={13} />
 								</button>
@@ -125,7 +131,7 @@ export function FileWorkspaceSettings() {
 						<button
 							type="submit"
 							className="quiet-button"
-							disabled={busy || !draft.name.trim() || !draft.roots.length}
+							disabled={busy || !draft.name.trim() || !spaceEntries(draft).length}
 						>
 							{l.save}
 						</button>

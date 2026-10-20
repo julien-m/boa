@@ -147,13 +147,17 @@ cc-hub skill status --agent-sync-root ./.agent-sync.local --scope global --targe
 
 The custom root keeps `.agent-sync.local/skills/boa` canonical in BOA and lets cc-hub manage provider links. Do not run these commands from a temporary worktree whose deletion would break the links. The BOA skill documents the CLI; it does not install or update BOA.app. Read [the CLI latency study](docs/cli-latency.md) for measured request-preparation cost, unmeasured display latency and the CLI/MCP comparison plan.
 
+**Add to a file space…** in the tree context menu creates a space with the selected item’s name and path already filled in, or appends the item to an existing space. Creation needs no manual input; the proposed name remains editable. A single file stays an isolated entry, with no sibling files added. Existing entries are preserved and duplicate paths are ignored.
+
+**Ajouter à un espace de fichiers…** au clic droit propose un nouvel espace prérempli avec le nom et le chemin de l’élément, ou l’ajout à un espace existant. Il suffit de valider ; le nom proposé reste modifiable. Un fichier reste une entrée individuelle ; ses voisins ne sont pas ajoutés. Les autres entrées sont conservées et les doublons évités.
+
 Right-click a file, folder or pinned item for BOA actions: reveal in Finder, open, keep the tab, copy its name/path, pin, or prepare a context message. Image actions include fullscreen and comparison; folder actions include its image library and search. The menu also opens with Shift+F10 and follows the selected application language. These actions do not rename, move or delete files.
 
 Un clic droit sur un fichier, dossier ou favori ouvre le menu BOA : retrouver dans Finder, ouvrir, conserver l’onglet, copier le nom/chemin, épingler ou préparer un message de contexte. Les images proposent le plein écran et la comparaison ; les dossiers proposent leur bibliothèque et leur recherche. Le menu est aussi accessible avec Maj+F10 et suit la langue de l’application.
 
 ## File spaces and focused browsing
 
-Use **Settings → File spaces** to create a named collection of existing folders. Spaces appear separately in the sidebar and never run Git discovery or status scans. Files stay in their original locations. Each folder has an on-demand visibility/sort menu: choose the files and subfolders to show, temporarily show everything, or sort by name or modification date. Selecting a folder includes its descendants; ancestors remain traversable. Pinned files and folders stay accessible even when excluded from the visible selection. Pins stay above the tree and can be reordered by drag-and-drop or the arrow buttons. Visibility and pins are local preferences, not access-control boundaries.
+Use **Settings → File spaces** to create a named collection of existing folders and individual files. Spaces appear separately in the sidebar and never run Git discovery or status scans. Files stay in their original locations. Each folder has an on-demand visibility/sort menu: choose the files and subfolders to show, temporarily show everything, or sort by name or modification date. Selecting a folder includes its descendants; ancestors remain traversable. Pinned files and folders stay accessible even when excluded from the visible selection. Pins stay above the tree and can be reordered by drag-and-drop or the arrow buttons. Visibility and pins are local preferences, not access-control boundaries.
 
 ```bash
 boa spaces save ai-tools --name "AI tools" --root "$HOME/.claude" --root "$HOME/.codex"
@@ -163,7 +167,7 @@ boa files preferences "$HOME/.codex" --json
 boa spaces remove ai-tools --dry-run
 ```
 
-`spaces save` creates or replaces the space with that ID; repeated roots are canonicalized and deduplicated. `files configure` replaces that folder's complete visibility, pin order and sort preferences. Repeat `--include` and `--pin` as needed; `--all` disables filtering. Removing a space only removes its BOA entry, never its files. Registered space folders support `boa open` just like project folders.
+`spaces save` creates or replaces the space with that ID; repeat `--root` for folders and `--file` for individual files. At least one is required. Paths are canonicalized and deduplicated. `files configure` replaces that folder's complete visibility, pin order and sort preferences. Repeat `--include` and `--pin` as needed; `--all` disables filtering. Removing a space only removes its BOA entry, never its files. Registered space folders and individual files support `boa open` just like project folders.
 
 Search fields stay hidden until requested. With the file tree focused, start typing to open a temporary path filter above the results; names update after a short pause without pressing Enter. Escape or Close restores the same tree. The collapsed tree keeps a dedicated, always-accessible reopen button. Cmd/Ctrl+F searches names under the focused file tree, or text in the current file when the editor has focus. Cmd/Ctrl+Shift+F opens a temporary global panel for names, contents or both across active projects and file spaces. Enter starts the global search; Escape or clicking the overlay background closes the global panel. Change both shortcuts in Settings. Global/tree search observes explicit folder selections, skips Git metadata and common dependency/cache directories, does not traverse symlinks, and is bounded to 10 seconds, 10,000 visited entries, 32 nested levels, 300 results and 2 MiB per text file. It does not create a background index.
 

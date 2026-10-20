@@ -225,7 +225,11 @@ async fn reveal_file(state: NativeState<'_>, project: String, path: String) -> R
     work(state.inner().clone(), move |state| {
         let root = state.registered(&project)?;
         files::confined(&root, &path)?;
-        let logical = root.join(&path);
+        let logical = if root.is_file() {
+            root
+        } else {
+            root.join(&path)
+        };
         open_external(&["-R", "--", logical.to_str().ok_or("Chemin non UTF-8")?])
     })
     .await
@@ -404,18 +408,24 @@ fn resolve_navigation(state: NativeState<'_>, file: String) -> Result<Navigation
             config
                 .file_spaces
                 .iter()
-                .flat_map(|s| s.roots.iter().map(String::as_str)),
+                .flat_map(|s| s.roots.iter().chain(&s.files).map(String::as_str)),
         )
         .filter(|root| file.starts_with(root))
         .max_by_key(|root| root.len())
         .ok_or("Importez d’abord ce projet dans BOA")?;
     Ok(Navigation {
         project: root.into(),
-        path: file
-            .strip_prefix(root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into(),
+        path: if file == Path::new(root) {
+            file.file_name()
+                .ok_or("Nom de fichier invalide")?
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            file.strip_prefix(root)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .into()
+        },
     })
 }
 

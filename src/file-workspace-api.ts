@@ -4,6 +4,7 @@ export interface FileSpace {
 	id: string;
 	name: string;
 	roots: string[];
+	files?: string[];
 }
 export interface FilePreferences {
 	filtered: boolean;
@@ -41,7 +42,10 @@ export function fileCommand<T>(request: Record<string, unknown>): Promise<T> {
 		throw localizeNativeText(String(error));
 	});
 }
+export const spaceEntries = (space: FileSpace): string[] => [...space.roots, ...(space.files ?? [])];
 export const fileWorkspace = {
+	addToSpace: (request: { id: string; name?: string; root: string; path: string }): Promise<FileSpace> =>
+		fileCommand({ action: "add-to-space", ...request }),
 	images: (root: string, folder: string): Promise<{ images: LibraryImage[]; limited: boolean }> =>
 		fileCommand({ action: "images", root, folder }),
 	thumbnail: (root: string, path: string): Promise<string> =>

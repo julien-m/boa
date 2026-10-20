@@ -25,6 +25,9 @@ pub(crate) fn initial_directory(
         return Ok(None);
     };
     let root = root.canonicalize().map_err(|e| e.to_string())?;
+    if root.is_file() {
+        return Ok(root.parent().map(Path::to_path_buf));
+    }
     let directory = Path::new(directory.unwrap_or(""));
     if directory.is_absolute()
         || directory

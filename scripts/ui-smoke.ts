@@ -7,7 +7,7 @@ import { chromium, expect } from "@playwright/test";
 
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
 const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
-let fileSpaces: { id: string; name: string; roots: string[] }[] = [];
+let fileSpaces: { id: string; name: string; roots: string[]; files?: string[] }[] = [];
 const filePreferences: Record<
 	string,
 	{ filtered: boolean; included: string[]; pins: string[]; sort: string }
@@ -101,7 +101,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				return filePreferences[root] ?? { filtered: false, included: [], pins: [], sort: "name" };
 			if (request.action === "images")
 				return {
-					images: ["preview.png", "preview-second.png"].map((name) => ({
+					images: (fileSpaces.some((s) => s.files?.includes(root))
+						? [root.split("/").pop()!]
+						: ["preview.png", "preview-second.png"]
+					).map((name) => ({
 						name,
 						path: name,
 						format: "png",
@@ -116,10 +119,28 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				filePreferences[root] = request.preferences as (typeof filePreferences)[string];
 				return filePreferences[root];
 			}
+			if (request.action === "add-to-space") {
+				const existing = fileSpaces.find((s) => s.id === request.id);
+				const full = fileSpaces.some((s) => s.files?.includes(root)) ? root : `${root}/${request.path}`;
+				const space = existing ?? {
+					id: String(request.id),
+					name: String(request.name),
+					roots: [],
+					files: [],
+				};
+				space.files = [...new Set([...(space.files ?? []), full])];
+				if (!existing) fileSpaces.push(space);
+				return space;
+			}
 			if (request.action === "save-space") {
 				fileSpaces = [
 					...fileSpaces.filter((s) => s.id !== request.id),
-					{ id: String(request.id), name: String(request.name), roots: request.roots as string[] },
+					{
+						id: String(request.id),
+						name: String(request.name),
+						roots: request.roots as string[],
+						files: request.files as string[] | undefined,
+					},
 				];
 				return fileSpaces.at(-1);
 			}
@@ -195,6 +216,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			summaryCalls++;
 			return { repos: [repo], scanLimited: false };
 		case "read_directory":
+			if (fileSpaces.some((s) => s.files?.includes(String(args.project)))) {
+				const name = String(args.project).split("/").pop()!;
+				return [{ name, path: name, directory: false, symlink: false, repository: false }];
+			}
 			return [
 				"sample.ts",
 				"README.md",
@@ -1160,6 +1185,32 @@ try {
 	await expect(comparison).toBeVisible();
 	await page.keyboard.press("Escape");
 	await expect(comparison).toHaveCount(0);
+
+	await imageRow.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Ajouter à un espace de fichiers…", exact: true }).click();
+	const addSpace = page.getByRole("dialog", { name: "Ajouter à un espace de fichiers…", exact: true });
+	await expect(addSpace.getByLabel("Nom", { exact: true })).toHaveValue("preview.png");
+	await expect(addSpace.getByLabel("Chemin de l’élément", { exact: true })).toHaveValue(
+		`${directory}/second/preview.png`,
+	);
+	await addSpace.getByRole("button", { name: "Créer un espace…", exact: true }).click();
+	await expect(addSpace).toHaveCount(0);
+	await expect
+		.poll(() => fileSpaces.find((s) => s.name === "preview.png")?.files)
+		.toEqual([`${directory}/second/preview.png`]);
+	await imageRow.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Ajouter à un espace de fichiers…", exact: true }).click();
+	await addSpace
+		.getByLabel("Espace de fichiers", { exact: true })
+		.selectOption(fileSpaces.find((s) => s.name === "preview.png")!.id);
+	await expect(addSpace.getByRole("status")).toHaveText("Déjà ajouté à cet espace");
+	await expect(addSpace.getByRole("button", { name: "Ajouter", exact: true })).toBeDisabled();
+	await addSpace.getByRole("button", { name: "Annuler", exact: true }).click();
+	await page.locator(".navigation").getByRole("button", { name: "preview.png", exact: true }).click();
+	const isolated = page.getByTestId("file-space-view");
+	await expect(isolated.locator(".tree-row")).toHaveCount(1);
+	await isolated.getByTestId("file-preview.png").click();
+	await expect(isolated.locator(".file-asset-preview img")).toBeVisible();
 
 	expect(errors).toEqual([]);
 	console.log(

@@ -29,7 +29,7 @@ import { api } from "./api";
 import { DraftIndicator } from "./file-editing";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileSpaceView } from "./file-space-view";
-import { defaultShortcuts, type FileHit, fileWorkspace } from "./file-workspace-api";
+import { defaultShortcuts, type FileHit, fileWorkspace, spaceEntries } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { createFilesystemRefresh, projectSummaryOptions } from "./filesystem-refresh";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
@@ -106,7 +106,7 @@ export default function App() {
 				const request = parseNavigation(raw);
 				const target = await api.navigate(request.file);
 				const spaces = await fileWorkspace.state();
-				const containing = spaces.spaces.find((s) => s.roots.includes(target.project));
+				const containing = spaces.spaces.find((s) => spaceEntries(s).includes(target.project));
 				setSelectedSpace(containing?.id ?? null);
 				if (!containing) await api.add(target.project);
 				await client.invalidateQueries({ queryKey: ["projects"] });
@@ -232,7 +232,9 @@ export default function App() {
 	useEffect(() => {
 		const resume = (event: Event): void => {
 			const target = (event as CustomEvent<Selection>).detail;
-			setSelectedSpace(workspace.data?.spaces.find((s) => s.roots.includes(target.project))?.id ?? null);
+			setSelectedSpace(
+				workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project))?.id ?? null,
+			);
 			setSelectedPath(target.project);
 			setSettingsOpen(false);
 			setArchivesOpen(false);
@@ -471,12 +473,14 @@ export default function App() {
 									roots={[
 										...new Set([
 											...ordered.map((p) => p.path),
-											...(workspace.data?.spaces ?? []).flatMap((s) => s.roots),
+											...(workspace.data?.spaces ?? []).flatMap(spaceEntries),
 										]),
 									]}
 									onClose={() => setGlobalSearch(false)}
 									onOpen={(hit: FileHit) => {
-										const containing = workspace.data?.spaces.find((s) => s.roots.includes(hit.project));
+										const containing = workspace.data?.spaces.find((s) =>
+											spaceEntries(s).includes(hit.project),
+										);
 										setSelectedSpace(containing?.id ?? null);
 										setSelectedPath(hit.project);
 										setSettingsOpen(false);
@@ -512,7 +516,9 @@ export default function App() {
 						<FileSpaceView
 							key={activeSpace.id}
 							space={activeSpace}
-							navigation={navigation && activeSpace.roots.includes(navigation.project) ? navigation : null}
+							navigation={
+								navigation && spaceEntries(activeSpace).includes(navigation.project) ? navigation : null
+							}
 						/>
 					) : archivesOpen ? (
 						<div className="dashboard settings-view" data-testid="archives-view">

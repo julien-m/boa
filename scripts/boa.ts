@@ -16,7 +16,7 @@ const HELP = `BOA — navigation et projets locaux
 
 boa open <fichier> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI] [--dry-run]
 boa spaces list [--json]
-boa spaces save <id> --name <nom> --root <dossier> [--root <autre-dossier>] [--json] [--dry-run]
+boa spaces save <id> --name <nom> [--root <dossier>] [--file <fichier>] [--json] [--dry-run]
 boa spaces remove <id> [--json] [--dry-run]
 boa files configure <dossier> [--include <chemin-relatif>] [--pin <chemin-relatif>] [--sort name|modified] [--all] [--json] [--dry-run]
 boa files preferences <dossier> [--json]
@@ -67,7 +67,7 @@ export function parseWorkspace(args: string[]): ProjectRequest {
 		if (["--json", "--dry-run", "--all"].includes(token)) continue;
 		if (token.startsWith("--")) {
 			if (
-				!["--name", "--root", "--include", "--pin", "--sort"].includes(token) ||
+				!["--name", "--root", "--file", "--include", "--pin", "--sort"].includes(token) ||
 				!rest[i + 1] ||
 				rest[i + 1].startsWith("--")
 			)
@@ -77,7 +77,7 @@ export function parseWorkspace(args: string[]): ProjectRequest {
 	}
 	const permitted =
 		group === "spaces" && action === "save"
-			? ["--name", "--root"]
+			? ["--name", "--root", "--file"]
 			: group === "files" && action === "configure"
 				? ["--include", "--pin", "--sort"]
 				: [];
@@ -96,13 +96,14 @@ export function parseWorkspace(args: string[]): ProjectRequest {
 		action === "save" &&
 		positional.length === 1 &&
 		values["--name"]?.length === 1 &&
-		values["--root"]?.length
+		(values["--root"]?.length || values["--file"]?.length)
 	)
 		request = {
 			action: "save-space",
 			id: positional[0],
 			name: values["--name"][0],
-			roots: values["--root"].map((p) => resolve(p)),
+			roots: (values["--root"] ?? []).map((p) => resolve(p)),
+			...(values["--file"] ? { files: values["--file"].map((p) => resolve(p)) } : {}),
 		};
 	else if (group === "files" && action === "preferences" && positional.length === 1)
 		request = { action: "preferences", root: resolve(positional[0]) };

@@ -17,6 +17,8 @@ pub(crate) struct Space {
     pub id: String,
     pub name: String,
     pub roots: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -56,6 +58,14 @@ pub(crate) enum Request {
         id: String,
         name: String,
         roots: Vec<String>,
+        #[serde(default)]
+        files: Vec<String>,
+    },
+    AddToSpace {
+        id: String,
+        name: Option<String>,
+        root: String,
+        path: String,
     },
     RemoveSpace {
         id: String,
@@ -112,6 +122,12 @@ fn valid_shortcut(s: &str) -> bool {
 }
 pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, String> {
     match request {
+        Request::AddToSpace {
+            id,
+            name,
+            root,
+            path,
+        } => add_to_space(state, &id, name.as_deref(), &root, &path),
         Request::Images { root, folder } => image_library::list(state, &root, &folder),
         Request::Thumbnail { root, path } => image_library::thumbnail(state, &root, &path),
         Request::List => {
@@ -128,14 +144,20 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
         Request::Search { roots, query, mode } => search(state, roots, &query, &mode),
         other => {
             // Validate filesystem paths before acquiring the shared configuration lock.
-            let other = if let Request::SaveSpace { id, name, roots } = other {
+            let other = if let Request::SaveSpace {
+                id,
+                name,
+                roots,
+                files,
+            } = other
+            {
                 if id.is_empty()
                     || id.len() > 100
                     || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
                     || name.trim().is_empty()
-                    || name.len() > 100
-                    || roots.is_empty()
-                    || roots.len() > 64
+                    || name.chars().count() > 100
+                    || (roots.is_empty() && files.is_empty())
+                    || roots.len() + files.len() > 64
                 {
                     return Err("Espace de fichiers invalide".into());
                 }
@@ -147,7 +169,16 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                     }
                     canonical.insert(path.to_string_lossy().to_string());
                 }
+                let mut canonical_files = BTreeSet::new();
+                for file in files {
+                    let path = Path::new(&file).canonicalize().map_err(|e| e.to_string())?;
+                    if !path.is_file() {
+                        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+                    }
+                    canonical_files.insert(path.to_string_lossy().to_string());
+                }
                 Request::SaveSpace {
+                    files: canonical_files.into_iter().collect(),
                     id,
                     name: name.trim().into(),
                     roots: canonical.into_iter().collect(),
@@ -180,8 +211,18 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
             let mut c = state.config.lock().map_err(|e| e.to_string())?;
             let mut next = c.clone();
             let result = match other {
-                Request::SaveSpace { id, name, roots } => {
-                    let s = Space { id, name, roots };
+                Request::SaveSpace {
+                    id,
+                    name,
+                    roots,
+                    files,
+                } => {
+                    let s = Space {
+                        id,
+                        name,
+                        roots,
+                        files,
+                    };
                     next.file_spaces.retain(|x| x.id != s.id);
                     next.file_spaces.push(s.clone());
                     json!(s)
@@ -231,6 +272,62 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
         }
     }
 }
+
+fn add_to_space(
+    state: &AppState,
+    id: &str,
+    name: Option<&str>,
+    root: &str,
+    relative: &str,
+) -> Result<Value, String> {
+    if id.is_empty() || id.len() > 100 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("Espace de fichiers invalide".into());
+    }
+    let target = crate::files::confined(&state.registered(root)?, relative)?;
+    if !target.is_dir() && !target.is_file() {
+        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+    }
+    let target = target.to_str().ok_or("Chemin non UTF-8")?.to_string();
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    let mut next = config.clone();
+    let position = next.file_spaces.iter().position(|s| s.id == id);
+    if position.is_none() {
+        let name = name.unwrap_or("").trim();
+        if name.is_empty() || name.chars().count() > 100 {
+            return Err("Espace de fichiers invalide".into());
+        }
+        next.file_spaces.push(Space {
+            id: id.into(),
+            name: name.into(),
+            ..Default::default()
+        });
+    }
+    let space = next
+        .file_spaces
+        .iter_mut()
+        .find(|s| s.id == id)
+        .ok_or("Espace de fichiers invalide")?;
+    let is_file = Path::new(&target).is_file();
+    let duplicate = space.roots.iter().chain(&space.files).any(|p| p == &target);
+    if !duplicate {
+        if space.roots.len() + space.files.len() >= 64 {
+            return Err("Espace de fichiers invalide".into());
+        }
+        if is_file {
+            space.files.push(target);
+        } else {
+            space.roots.push(target);
+        }
+    }
+    let result = json!(space);
+    state.write_config(&next)?;
+    *config = next;
+    drop(config);
+    state.notify_watchers();
+    Ok(result)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Hit {
@@ -265,13 +362,21 @@ fn search(state: &AppState, roots: Vec<String>, query: &str, mode: &str) -> Resu
         .clone();
     let mut unique = BTreeSet::new();
     for root in roots {
+        if Instant::now() > deadline || hits.len() >= 300 {
+            limited = true;
+            break;
+        }
         let scan = Path::new(&root).canonicalize().map_err(|e| e.to_string())?;
         let allowed = {
             let c = state.config.lock().map_err(|e| e.to_string())?;
             c.projects
                 .iter()
                 .map(|p| p.path.clone())
-                .chain(c.file_spaces.iter().flat_map(|s| s.roots.clone()))
+                .chain(
+                    c.file_spaces
+                        .iter()
+                        .flat_map(|s| s.roots.iter().chain(&s.files).cloned()),
+                )
                 .filter(|r| scan.starts_with(r))
                 .max_by_key(|r| r.len())
                 .ok_or("Dossier de recherche non enregistré")?
@@ -282,6 +387,47 @@ fn search(state: &AppState, roots: Vec<String>, query: &str, mode: &str) -> Resu
             continue;
         }
         let pref = prefs.get(&root).cloned().unwrap_or_default();
+        if base.is_file() {
+            let name = base
+                .file_name()
+                .ok_or("Nom de fichier invalide")?
+                .to_string_lossy()
+                .to_string();
+            if selected(&name, &pref) && seen.insert(base.clone()) {
+                if mode != "content" && name.to_lowercase().contains(&needle) {
+                    hits.push(Hit {
+                        project: root.clone(),
+                        path: name.clone(),
+                        line: 0,
+                        text: String::new(),
+                        directory: false,
+                        kind: "path",
+                    });
+                }
+                if mode != "paths"
+                    && let Ok(text) = crate::files::text(&base)
+                {
+                    let remaining = 300 - hits.len();
+                    for (i, line) in text
+                        .lines()
+                        .enumerate()
+                        .filter(|(_, s)| s.to_lowercase().contains(&needle))
+                        .take(20)
+                        .take(remaining)
+                    {
+                        hits.push(Hit {
+                            project: root.clone(),
+                            path: name.clone(),
+                            line: i + 1,
+                            text: line.chars().take(500).collect(),
+                            directory: false,
+                            kind: "content",
+                        });
+                    }
+                }
+            }
+            continue;
+        }
         let mut stack = vec![(scan, 0usize)];
         while let Some((directory, depth)) = stack.pop() {
             if Instant::now() > deadline || visited >= 10000 || hits.len() >= 300 {
@@ -428,6 +574,136 @@ fn search(state: &AppState, roots: Vec<String>, query: &str, mode: &str) -> Resu
 mod tests {
     use super::*;
     #[test]
+    fn context_add_persists_isolated_files_and_merges_without_duplicates() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("source");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("one.md"), "needle one").unwrap();
+        fs::write(folder.join("two.md"), "needle two").unwrap();
+        let folder = folder.canonicalize().unwrap();
+        let root = folder.to_str().unwrap();
+        let config = temp.path().join("config.json");
+        let state = AppState::new(config.clone()).unwrap();
+        execute(
+            &state,
+            Request::SaveSpace {
+                id: "source".into(),
+                name: "Source".into(),
+                roots: vec![root.into()],
+                files: vec![],
+            },
+        )
+        .unwrap();
+        std::thread::scope(|scope| {
+            for name in ["one.md", "two.md"] {
+                let state = &state;
+                scope.spawn(move || {
+                    execute(
+                        state,
+                        Request::AddToSpace {
+                            id: "collection".into(),
+                            name: Some("Collection".into()),
+                            root: root.into(),
+                            path: name.into(),
+                        },
+                    )
+                    .unwrap()
+                });
+            }
+        });
+        execute(
+            &state,
+            Request::AddToSpace {
+                id: "collection".into(),
+                name: None,
+                root: root.into(),
+                path: "one.md".into(),
+            },
+        )
+        .unwrap();
+        fs::create_dir(folder.join("assets")).unwrap();
+        execute(
+            &state,
+            Request::AddToSpace {
+                id: "collection".into(),
+                name: None,
+                root: root.into(),
+                path: "assets".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .config
+                .lock()
+                .unwrap()
+                .file_spaces
+                .iter()
+                .find(|s| s.id == "collection")
+                .unwrap()
+                .roots
+                .len(),
+            1
+        );
+        execute(
+            &state,
+            Request::RemoveSpace {
+                id: "source".into(),
+            },
+        )
+        .unwrap();
+        let restored = AppState::new(config).unwrap();
+        assert_eq!(
+            restored.config.lock().unwrap().file_spaces[0].files.len(),
+            2
+        );
+        assert!(restored.registered(root).is_err());
+        let one = folder.join("one.md");
+        let file_root = one.to_str().unwrap();
+        let registered = restored.registered(file_root).unwrap();
+        let entries = crate::files::directory(&registered, "").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "one.md");
+        assert!(crate::files::confined(&registered, "two.md").is_err());
+        assert!(crate::files::confined(&registered, "../two.md").is_err());
+        let file = crate::files::regular_file(&registered, "one.md").unwrap();
+        assert_eq!(crate::files::text(&file).unwrap(), "needle one");
+        let results = search(&restored, vec![file_root.into()], "needle", "content").unwrap();
+        assert_eq!(results["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(results["matches"][0]["path"], "one.md");
+        fs::remove_file(&one).unwrap();
+        fs::create_dir(&one).unwrap();
+        assert!(restored.registered(file_root).is_err());
+    }
+    #[test]
+    fn single_image_space_library_does_not_include_siblings() {
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("one.png");
+        fs::write(&image, include_bytes!("../icons/32x32.png")).unwrap();
+        fs::write(
+            temp.path().join("two.png"),
+            include_bytes!("../icons/32x32.png"),
+        )
+        .unwrap();
+        let root = image.canonicalize().unwrap().to_str().unwrap().to_string();
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        execute(
+            &state,
+            Request::SaveSpace {
+                id: "image".into(),
+                name: "Image".into(),
+                roots: vec![],
+                files: vec![root.clone()],
+            },
+        )
+        .unwrap();
+        let result = image_library::list(&state, &root, "").unwrap();
+        assert_eq!(result["images"].as_array().unwrap().len(), 1);
+        assert_eq!(result["images"][0]["name"], "one.png");
+        assert!(image_library::thumbnail(&state, &root, "one.png").is_ok());
+        assert!(image_library::thumbnail(&state, &root, "two.png").is_err());
+    }
+    #[test]
     fn visibility_preserves_ancestors_and_hides_siblings() {
         let p = Preferences {
             filtered: true,
@@ -463,6 +739,7 @@ mod tests {
             Request::SaveSpace {
                 id: "tools".into(),
                 name: "Tools".into(),
+                files: Vec::new(),
                 roots: vec![r.clone(), r.clone()],
             },
         )

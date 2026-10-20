@@ -2375,3 +2375,43 @@ span.markdown-expandable {
 		linear-gradient(to right, #8888 1px, transparent 1px),
 		linear-gradient(to bottom, #8888 1px, transparent 1px);
 }
+
+.file-space-add {
+	background: var(--panel);
+	color: var(--text);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 12px 40px #0008;
+	width: min(560px, calc(100vw - 32px));
+	height: auto;
+	max-height: calc(100vh - 32px);
+	padding: 24px;
+	overflow: auto;
+}
+.file-space-add form,
+.file-space-add label {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.file-space-add form {
+	gap: 16px;
+}
+.file-space-add h2,
+.file-space-add p {
+	margin: 0;
+}
+.file-space-add input,
+.file-space-add select {
+	width: 100%;
+	box-sizing: border-box;
+}
+.file-space-add footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.file-space-add::backdrop {
+	background: #0009;
+}

@@ -30,6 +30,32 @@ pub(super) fn list(state: &AppState, root: &str, folder: &str) -> Result<Value, 
     let base = state.registered(root)?;
     let root_key = base.to_string_lossy().into_owned();
     let start = confined(&base, folder)?;
+    if base.is_file() {
+        let pref = state
+            .config
+            .lock()
+            .map_err(|e| e.to_string())?
+            .file_preferences
+            .get(&root_key)
+            .cloned()
+            .unwrap_or_default();
+        let images = if let Some(format) = format(&base) {
+            let metadata = fs::metadata(&base).map_err(|e| e.to_string())?;
+            let name = base
+                .file_name()
+                .ok_or("Nom de fichier invalide")?
+                .to_string_lossy();
+            if !super::selected(&name, &pref) {
+                return Ok(json!({"images":[],"limited":false}));
+            }
+            vec![
+                json!({"path":name,"name":name,"format":format,"size":metadata.len(),"modified":metadata.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map_or(0,|t|t.as_millis() as u64)}),
+            ]
+        } else {
+            vec![]
+        };
+        return Ok(json!({"images":images,"limited":false}));
+    }
     if !start.is_dir() {
         return Err("Sélectionnez un dossier".into());
     }
@@ -197,6 +223,7 @@ mod tests {
             Request::SaveSpace {
                 id: "images".into(),
                 name: "Images".into(),
+                files: Vec::new(),
                 roots: vec![root_name.clone()],
             },
         )
@@ -226,6 +253,7 @@ mod tests {
             Request::SaveSpace {
                 id: "images".into(),
                 name: "Images".into(),
+                files: Vec::new(),
                 roots: vec![root_name.clone()],
             },
         )

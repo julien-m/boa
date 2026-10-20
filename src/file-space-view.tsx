@@ -4,13 +4,14 @@ import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
 import { FileWorkspace } from "./file-workspace";
-import { type FileSpace } from "./file-workspace-api";
+import { type FileSpace, spaceEntries } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { Selection } from "./models";
 
 const key = (s: Selection) => JSON.stringify([s.project, s.path]);
 export function FileSpaceView({ space, navigation }: { space: FileSpace; navigation: Selection | null }) {
 	const l = useFileLabels();
+	const entries = spaceEntries(space);
 	const editing = useFileEditing();
 	const [state, setState] = useState<{
 		tabs: Selection[];
@@ -27,7 +28,10 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 		});
 	}, [state.tabs]);
 	const [folders, setFolders] = useState<Record<string, { path: string; requestId: string }>>({});
-	const open = (value: Selection, keep = false) =>
+	const open = (selection: Selection, keep = false) => {
+		const value = space.files?.includes(selection.project)
+			? { ...selection, absolutePath: selection.project }
+			: selection;
 		setState((current) => {
 			const id = key(value);
 			const exists = current.tabs.some((t) => key(t) === id);
@@ -42,6 +46,7 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 				selected: value,
 			};
 		});
+	};
 	useEffect(() => {
 		if (navigation) {
 			if (navigation.path.endsWith("/")) {
@@ -84,19 +89,20 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 					<Folder size={16} /> {space.name}
 				</strong>
 				<span className="muted">
-					{space.roots.length} {l.roots.toLowerCase()}
+					{entries.length} {l.entries.toLowerCase()}
 				</span>
 			</header>
 			<FileWorkspace
-				libraryRoot={space.roots[0]}
+				libraryRoot={entries[0]}
 				onOpen={(value) => open(value)}
 				navigationKey={navigation?.navigationId}
 				tree={
 					<>
-						{space.roots.map((root) => (
+						{entries.map((root) => (
 							<FileBrowser
 								key={root}
 								root={root}
+								singleFile={space.files?.includes(root)}
 								folder={folders[root]?.path ?? ""}
 								folderRequestId={folders[root]?.requestId}
 								selected={state.selected?.project === root ? state.selected.path : undefined}

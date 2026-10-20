@@ -74,6 +74,12 @@ pub(crate) fn confined(root: &Path, relative: &str) -> Result<PathBuf, String> {
     {
         return Err("Chemin hors du projet".into());
     }
+    if root.is_file() {
+        if relative.is_empty() || root.file_name().is_some_and(|name| path == Path::new(name)) {
+            return Ok(root.to_path_buf());
+        }
+        return Err("Chemin hors du projet".into());
+    }
     let canonical = root.join(path).canonicalize().map_err(|e| e.to_string())?;
     // The user explicitly requested browsing project symlinks, including external skill folders.
     // Absolute paths and lexical parent traversal stay rejected; a link must exist under the registered root.
@@ -119,6 +125,25 @@ pub(crate) struct Entry {
 
 pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, String> {
     confined(root, relative)?;
+    if root.is_file() {
+        let name = root
+            .file_name()
+            .ok_or("Nom de fichier invalide")?
+            .to_string_lossy()
+            .to_string();
+        return Ok(vec![Entry {
+            name: name.clone(),
+            path: name,
+            directory: false,
+            symlink: false,
+            repository: false,
+            modified: fs::metadata(root)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |t| t.as_secs()),
+        }]);
+    }
     // Retain the logical project path so children of an external link remain addressable through it.
     let directory = root.join(relative);
     let entries = fs::read_dir(&directory).map_err(|e| e.to_string())?;
