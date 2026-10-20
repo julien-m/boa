@@ -18,10 +18,12 @@ import { PanelResizer } from "./panel-resizer";
 
 const ImageLibraryContext = createContext<{
 	open: (root: string, folder: string) => void;
+	folder: (root: string, folder: string) => void;
 	close: () => void;
 } | null>(null);
 export const useImageLibrary = () => useContext(ImageLibraryContext)?.open;
 export const useCloseImageLibrary = () => useContext(ImageLibraryContext)?.close;
+export const useLibraryFolder = () => useContext(ImageLibraryContext)?.folder;
 
 export function FileWorkspace({
 	tree,
@@ -42,15 +44,25 @@ export function FileWorkspace({
 	const [library, setLibrary] = useState(false);
 	const closeLibrary = useCallback(() => setLibrary(false), []);
 	const [scope, setScope] = useState({ root: libraryRoot ?? "", folder: "" });
+	const previousRoot = useRef(libraryRoot);
 	const openLibrary = useCallback((root: string, folder: string) => {
 		setScope({ root, folder });
 		setLibrary(true);
 	}, []);
+	const chooseFolder = useCallback(
+		(root: string, folder: string) =>
+			setScope((current) =>
+				current.root === root && current.folder === folder ? current : { root, folder },
+			),
+		[],
+	);
 	const libraryActions = useMemo(
-		() => ({ open: openLibrary, close: closeLibrary }),
-		[openLibrary, closeLibrary],
+		() => ({ open: openLibrary, folder: chooseFolder, close: closeLibrary }),
+		[openLibrary, chooseFolder, closeLibrary],
 	);
 	useEffect(() => {
+		if (previousRoot.current === libraryRoot) return;
+		previousRoot.current = libraryRoot;
 		setScope({ root: libraryRoot ?? "", folder: "" });
 		setLibrary(false);
 	}, [libraryRoot]);
@@ -124,6 +136,12 @@ export function FileWorkspace({
 								folder={scope.folder}
 								onOpen={(path) => showImage(path)}
 								onReveal={(path) => showImage(path, true)}
+								onFolder={(folder) => {
+									chooseFolder(scope.root, folder);
+									window.dispatchEvent(
+										new CustomEvent("boa:library-folder", { detail: { root: scope.root, folder } }),
+									);
+								}}
 							/>
 						</div>
 					)}

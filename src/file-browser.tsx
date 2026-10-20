@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileTree } from "./file-tree";
-import { useCloseImageLibrary, useImageLibrary } from "./file-workspace";
+import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
 import { defaultPreferences, type FilePreferences, fileWorkspace } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { DirectoryEntry, Selection } from "./models";
@@ -54,6 +54,7 @@ export function FileBrowser({
 }) {
 	const l = useFileLabels();
 	const openLibrary = useImageLibrary();
+	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
 	const openFile = (selection: Selection) => {
 		closeLibrary?.();
@@ -79,6 +80,17 @@ export function FileBrowser({
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [revealTarget, setRevealTarget] = useState("");
+	useEffect(() => {
+		const browse = (event: Event) => {
+			const detail = (event as CustomEvent<{ root: string; folder: string }>).detail;
+			if (detail.root === root) {
+				setPath(detail.folder);
+				setSearch(null);
+			}
+		};
+		window.addEventListener("boa:library-folder", browse);
+		return () => window.removeEventListener("boa:library-folder", browse);
+	}, [root]);
 	useEffect(() => {
 		const reveal = (e: Event) => {
 			const detail = (e as CustomEvent<{ root: string; path: string }>).detail;
@@ -112,7 +124,10 @@ export function FileBrowser({
 			clearTimeout(timeout);
 		};
 	}, [revealTarget]);
-	useEffect(() => setPath(folder), [folder, folderRequestId]);
+	useEffect(() => {
+		setPath(folder);
+		if (folderRequestId) chooseFolder?.(root, folder);
+	}, [folder, folderRequestId, root, chooseFolder]);
 	useEffect(() => {
 		const listener = (e: Event) => {
 			if ((e as CustomEvent).detail?.root === root) setSearch("");
@@ -143,8 +158,10 @@ export function FileBrowser({
 			const parent = value.includes("/") ? value.slice(0, value.lastIndexOf("/")) : "";
 			const entry = (await api.directory(root, parent)).find((e) => e.path === value);
 			if (!entry) throw new Error(value);
-			if (entry.directory) setPath(value);
-			else openFile({ project: root, path: value });
+			if (entry.directory) {
+				setPath(value);
+				chooseFolder?.(root, value);
+			} else openFile({ project: root, path: value });
 		} catch (e) {
 			setError(String(e));
 		}
@@ -189,9 +206,17 @@ export function FileBrowser({
 			}}
 		>
 			<div className="file-browser-toolbar">
-				<span className="truncate" title={root}>
+				<button
+					type="button"
+					className="quiet-button truncate file-browser-root"
+					title={root}
+					onClick={() => {
+						setPath("");
+						chooseFolder?.(root, "");
+					}}
+				>
 					{root.split("/").pop() || root}
-				</span>
+				</button>
 				{openLibrary && (
 					<button
 						type="button"
@@ -264,7 +289,15 @@ export function FileBrowser({
 				</div>
 			)}
 			{path && (
-				<button type="button" className="quiet-button" title={path} onClick={() => setPath("")}>
+				<button
+					type="button"
+					className="quiet-button"
+					title={path}
+					onClick={() => {
+						setPath("");
+						chooseFolder?.(root, "");
+					}}
+				>
 					← {l.back} · {path}
 				</button>
 			)}
@@ -340,6 +373,7 @@ export function FileBrowser({
 					onOpen={(hit) => {
 						if (hit.directory) {
 							setPath(hit.path);
+							chooseFolder?.(root, hit.path);
 							setSearch(null);
 						} else openFile({ ...hit, line: hit.line || undefined });
 					}}

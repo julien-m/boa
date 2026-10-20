@@ -1,9 +1,23 @@
 /** Folder-scoped thumbnails are fetched only as their cards approach the viewport. */
 import { useQuery } from "@tanstack/react-query";
 import { FolderSearch, ImageOff, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { fileWorkspace, type LibraryImage } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
+import { ImageLibraryPreview } from "./image-library-preview";
+
+export function matchesImage(path: string, query: string) {
+	const normalize = (value: string) =>
+		value
+			.normalize("NFD")
+			.replace(/[\u0300-\u036f]/g, "")
+			.toLocaleLowerCase();
+	const haystack = normalize(path);
+	return normalize(query)
+		.split(/[\s+]+/)
+		.filter(Boolean)
+		.every((word) => haystack.includes(word));
+}
 
 let active = 0;
 const waiting: (() => void)[] = [];
@@ -29,7 +43,7 @@ function ImageCard({
 }: {
 	root: string;
 	image: LibraryImage;
-	onOpen: (path: string) => void;
+	onOpen: (path: string, trigger: HTMLElement) => void;
 	onReveal: (path: string) => void;
 	active: boolean;
 }) {
@@ -66,7 +80,7 @@ function ImageCard({
 				className="library-image"
 				title={image.path}
 				aria-label={image.path}
-				onClick={() => onOpen(image.path)}
+				onClick={(event) => onOpen(image.path, event.currentTarget)}
 			>
 				<span className="library-thumbnail">
 					{query.data && !failed ? (
@@ -98,17 +112,21 @@ export function ImageLibrary({
 	onOpen,
 	onReveal,
 	active,
+	onFolder,
 }: {
 	root: string;
 	folder: string;
 	onOpen: (path: string) => void;
 	onReveal: (path: string) => void;
 	active: boolean;
+	onFolder: (path: string) => void;
 }) {
 	const l = useFileLabels();
+	const hintId = useId();
 	const [filter, setFilter] = useState("");
 	const [format, setFormat] = useState("");
 	const [count, setCount] = useState(48);
+	const [preview, setPreview] = useState<{ path: string; trigger: HTMLElement } | null>(null);
 	const query = useQuery({
 		queryKey: ["image-library", root, folder],
 		queryFn: () => fileWorkspace.images(root, folder),
@@ -118,10 +136,12 @@ export function ImageLibrary({
 		refetchOnWindowFocus: false,
 	});
 	const images = (query.data?.images ?? []).filter(
-		(image) =>
-			(!format || image.format === format) &&
-			image.path.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
+		(image) => (!format || image.format === format) && matchesImage(image.path, filter),
 	);
+	const index = images.findIndex((image) => image.path === preview?.path);
+	useEffect(() => {
+		if (preview && (!active || index < 0)) setPreview(null);
+	}, [active, index, preview]);
 	return (
 		<section className="image-library" aria-label={l.library}>
 			<header className="library-toolbar">
@@ -130,10 +150,34 @@ export function ImageLibrary({
 					<small title={`${root}/${folder}`}>
 						{l.libraryScope} · {folder || root.split("/").pop()}
 					</small>
+					<nav className="library-breadcrumbs" aria-label={`${l.library} · ${l.folder}`}>
+						<button type="button" className="quiet-button" onClick={() => onFolder("")}>
+							{root.split("/").pop()}
+						</button>
+						{folder
+							.split("/")
+							.filter(Boolean)
+							.map((part, index, parts) => (
+								<span key={parts.slice(0, index + 1).join("/")}>
+									{" "}
+									/{" "}
+									<button
+										type="button"
+										className="quiet-button"
+										onClick={() => onFolder(parts.slice(0, index + 1).join("/"))}
+									>
+										{part}
+									</button>
+								</span>
+							))}
+					</nav>
 				</div>
 				<input
 					type="search"
+					maxLength={1000}
 					aria-label={l.imageFilter}
+					title={l.imageSearchHint}
+					aria-describedby={hintId}
 					placeholder={l.imageFilter}
 					value={filter}
 					onChange={(e) => {
@@ -169,6 +213,9 @@ export function ImageLibrary({
 					{query.isPending ? l.loading : `${images.length} ${l.images.toLowerCase()}`}
 				</span>
 			</header>
+			<small id={hintId} className="library-search-hint">
+				{l.imageSearchHint}
+			</small>
 			{query.error && (
 				<p className="inline-error" role="alert">
 					{String(query.error)}
@@ -187,11 +234,33 @@ export function ImageLibrary({
 						key={`${image.path}:${image.modified}:${image.size}`}
 						root={root}
 						image={image}
-						onOpen={onOpen}
+						onOpen={(path, trigger) => setPreview({ path, trigger })}
 						onReveal={onReveal}
 					/>
 				))}
 			</div>
+			{preview && index >= 0 && (
+				<ImageLibraryPreview
+					root={root}
+					image={images[index]}
+					index={index}
+					total={images.length}
+					trigger={preview.trigger}
+					onClose={() => setPreview(null)}
+					onStep={(direction) => {
+						const next = images[index + direction];
+						if (next) setPreview({ ...preview, path: next.path });
+					}}
+					onOpen={() => {
+						setPreview(null);
+						onOpen(preview.path);
+					}}
+					onReveal={() => {
+						setPreview(null);
+						onReveal(preview.path);
+					}}
+				/>
+			)}
 			{images.length > count && (
 				<button type="button" className="quiet-button library-more" onClick={() => setCount(count + 48)}>
 					{l.moreImages} · {Math.min(48, images.length - count)}

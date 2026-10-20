@@ -1,7 +1,18 @@
 /** Shared visual zoom; 100% uses intrinsic CSS pixels, independently of the viewport. */
 import { Minus, Plus } from "lucide-react";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+const ImageZoomContext = createContext<{
+	zoom: number | null;
+	setZoom: (value: number | null) => void;
+} | null>(null);
+/** Shares the chosen zoom/Fit mode with the reader's expanded view, including portal content. */
+export function ImageZoom({ children }: { children: ReactNode }) {
+	const [zoom, setZoom] = useState<number | null>(null);
+	const value = useMemo(() => ({ zoom, setZoom }), [zoom]);
+	return <ImageZoomContext.Provider value={value}>{children}</ImageZoomContext.Provider>;
+}
 
 export function ZoomControls({
 	percent,
@@ -85,7 +96,10 @@ function ImageContent({
 	const viewport = useRef<HTMLDivElement>(null);
 	const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
 	const [bounds, setBounds] = useState({ width: 0, height: 0 });
-	const [zoom, setZoom] = useState<number | null>(null);
+	const [localZoom, setLocalZoom] = useState<number | null>(null);
+	const sharedZoom = useContext(ImageZoomContext);
+	const zoom = sharedZoom ? sharedZoom.zoom : localZoom;
+	const setZoom = sharedZoom?.setZoom ?? setLocalZoom;
 	useLayoutEffect(() => {
 		const element = viewport.current;
 		if (!element) return;

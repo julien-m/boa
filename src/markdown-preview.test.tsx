@@ -208,6 +208,11 @@ describe("file image and unsupported previews", () => {
 		await act(async () =>
 			host.querySelector<HTMLButtonElement>('button[aria-label="Taille réelle (100 %)"]')!.click(),
 		);
+		for (let i = 0; i < 2; i++)
+			await act(async () =>
+				host.querySelector<HTMLButtonElement>('button[aria-label="Agrandir l’image"]')!.click(),
+			);
+		expect(original.style.width).toBe("1200px");
 		const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Agrandir : plan.png"]')!;
 		expect(expand.previousElementSibling?.textContent).toBe("Adapter");
 		await act(async () => expand.click());
@@ -220,14 +225,15 @@ describe("file image and unsupported previews", () => {
 		const image = dialog.querySelector("img")!;
 		Object.defineProperties(image, { naturalWidth: { value: 800 }, naturalHeight: { value: 400 } });
 		await act(async () => image.dispatchEvent(new Event("load")));
-		await act(async () =>
-			dialog.querySelector<HTMLButtonElement>('button[aria-label="Taille réelle (100 %)"]')!.click(),
-		);
+		expect(image.style.width).toBe("1200px");
 		await act(async () =>
 			dialog.querySelector<HTMLButtonElement>('button[aria-label="Agrandir l’image"]')!.click(),
 		);
-		expect(image.style.width).toBe("1000px");
+		expect(image.style.width).toBe("1400px");
+		expect(original.style.width).toBe("1400px");
 		expect(dialog.querySelector("[aria-pressed]")?.textContent).toBe("Adapter");
+		await act(async () => dialog.querySelector<HTMLButtonElement>("[aria-pressed]")!.click());
+		expect(dialog.querySelector('[aria-pressed="true"]')?.textContent).toBe("Adapter");
 		await act(async () => dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
 		expect(document.querySelector("dialog.markdown-expanded")).toBeNull();
 		expect(host.querySelector("img")).toBe(original);

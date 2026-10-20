@@ -89,7 +89,13 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				return filePreferences[root] ?? { filtered: false, included: [], pins: [], sort: "name" };
 			if (request.action === "images")
 				return {
-					images: [{ name: "preview.png", path: "preview.png", format: "png", modified: 1, size: 100 }],
+					images: ["preview.png", "preview-second.png"].map((name) => ({
+						name,
+						path: name,
+						format: "png",
+						modified: 1,
+						size: 100,
+					})),
 					limited: false,
 				};
 			if (request.action === "thumbnail")
@@ -186,6 +192,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				"wrangler.toml",
 				"wrangler.jsonc",
 				"preview.png",
+				"preview-second.png",
 			].map((name) => ({
 				name,
 				path: name,
@@ -199,11 +206,11 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
-			if (args.path === "preview.png")
+			if (["preview.png", "preview-second.png"].includes(String(args.path)))
 				return {
 					original: "",
 					modified: "",
-					path: "preview.png",
+					path: String(args.path),
 					label: "Lecture seule",
 					kind: "image",
 					dataUrl: `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`,
@@ -1029,37 +1036,54 @@ try {
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "file-space.png") });
 
-	// Real layout coverage: the scoped gallery occupies the center and its image opens the shared fullscreen zoom.
+	// Real layout and navigation: scoped gallery, multiword filter, lightbox and explicit file access.
 	await browsers.nth(1).getByRole("button", { name: "Images de ce dossier", exact: true }).click();
 	await expect(page.locator(".image-library")).toBeVisible();
 	await expect
 		.poll(() => page.locator(".image-library").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
-	await expect(page.locator(".library-thumbnail img")).toBeVisible();
+	await expect(page.locator(".library-thumbnail img").first()).toBeVisible();
 	await page.getByLabel("Format d’image", { exact: true }).selectOption("png");
-	await page.getByRole("searchbox", { name: "Filtrer les images…", exact: true }).fill("preview");
-	await page.locator(".library-image").click();
-	await expect(page.locator(".file-image-stage img")).toBeVisible();
+	await page.getByRole("searchbox", { name: "Filtrer les images…", exact: true }).fill("preview + png");
+	await expect(page.locator(".library-card")).toHaveCount(2);
+	await page.locator(".library-image").first().click();
+	const lightbox = page.getByRole("dialog", { name: "Prévisualisation des images", exact: true });
+	await expect(lightbox).toBeVisible();
+	await expect(page.locator(".workspace-reader")).toBeHidden();
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
 	await expect
-		.poll(() => page.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
+		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
+	await lightbox.getByRole("button", { name: "Plein écran", exact: true }).click();
+	await expect
+		.poll(() => lightbox.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+		.toBe(1440);
+	await lightbox.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
+	await lightbox.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
+	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await page.keyboard.press("ArrowRight");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview-second.png");
+	await expect(lightbox).toHaveClass(/fullscreen/);
+	await page.keyboard.press("PageUp");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
+	await page.keyboard.press("Escape");
+	await expect(lightbox).toHaveCount(0);
+	await expect(page.locator(".image-library")).toBeVisible();
+	await expect(page.getByRole("searchbox", { name: "Filtrer les images…", exact: true })).toHaveValue(
+		"preview + png",
+	);
+	await page.locator(".library-image").first().click();
+	await lightbox.getByRole("button", { name: "Ouvrir dans Fichiers", exact: true }).click();
+	await expect(page.locator(".workspace-reader")).toBeVisible();
 	await page.getByRole("button", { name: "Agrandir : preview.png", exact: true }).click();
 	const fullscreenImage = page.getByRole("dialog", { name: "preview.png", exact: true });
 	await expect(fullscreenImage).toBeVisible();
-	await expect
-		.poll(() => fullscreenImage.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
-		.toBe(1440);
-	await expect(fullscreenImage.locator('input[type="range"]')).toBeVisible();
 	await fullscreenImage.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
 	await fullscreenImage.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
 	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
-	await fullscreenImage.getByRole("button", { name: "Adapter", exact: true }).click();
 	await page.keyboard.press("Escape");
 	await expect(fullscreenImage).toHaveCount(0);
 	await page.getByRole("button", { name: "Bibliothèque", exact: true }).click();
-	await expect(page.getByRole("searchbox", { name: "Filtrer les images…", exact: true })).toHaveValue(
-		"preview",
-	);
 	await page
 		.getByRole("button", { name: "Retrouver dans l’arborescence : preview.png", exact: true })
 		.click();
