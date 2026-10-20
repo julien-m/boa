@@ -720,7 +720,9 @@ try {
 	await page.mouse.down();
 	await page.mouse.move(treeBounds.x + 100, treeBounds.y + 40);
 	await page.mouse.up();
-	expect(await page.locator(".file-sidebar").evaluate((e) => e.clientWidth)).toBeGreaterThan(treeBefore);
+	await expect
+		.poll(() => page.locator(".file-sidebar").evaluate((e) => e.clientWidth), { timeout: 2000 })
+		.toBeGreaterThan(treeBefore);
 	const savedTreeWidth = await page.evaluate(() => localStorage.getItem("boa-tree-width"));
 	const grip = page.getByTestId("git-resizer");
 	const beforeHeight = await page.getByTestId("git-panel").evaluate((e) => e.clientHeight);
@@ -732,7 +734,9 @@ try {
 	expect(await treeGrip.getAttribute("aria-valuenow")).toBe(String(Math.round(Number(savedTreeWidth))));
 	const filesTreeBefore = await page.locator(".file-sidebar").evaluate((e) => e.clientWidth);
 	await treeGrip.press("ArrowRight");
-	expect(await page.locator(".file-sidebar").evaluate((e) => e.clientWidth)).toBeGreaterThan(filesTreeBefore);
+	await expect
+		.poll(() => page.locator(".file-sidebar").evaluate((e) => e.clientWidth), { timeout: 2000 })
+		.toBeGreaterThan(filesTreeBefore);
 
 	await expect(page.getByTestId("toggle-project-search")).toHaveCount(0);
 	await page.locator("[data-file-browser]").focus();
