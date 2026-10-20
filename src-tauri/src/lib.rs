@@ -221,6 +221,17 @@ async fn open_file(state: NativeState<'_>, project: String, path: String) -> Res
 }
 
 #[tauri::command]
+async fn reveal_file(state: NativeState<'_>, project: String, path: String) -> Result<(), String> {
+    work(state.inner().clone(), move |state| {
+        let root = state.registered(&project)?;
+        files::confined(&root, &path)?;
+        let logical = root.join(&path);
+        open_external(&["-R", "--", logical.to_str().ok_or("Chemin non UTF-8")?])
+    })
+    .await
+}
+
+#[tauri::command]
 async fn save_file(
     state: NativeState<'_>,
     project: String,
@@ -540,6 +551,7 @@ pub fn run() {
             open_project_folder,
             read_file,
             open_file,
+            reveal_file,
             save_file,
             read_markdown_image,
             git_history,

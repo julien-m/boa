@@ -37,9 +37,13 @@ export function contextPrompt(context: CodeContext, message: string, wholeFile =
 export function ContextBubbles({
 	capture,
 	context,
+	externalRequest,
+	hideTrigger = false,
 }: {
 	capture: () => CodeContext | null;
 	context: CodeContext | null;
+	externalRequest?: { id: string; context: CodeContext };
+	hideTrigger?: boolean;
 }) {
 	const { t } = useTranslation("workspace");
 	const container = useRef<HTMLDivElement>(null);
@@ -63,6 +67,14 @@ export function ContextBubbles({
 		setMessage("");
 		setNotice(null);
 	};
+	useEffect(() => {
+		if (!externalRequest) return;
+		setAnchor({ top: 80, right: 16 });
+		setDraft(externalRequest.context);
+		setWholeFile(true);
+		setMessage("");
+		setNotice(null);
+	}, [externalRequest]);
 	// Follow a new source selection, while preserving it when the comment takes focus.
 	const contextKey = context ? JSON.stringify(context) : "";
 	useEffect(() => {
@@ -80,6 +92,7 @@ export function ContextBubbles({
 		const keyboard = (event: KeyboardEvent): void => {
 			if (event.key === "Escape") setDraft(null);
 			if (
+				!hideTrigger &&
 				(event.metaKey || event.ctrlKey) &&
 				event.shiftKey &&
 				event.key.toLowerCase() === "b" &&
@@ -116,17 +129,19 @@ export function ContextBubbles({
 	};
 	return (
 		<div className="context-bubbles" ref={container}>
-			<button
-				type="button"
-				data-testid="create-context"
-				className="quiet-button"
-				data-hint={t("context.shortcut")}
-				aria-expanded={Boolean(draft)}
-				onMouseDown={(event) => event.preventDefault()}
-				onClick={() => (draft ? setDraft(null) : open())}
-			>
-				<MessageSquarePlus size={14} /> {t("context.bubble")}
-			</button>
+			{!hideTrigger && (
+				<button
+					type="button"
+					data-testid="create-context"
+					className="quiet-button"
+					data-hint={t("context.shortcut")}
+					aria-expanded={Boolean(draft)}
+					onMouseDown={(event) => event.preventDefault()}
+					onClick={() => (draft ? setDraft(null) : open())}
+				>
+					<MessageSquarePlus size={14} /> {t("context.bubble")}
+				</button>
+			)}
 			{notice && (
 				<button
 					type="button"

@@ -89,6 +89,23 @@ function FileRow({
 					className={`tree-row ${selected === entry.path ? "selected" : ""}`}
 					style={{ paddingLeft: 12 + depth * 14 }}
 					onClick={handleOpen}
+					onContextMenu={(event) =>
+						options.contextMenu?.(
+							event,
+							entry,
+							handleOpen,
+							onKeepOpen ? () => onKeepOpen(entry.path) : undefined,
+						)
+					}
+					onKeyDown={(event) => {
+						if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+							options.contextMenu?.(
+								event,
+								entry,
+								handleOpen,
+								onKeepOpen ? () => onKeepOpen(entry.path) : undefined,
+							);
+					}}
 					onDoubleClick={() => {
 						if (!entry.directory) onKeepOpen?.(entry.path);
 					}}

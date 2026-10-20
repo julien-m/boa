@@ -1,6 +1,17 @@
 import { useTranslation } from "react-i18next";
 
 const fr = {
+	contextMenu: "Actions du fichier",
+	finder: "Afficher dans Finder",
+	openDefault: "Ouvrir avec l’application par défaut",
+	openBoa: "Ouvrir dans BOA",
+	keepTab: "Garder l’onglet ouvert",
+	copyName: "Copier le nom",
+	copyRelative: "Copier le chemin relatif",
+	copyAbsolute: "Copier le chemin complet",
+	compareImages: "Comparer deux images",
+	shareContext: "Partager le contexte",
+	previewImage: "Aperçu",
 	library: "Bibliothèque",
 	images: "Images",
 	folderImages: "Images de ce dossier",
@@ -87,6 +98,17 @@ const fr = {
 	loading: "Chargement…",
 };
 const en: typeof fr = {
+	contextMenu: "File actions",
+	finder: "Show in Finder",
+	openDefault: "Open with default application",
+	openBoa: "Open in BOA",
+	keepTab: "Keep tab open",
+	copyName: "Copy name",
+	copyRelative: "Copy relative path",
+	copyAbsolute: "Copy full path",
+	compareImages: "Compare two images",
+	shareContext: "Share context",
+	previewImage: "Preview",
 	library: "Library",
 	images: "Images",
 	folderImages: "Images in this folder",
