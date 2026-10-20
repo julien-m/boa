@@ -17,8 +17,8 @@ vi.mock("./file-workspace-api", async (original) => ({
 	},
 }));
 vi.mock("./file-tree", () => ({
-	FileTree: () => (
-		<button type="button" data-testid="tree-row">
+	FileTree: ({ path }: { path: string }) => (
+		<button type="button" data-testid="tree-row" data-browse-path={path}>
 			demo.md
 		</button>
 	),
@@ -103,4 +103,33 @@ it("keeps reopening available after collapse and removes the project search icon
 	const editor = host.querySelector("textarea")!;
 	await act(async () => editor.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true })));
 	expect(host.querySelector(".file-search-panel")).toBeNull();
+});
+
+it("reapplies a repeated folder request after local tree navigation", async () => {
+	const browser = (id: string) => (
+		<FileBrowser root="/fixture" folder="docs" folderRequestId={id} onOpen={() => {}} />
+	);
+	await render(browser("first"));
+	search.mockResolvedValueOnce({
+		matches: [{ project: "/fixture", path: "docs/local", directory: true, line: 0, text: "" }],
+		limited: false,
+	});
+	await act(async () =>
+		host
+			.querySelector('[data-testid="tree-row"]')!
+			.dispatchEvent(new KeyboardEvent("keydown", { key: "l", bubbles: true })),
+	);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	});
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+	expect(host.querySelector(".tree-speed-search .search-results button")).not.toBeNull();
+	await act(async () =>
+		host.querySelector<HTMLButtonElement>(".tree-speed-search .search-results button")!.click(),
+	);
+	expect(host.querySelector('[data-testid="tree-row"]')?.getAttribute("data-browse-path")).toBe("docs/local");
+	await render(browser("second"));
+	expect(host.querySelector('[data-testid="tree-row"]')?.getAttribute("data-browse-path")).toBe("docs");
 });

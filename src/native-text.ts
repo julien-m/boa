@@ -2,6 +2,11 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"Espace de fichiers invalide": "Invalid file space",
+	"Préférences de fichiers invalides": "Invalid file preferences",
+	"Raccourcis invalides ou identiques": "Invalid or duplicate shortcuts",
+	"Requête de recherche invalide": "Invalid search request",
+	"Dossier de recherche non enregistré": "Unregistered search root",
 	"La sauvegarde modifierait le propriétaire, le groupe ou les permissions du fichier.":
 		"Saving would change the file owner, group or permissions.",
 	"Édition limitée aux fichiers du projet, hors métadonnées Git.":

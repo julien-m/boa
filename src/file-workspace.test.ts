@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { orderedEntries, toggleIncluded } from "./file-browser";
-import { defaultPreferences, selectedPath, visiblePath } from "./file-workspace-api";
+import { defaultPreferences, fileWorkspace, selectedPath, visiblePath } from "./file-workspace-api";
+import { i18n } from "./i18n";
 import { shortcutMatches, validSearchShortcuts } from "./search-shortcuts";
 
 describe("file space visibility and pins", () => {
@@ -33,4 +35,23 @@ describe("search shortcut routing", () => {
 		expect(validSearchShortcuts({ contextual: "Mod+G", global: "Mod+Shift+F" })).toBe(true);
 		expect(validSearchShortcuts({ contextual: "Mod+G", global: "Mod+G" })).toBe(false);
 	});
+});
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+afterEach(async () => {
+	await i18n.changeLanguage("fr");
+	vi.clearAllMocks();
+});
+it("localizes command failures while preserving opaque paths and OS details", async () => {
+	const payload = "/projects/été/Projet inaccessible : x\nPermission denied (os error 13)";
+	await i18n.changeLanguage("en");
+	vi.mocked(invoke).mockRejectedValueOnce(`Projet inaccessible : ${payload}`);
+	await expect(fileWorkspace.preferences("/fixture")).rejects.toBe(`Project inaccessible: ${payload}`);
+	vi.mocked(invoke).mockRejectedValueOnce("Préférences de fichiers invalides");
+	await expect(fileWorkspace.setPreferences("/fixture", defaultPreferences)).rejects.toBe(
+		"Invalid file preferences",
+	);
+	await i18n.changeLanguage("fr");
+	vi.mocked(invoke).mockRejectedValueOnce(`Projet inaccessible : ${payload}`);
+	await expect(fileWorkspace.preferences("/fixture")).rejects.toBe(`Projet inaccessible : ${payload}`);
 });

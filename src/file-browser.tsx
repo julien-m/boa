@@ -41,6 +41,7 @@ export function FileBrowser({
 	onOpen,
 	onKeepOpen,
 	folder = "",
+	folderRequestId,
 }: {
 	root: string;
 	repos?: import("./models").RepoStatus[];
@@ -48,6 +49,7 @@ export function FileBrowser({
 	onOpen: (selection: Selection) => void;
 	onKeepOpen?: (selection: Selection) => void;
 	folder?: string;
+	folderRequestId?: string;
 }) {
 	const l = useFileLabels();
 	const client = useQueryClient();
@@ -69,7 +71,7 @@ export function FileBrowser({
 	};
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
-	useEffect(() => setPath(folder), [folder]);
+	useEffect(() => setPath(folder), [folder, folderRequestId]);
 	useEffect(() => {
 		const listener = (e: Event) => {
 			if ((e as CustomEvent).detail?.root === root) setSearch("");

@@ -27,7 +27,7 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 				if (!state.tabs.some((t) => key(t) === key(tab))) disposeReaderModel(tab.project, tab.path);
 		});
 	}, [state.tabs]);
-	const [folders, setFolders] = useState<Record<string, string>>({});
+	const [folders, setFolders] = useState<Record<string, { path: string; requestId: string }>>({});
 	const open = (value: Selection, keep = false) =>
 		setState((current) => {
 			const id = key(value);
@@ -46,7 +46,13 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 	useEffect(() => {
 		if (navigation) {
 			if (navigation.path.endsWith("/")) {
-				setFolders((p) => ({ ...p, [navigation.project]: navigation.path.slice(0, -1) }));
+				setFolders((p) => ({
+					...p,
+					[navigation.project]: {
+						path: navigation.path.slice(0, -1),
+						requestId: navigation.navigationId ?? crypto.randomUUID(),
+					},
+				}));
 			} else open(navigation);
 		}
 	}, [navigation]);
@@ -89,7 +95,8 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 							<FileBrowser
 								key={root}
 								root={root}
-								folder={folders[root] ?? ""}
+								folder={folders[root]?.path ?? ""}
+								folderRequestId={folders[root]?.requestId}
 								selected={state.selected?.project === root ? state.selected.path : undefined}
 								onOpen={(value) => open(value)}
 								onKeepOpen={(value) => open(value, true)}

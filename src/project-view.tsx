@@ -32,7 +32,7 @@ export function ProjectView({
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
 	});
-	const [treeFolder, setTreeFolder] = useState("");
+	const [treeFolder, setTreeFolder] = useState({ path: "", requestId: "" });
 	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [files, setFiles] = useState<{
@@ -102,7 +102,11 @@ export function ProjectView({
 
 	useEffect(() => {
 		if (navigation) {
-			if (navigation.path.endsWith("/")) setTreeFolder(navigation.path.slice(0, -1));
+			if (navigation.path.endsWith("/"))
+				setTreeFolder({
+					path: navigation.path.slice(0, -1),
+					requestId: navigation.navigationId ?? crypto.randomUUID(),
+				});
 			else openFile(navigation);
 			setLayout("files");
 		}
@@ -200,7 +204,8 @@ export function ProjectView({
 					tree={
 						<FileBrowser
 							root={project.path}
-							folder={treeFolder}
+							folder={treeFolder.path}
+							folderRequestId={treeFolder.requestId}
 							repos={repos}
 							selected={!selection?.repo ? selection?.path : undefined}
 							onOpen={openFile}

@@ -125,13 +125,13 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                     || roots.is_empty()
                     || roots.len() > 64
                 {
-                    return Err("Invalid file space".into());
+                    return Err("Espace de fichiers invalide".into());
                 }
                 let mut canonical = BTreeSet::new();
                 for root in roots {
                     let path = Path::new(&root).canonicalize().map_err(|e| e.to_string())?;
                     if !path.is_dir() {
-                        return Err("Select a folder".into());
+                        return Err("Sélectionnez un dossier".into());
                     }
                     canonical.insert(path.to_string_lossy().to_string());
                 }
@@ -162,7 +162,7 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                         .chain(&preferences.pins)
                         .any(|p| !valid_relative(p))
                 {
-                    return Err("Invalid file preferences".into());
+                    return Err("Préférences de fichiers invalides".into());
                 }
             }
             let mut c = state.config.lock().map_err(|e| e.to_string())?;
@@ -204,7 +204,7 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                         || !valid_shortcut(&shortcuts.global)
                         || shortcuts.contextual.eq_ignore_ascii_case(&shortcuts.global)
                     {
-                        return Err("Invalid or duplicate shortcuts".into());
+                        return Err("Raccourcis invalides ou identiques".into());
                     }
                     next.shortcuts = shortcuts.clone();
                     json!(shortcuts)
@@ -236,7 +236,7 @@ fn search(state: &AppState, roots: Vec<String>, query: &str, mode: &str) -> Resu
         || !["paths", "content", "all"].contains(&mode)
         || roots.len() > 64
     {
-        return Err("Invalid search request".into());
+        return Err("Requête de recherche invalide".into());
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     let needle = query.to_lowercase();
@@ -262,7 +262,7 @@ fn search(state: &AppState, roots: Vec<String>, query: &str, mode: &str) -> Resu
                 .chain(c.file_spaces.iter().flat_map(|s| s.roots.clone()))
                 .filter(|r| scan.starts_with(r))
                 .max_by_key(|r| r.len())
-                .ok_or("Unregistered search root")?
+                .ok_or("Dossier de recherche non enregistré")?
         };
         let root = allowed;
         let base = state.registered(&root)?;

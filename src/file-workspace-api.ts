@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { localizeNativeText } from "./native-text";
 export interface FileSpace {
 	id: string;
 	name: string;
@@ -29,7 +30,9 @@ export interface FileHit {
 export const defaultPreferences: FilePreferences = { filtered: false, included: [], pins: [], sort: "name" };
 export const defaultShortcuts: SearchShortcuts = { contextual: "Mod+F", global: "Mod+Shift+F" };
 export function fileCommand<T>(request: Record<string, unknown>): Promise<T> {
-	return invoke("file_workspace", { request });
+	return invoke<T>("file_workspace", { request }).catch((error: unknown) => {
+		throw localizeNativeText(String(error));
+	});
 }
 export const fileWorkspace = {
 	state: (): Promise<WorkspaceState> => fileCommand({ action: "list" }),
