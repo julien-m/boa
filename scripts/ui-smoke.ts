@@ -1089,7 +1089,7 @@ try {
 		node.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 	await lightbox.getByRole("button", { name: "Grille de pixels", exact: true }).click();
-	await expect(lightbox.locator(".image-pixel-grid")).toHaveCSS("background-size", "8px 8px");
+	await expect(lightbox.locator(".image-pixel-grid")).toHaveCSS("background-size", "8px 8px, 8px 8px");
 	await lightbox.getByRole("button", { name: "Pipette · copier une couleur", exact: true }).click();
 	await lightbox.locator(".image-pixel-surface img").click({ position: { x: 128, y: 128 } });
 	await expect.poll(() => clipboard).toMatch(/^#[0-9A-F]{6}([0-9A-F]{2})?$/);
