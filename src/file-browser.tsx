@@ -66,6 +66,26 @@ export function FileBrowser({
 	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
 	const [fileMenu, setFileMenu] = useState<FileMenuTarget | null>(null);
+	const menuGeneration = useRef(0);
+	const closeFileMenu = () => {
+		menuGeneration.current++;
+		setFileMenu(null);
+	};
+	useEffect(() => {
+		const invalidate = () => {
+			menuGeneration.current++;
+		};
+		const escape = (event: globalThis.KeyboardEvent) => {
+			if (event.key === "Escape") invalidate();
+		};
+		document.addEventListener("pointerdown", invalidate, true);
+		document.addEventListener("keydown", escape, true);
+		return () => {
+			invalidate();
+			document.removeEventListener("pointerdown", invalidate, true);
+			document.removeEventListener("keydown", escape, true);
+		};
+	}, [root]);
 	const [contextRequest, setContextRequest] = useState<{ id: string; context: CodeContext }>();
 	const [treeSelection, setTreeSelection] = useState(selected);
 	const select = (path: string) =>
@@ -186,6 +206,7 @@ export function FileBrowser({
 		open: () => void,
 		keep?: () => void,
 	) => {
+		menuGeneration.current++;
 		select(entry.path);
 		setFileMenu(
 			fileMenuTarget(
@@ -202,6 +223,8 @@ export function FileBrowser({
 		);
 	};
 	const showPinMenu = (event: FileMenuEvent, pin: string) => {
+		const generation = ++menuGeneration.current;
+		setFileMenu(null);
 		select(pin);
 		const target = fileMenuTarget(
 			event,
@@ -212,6 +235,7 @@ export function FileBrowser({
 		void api
 			.directory(root, parent)
 			.then((entries) => {
+				if (generation !== menuGeneration.current) return;
 				const entry = entries.find((entry) => entry.path === pin);
 				if (!entry) return;
 				setFileMenu({
@@ -226,7 +250,9 @@ export function FileBrowser({
 					keep: !entry.directory && onKeepOpen ? () => onKeepOpen({ project: root, path: pin }) : undefined,
 				});
 			})
-			.catch((error) => setError(String(error)));
+			.catch((error) => {
+				if (generation === menuGeneration.current) setError(String(error));
+			});
 	};
 	const choosePin = async (value: string) => {
 		try {
@@ -497,7 +523,7 @@ export function FileBrowser({
 					target={fileMenu}
 					pinned={preferences.pins.includes(fileMenu.entry.path)}
 					busy={busy}
-					onClose={() => setFileMenu(null)}
+					onClose={closeFileMenu}
 					onError={setError}
 					onPin={() =>
 						update({

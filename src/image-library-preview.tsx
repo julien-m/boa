@@ -158,12 +158,14 @@ export function ImageLibraryPreview({
 					<ImageViewer
 						src={query.data.dataUrl}
 						fileBytes={image.size}
+						location={{ project: root, path: image.path }}
 						alt={image.name}
 						onError={() => setFailed(true)}
 						actions={
 							<button
 								type="button"
 								className="icon-button"
+								data-image-fullscreen
 								aria-label={fullscreen ? l.leaveFullscreen : l.fullscreen}
 								data-hint={fullscreen ? l.leaveFullscreen : l.fullscreen}
 								onClick={() => setFullscreen(!fullscreen)}

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { requestImageAction } from "./image-actions";
 import { ImageViewer, imageByteSize } from "./image-viewer";
 import "./i18n";
 
@@ -205,4 +206,30 @@ it("opens image comparison above the reader and restores its trigger on closing"
 	await act(async () => dialog.dispatchEvent(new Event("cancel", { bubbles: true, cancelable: true })));
 	expect(document.querySelector("dialog.image-comparison")).toBeNull();
 	expect(document.activeElement).toBe(compare);
+});
+
+it("consumes only the selected image action after image load and handles subsequent requests once", async () => {
+	const fullscreen = vi.fn();
+	requestImageAction("/project", "other.png", "fullscreen");
+	await act(async () =>
+		root.render(
+			<ImageViewer
+				src="data:image/png;base64,fixture"
+				alt="Diagram"
+				onError={() => {}}
+				location={{ project: "/project", path: "a.png" }}
+				actions={
+					<button data-image-fullscreen onClick={fullscreen}>
+						Fullscreen
+					</button>
+				}
+			/>,
+		),
+	);
+	await loadImage();
+	expect(fullscreen).not.toHaveBeenCalled();
+	await act(async () => requestImageAction("/project", "a.png", "fullscreen"));
+	expect(fullscreen).toHaveBeenCalledTimes(1);
+	await act(async () => window.dispatchEvent(new CustomEvent("boa:image-action")));
+	expect(fullscreen).toHaveBeenCalledTimes(1);
 });

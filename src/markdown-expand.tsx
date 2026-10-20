@@ -90,6 +90,7 @@ export function MarkdownExpandButton({
 	return (
 		<button
 			type="button"
+			data-image-fullscreen={toolbar || undefined}
 			className={`icon-button markdown-expand-button ${wholeDocument || toolbar ? "markdown-expand-document" : ""}`}
 			data-hint={t("markdown.expand", { name: label })}
 			aria-label={t("markdown.expand", { name: label })}

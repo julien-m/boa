@@ -39,12 +39,6 @@
 .image-comparison-toolbar input[type="range"] {
 	width: 112px;
 }
-.image-comparison-picker {
-	flex-wrap: wrap;
-}
-.image-comparison-picker input {
-	max-width: 230px;
-}
 .image-comparison > p {
 	margin: 4px 16px;
 	font-size: 12px;

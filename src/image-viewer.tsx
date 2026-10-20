@@ -7,14 +7,17 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { consumeImageAction } from "./image-actions";
 import { ImageComparison } from "./image-comparison";
 
+type ImageLocation = { project: string; path: string };
 type ImageBackground = { mode: "default" | "checkerboard" | "white" | "black" | "custom"; color: string };
 const defaultBackground: ImageBackground = { mode: "default", color: "#ffffff" };
 export function imageByteSize(src: string): number | undefined {
@@ -142,16 +145,19 @@ function ImageContent({
 	onError,
 	actions,
 	fileBytes,
+	location,
 }: {
 	src: string;
 	alt: string;
 	onError: () => void;
 	actions?: ReactNode;
 	fileBytes?: number;
+	location?: ImageLocation;
 }) {
 	const { t, i18n } = useTranslation("workspace");
 	const [failed, setFailed] = useState(false);
 	const viewport = useRef<HTMLDivElement>(null);
+	const container = useRef<HTMLDivElement>(null);
 	const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
 	const [bounds, setBounds] = useState({ width: 0, height: 0 });
 	const [localZoom, setLocalZoom] = useState<number | null>(null);
@@ -164,6 +170,18 @@ function ImageContent({
 	const setGrid = sharedZoom?.setGrid ?? setLocalGrid;
 	const [picking, setPicking] = useState(false);
 	const [comparing, setComparing] = useState(false);
+	useEffect(() => {
+		if (!natural || !location) return;
+		const consume = () => {
+			const action = consumeImageAction(location.project, location.path);
+			if (action === "compare") setComparing(true);
+			if (action === "fullscreen")
+				container.current?.querySelector<HTMLButtonElement>("[data-image-fullscreen]")?.click();
+		};
+		consume();
+		window.addEventListener("boa:image-action", consume);
+		return () => window.removeEventListener("boa:image-action", consume);
+	}, [natural, location?.project, location?.path]);
 	const [sample, setSample] = useState("");
 	const bytes = fileBytes ?? imageByteSize(src);
 	const unit = bytes !== undefined && bytes >= 1048576 ? 2 : bytes !== undefined && bytes >= 1024 ? 1 : 0;
@@ -273,7 +291,7 @@ function ImageContent({
 			</div>
 		);
 	return (
-		<div className="image-viewer" data-testid="image-viewer">
+		<div ref={container} className="image-viewer" data-testid="image-viewer">
 			<ZoomControls
 				actions={
 					<>
@@ -411,7 +429,13 @@ function ImageContent({
 				</div>
 			</div>
 			{comparing && (
-				<ImageComparison src={src} alt={alt} fileBytes={bytes} onClose={() => setComparing(false)} />
+				<ImageComparison
+					src={src}
+					alt={alt}
+					fileBytes={bytes}
+					location={location}
+					onClose={() => setComparing(false)}
+				/>
 			)}
 		</div>
 	);
@@ -423,6 +447,7 @@ export function ImageViewer(props: {
 	onError: () => void;
 	actions?: ReactNode;
 	fileBytes?: number;
+	location?: ImageLocation;
 }) {
 	return <ImageContent key={props.src} {...props} />;
 }

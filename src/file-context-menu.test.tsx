@@ -172,3 +172,43 @@ it("bounds image requests to one matching target and expires them after ten seco
 	now.mockReturnValue(11_000);
 	expect(consumeImageAction("project", "one.png")).toBeNull();
 });
+
+it("ignores a delayed pinned menu when another row was selected", async () => {
+	vi.mocked(fileWorkspace.preferences).mockResolvedValue({ ...defaultPreferences, pins: [image.path] });
+	await browser();
+	let resolve!: (entries: (typeof image)[]) => void;
+	vi.mocked(api.directory).mockReturnValueOnce(
+		new Promise((r) => {
+			resolve = r;
+		}),
+	);
+	await act(async () =>
+		host
+			.querySelector(".tree-pin-open")!
+			.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	const row = host.querySelector('[data-testid="file-images"]')!;
+	await act(async () =>
+		row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	expect(item("Rechercher dans ce dossier")).toBeDefined();
+	await act(async () => resolve([image]));
+	expect(item("Rechercher dans ce dossier")).toBeDefined();
+	expect(item("Désépingler")).toBeUndefined();
+	await act(async () =>
+		document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+	);
+	vi.mocked(api.directory).mockReturnValueOnce(
+		new Promise((r) => {
+			resolve = r;
+		}),
+	);
+	await act(async () =>
+		host
+			.querySelector(".tree-pin-open")!
+			.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+	await act(async () => resolve([image]));
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+});
