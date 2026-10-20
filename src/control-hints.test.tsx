@@ -65,3 +65,12 @@ it("delays pointer hints and dismisses them on leaving or clicking", async () =>
 	await act(async () => button.click());
 	expect(document.querySelector('[role="tooltip"]')).toBeNull();
 });
+
+it("shows a hint for disabled controls even when pointer events do not bubble", async () => {
+	vi.useFakeTimers();
+	const button = host.querySelector("button")!;
+	button.disabled = true;
+	await act(async () => button.dispatchEvent(new MouseEvent("pointerover", { bubbles: false })));
+	await act(async () => vi.advanceTimersByTime(350));
+	expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Taille réelle (100 %)");
+});

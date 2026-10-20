@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -6,11 +6,21 @@ import { comparisonLabels } from "./image-comparison-labels";
 import "./image-comparison.css";
 
 type Dimensions = { width: number; height: number };
-type ImageVersion = Dimensions & { src: string; name: string };
+type ImageVersion = Dimensions & { src: string; name: string; size: number };
 const MAX_BYTES = 8 * 1024 * 1024;
 
 /** Both versions use the same physical pixel coordinates and scale. */
-export function ImageComparison({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+export function ImageComparison({
+	src,
+	alt,
+	onClose,
+	fileBytes,
+}: {
+	src: string;
+	alt: string;
+	onClose: () => void;
+	fileBytes?: number;
+}) {
 	const { i18n } = useTranslation();
 	const labels = comparisonLabels[i18n.language.startsWith("fr") ? "fr" : "en"];
 	const dialog = useRef<HTMLDialogElement>(null);
@@ -19,7 +29,7 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 	const reader = useRef<FileReader | null>(null);
 	const [original, setOriginal] = useState<Dimensions | null>(null);
 	const [second, setSecond] = useState<ImageVersion | null>(null);
-	const [candidate, setCandidate] = useState<{ src: string; name: string } | null>(null);
+	const [candidate, setCandidate] = useState<{ src: string; name: string; size: number } | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [mode, setMode] = useState<"side" | "overlay">("side");
@@ -100,7 +110,8 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 		setBusy(true);
 		next.onload = () => {
 			if (reader.current !== next) return;
-			if (typeof next.result === "string") setCandidate({ src: next.result, name: file.name });
+			if (typeof next.result === "string")
+				setCandidate({ src: next.result, name: file.name, size: file.size });
 			else {
 				setError("failed");
 				setBusy(false);
@@ -220,6 +231,15 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 						))}
 					</select>
 				</label>
+				<button
+					type="button"
+					className="icon-button"
+					aria-label={labels.resetBackground}
+					disabled={background === "default"}
+					onClick={() => setBackground("default")}
+				>
+					<RotateCcw size={14} />
+				</button>
 				{background === "custom" && (
 					<input
 						type="color"
@@ -248,6 +268,7 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 			{!second && !busy && <p>{labels.empty}</p>}
 			{candidate && (
 				<img
+					referrerPolicy="no-referrer"
 					key={candidate.src}
 					className="image-comparison-decoder"
 					src={candidate.src}
@@ -274,9 +295,12 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 						<figcaption>
 							{labels.original}: {alt}
 							{original && ` · ${original.width} × ${original.height} px`}
+							{fileBytes !== undefined &&
+								` · ${new Intl.NumberFormat(i18n.language).format(fileBytes)} ${labels.bytes}`}
 						</figcaption>
 						<div className="image-comparison-canvas" style={canvasStyle}>
 							<img
+								referrerPolicy="no-referrer"
 								src={src}
 								alt={alt}
 								style={imageStyle(original)}
@@ -289,23 +313,36 @@ export function ImageComparison({ src, alt, onClose }: { src: string; alt: strin
 								onError={() => setError("failed")}
 							/>
 							{second && mode === "overlay" && (
-								<div
-									className="image-comparison-overlay"
-									style={{ clipPath: `inset(0 ${100 - reveal}% 0 0)` }}
-								>
-									<img src={second.src} alt={second.name} style={imageStyle(second)} />
+								<>
+									<div
+										className="image-comparison-overlay"
+										style={{ clipPath: `inset(0 ${100 - reveal}% 0 0)` }}
+									>
+										<img
+											referrerPolicy="no-referrer"
+											src={second.src}
+											alt={second.name}
+											style={imageStyle(second)}
+										/>
+									</div>
 									<span className="image-comparison-divider" style={{ left: `${reveal}%` }} />
-								</div>
+								</>
 							)}
 						</div>
 					</figure>
 					{second && mode === "side" && (
 						<figure>
 							<figcaption>
-								{labels.second}: {second.name} · {second.width} × {second.height} px
+								{labels.second}: {second.name} · {second.width} × {second.height} px ·{" "}
+								{new Intl.NumberFormat(i18n.language).format(second.size)} {labels.bytes}
 							</figcaption>
 							<div className="image-comparison-canvas" style={canvasStyle}>
-								<img src={second.src} alt={second.name} style={imageStyle(second)} />
+								<img
+									referrerPolicy="no-referrer"
+									src={second.src}
+									alt={second.name}
+									style={imageStyle(second)}
+								/>
 							</div>
 						</figure>
 					)}

@@ -74,8 +74,8 @@ export function ControlHints() {
 		const key = (event: KeyboardEvent) => {
 			if (event.key === "Escape") hide();
 		};
-		document.addEventListener("pointerover", show);
-		document.addEventListener("pointerout", leave);
+		document.addEventListener("pointerover", show, true);
+		document.addEventListener("pointerout", leave, true);
 		document.addEventListener("focusin", show);
 		document.addEventListener("focusout", leave);
 		document.addEventListener("keydown", key);
@@ -84,8 +84,8 @@ export function ControlHints() {
 		window.addEventListener("resize", hide);
 		return () => {
 			clearTimeout(timer);
-			document.removeEventListener("pointerover", show);
-			document.removeEventListener("pointerout", leave);
+			document.removeEventListener("pointerover", show, true);
+			document.removeEventListener("pointerout", leave, true);
 			document.removeEventListener("focusin", show);
 			document.removeEventListener("focusout", leave);
 			document.removeEventListener("keydown", key);

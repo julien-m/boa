@@ -92,6 +92,7 @@
 	max-height: none;
 }
 .image-comparison-overlay {
+	background: inherit;
 	position: absolute;
 	inset: 0;
 }

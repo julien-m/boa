@@ -1068,6 +1068,37 @@ try {
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
+	await lightbox.getByLabel("Fond de l’image", { exact: true }).selectOption("checkerboard");
+	await expect(lightbox.locator(".image-canvas")).toHaveCSS("background-image", /conic-gradient/);
+	await lightbox.getByRole("slider", { name: "Niveau de zoom", exact: true }).evaluate((node) => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, "800");
+		node.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await lightbox.getByRole("button", { name: "Grille de pixels", exact: true }).click();
+	await expect(lightbox.locator(".image-pixel-grid")).toHaveCSS("background-size", "8px 8px");
+	await lightbox.getByRole("button", { name: "Pipette · copier une couleur", exact: true }).click();
+	await lightbox.locator(".image-pixel-surface img").click({ position: { x: 128, y: 128 } });
+	await expect.poll(() => clipboard).toMatch(/^#[0-9A-F]{6}([0-9A-F]{2})?$/);
+	await expect(lightbox.locator(".image-sample")).toContainText("Couleur copiée");
+	await lightbox.getByRole("button", { name: "Comparer deux images", exact: true }).click();
+	const comparison = page.getByRole("dialog", { name: "Comparer deux images", exact: true });
+	await expect(comparison).toBeVisible();
+	await comparison.getByLabel("Choisir une deuxième image", { exact: true }).setInputFiles({
+		name: "version-b.png",
+		mimeType: "image/png",
+		buffer: readFileSync("src-tauri/icons/32x32.png"),
+	});
+	await expect(comparison.locator(".image-comparison-canvas img")).toHaveCount(2);
+	await comparison.getByRole("button", { name: "Superposition", exact: true }).click();
+	await comparison.getByRole("slider", { name: "Part visible de la deuxième image", exact: true }).focus();
+	await page.keyboard.press("Home");
+	await page.keyboard.press("ArrowRight");
+	await expect(comparison.locator(".image-comparison-overlay")).toHaveCSS("clip-path", /99%/);
+	await expect(lightbox.locator(".image-pixel-surface img")).toHaveAttribute("alt", "preview.png");
+	await page.keyboard.press("Escape");
+	await expect(comparison).toHaveCount(0);
+	await expect(lightbox).toBeVisible();
 	await lightbox.getByRole("button", { name: "Image suivante", exact: true }).focus();
 	await expect(lightbox.getByRole("tooltip")).toHaveText("Image suivante · → Page ↓");
 	await page.keyboard.press("Escape");

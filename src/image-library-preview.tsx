@@ -157,6 +157,7 @@ export function ImageLibraryPreview({
 				) : query.data?.kind === "image" && query.data.dataUrl && !failed ? (
 					<ImageViewer
 						src={query.data.dataUrl}
+						fileBytes={image.size}
 						alt={image.name}
 						onError={() => setFailed(true)}
 						actions={

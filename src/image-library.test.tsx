@@ -299,11 +299,13 @@ it("preserves numeric zoom and the ratio computed by Fit across next and previou
 	};
 	await load(800, 400);
 	await setValue(dialog.querySelector<HTMLInputElement>('input[type="range"]')!, "50");
+	await setValue(dialog.querySelector<HTMLSelectElement>(".image-background-select")!, "checkerboard");
 	await act(async () =>
 		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image suivante"]')!.click(),
 	);
 	await flush();
 	expect((await load(1000, 500)).style.width).toBe("500px");
+	expect(dialog.querySelector<HTMLSelectElement>(".image-background-select")?.value).toBe("checkerboard");
 	await act(async () =>
 		[...dialog.querySelectorAll<HTMLButtonElement>("button")]
 			.find((b) => b.textContent === "Adapter")!

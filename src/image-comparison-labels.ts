@@ -1,5 +1,7 @@
 export const comparisonLabels = {
 	fr: {
+		resetBackground: "Réinitialiser le fond",
+		bytes: "o",
 		title: "Comparer deux images",
 		background: "Fond",
 		default: "Par défaut",
@@ -24,6 +26,8 @@ export const comparisonLabels = {
 		loading: "Lecture de l’image…",
 	},
 	en: {
+		resetBackground: "Reset background",
+		bytes: "B",
 		title: "Compare two images",
 		background: "Background",
 		default: "Default",
