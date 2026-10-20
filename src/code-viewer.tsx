@@ -156,7 +156,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				: "";
 		return {
 			project: selection.project,
-			path: `${selection.repo ?? selection.project}/${selection.path}`,
+			path: selection.absolutePath ?? `${selection.repo ?? selection.project}/${selection.path}`,
 			startLine: selected ? range.startLineNumber : null,
 			endLine: selected ? range.endLineNumber : null,
 			code: selected ? (editor?.getModel()?.getValueInRange(range) ?? "") : renderedText,
@@ -194,7 +194,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 				: "";
 		const context = t("viewer.copyContext", {
 			project: selection.project,
-			path: `${selection.repo ?? selection.project}/${selection.path}`,
+			path: selection.absolutePath ?? `${selection.repo ?? selection.project}/${selection.path}`,
 			location,
 			label: query.data.label,
 			side: t(`viewer.${sideRef.current}`),

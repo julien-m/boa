@@ -36,6 +36,7 @@ struct Targets {
     projects: BTreeMap<String, Vec<(PathBuf, bool)>>,
     spaces: BTreeMap<String, crate::file_workspace::Preferences>,
     git_projects: BTreeSet<String>,
+    file_entries: BTreeSet<String>,
 }
 
 fn directory_identity(path: &Path) -> Option<(u64, u64)> {
@@ -83,7 +84,8 @@ fn targets(state: &AppState) -> Targets {
         result.projects.insert(project.path.clone(), roots);
     }
     for space in &config.file_spaces {
-        for root in &space.roots {
+        result.file_entries.extend(space.files.iter().cloned());
+        for root in space.roots.iter().chain(&space.files) {
             result.spaces.insert(
                 root.clone(),
                 config
@@ -121,6 +123,13 @@ fn desired_paths(targets: &Targets) -> BTreeMap<PathBuf, bool> {
     for (project, roots) in &targets.projects {
         if let Some(pref) = targets.spaces.get(project) {
             let root = PathBuf::from(project);
+            if targets.file_entries.contains(project) {
+                desired.entry(root.clone()).or_insert(false);
+                if let Some(parent) = root.parent() {
+                    desired.entry(parent.to_path_buf()).or_insert(false);
+                }
+                continue;
+            }
             // Observe only selected subtrees; the root itself is a non-recursive lifecycle watch.
             desired.entry(root.clone()).or_insert(false);
             if let Some(parent) = root.parent() {
@@ -331,7 +340,13 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
     if event.need_rescan() {
         update.discovery |= targets.discovery.is_some();
         update.projects.extend(targets.projects.keys().cloned());
-        update.rescan.extend(targets.projects.keys().cloned());
+        update.rescan.extend(
+            targets
+                .projects
+                .keys()
+                .filter(|p| !targets.file_entries.contains(*p))
+                .cloned(),
+        );
         return;
     }
     for path in &event.paths {
@@ -341,7 +356,9 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             .is_some_and(|previous| *previous != directory_identity(path));
         if identity_changed {
             for (project, roots) in &targets.projects {
-                if roots.iter().any(|(root, _)| root == path) {
+                if !targets.file_entries.contains(project)
+                    && roots.iter().any(|(root, _)| root == path)
+                {
                     update.projects.insert(project.clone());
                     update.rescan.insert(project.clone());
                 }
@@ -383,6 +400,12 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             update.discovery |= root_lifecycle || child && directory_event;
         }
         for (project, roots) in &targets.projects {
+            if targets.file_entries.contains(project) {
+                if path == Path::new(project) {
+                    update.projects.insert(project.clone());
+                }
+                continue;
+            }
             let in_space = targets.git_projects.contains(project)
                 || targets.spaces.get(project).is_none_or(|pref| {
                     path.strip_prefix(project).is_ok_and(|relative| {
@@ -607,6 +630,63 @@ pub(crate) fn start(
 mod tests {
 
     #[test]
+    fn isolated_file_watches_refresh_when_filtered_and_never_become_recursive() {
+        use super::*;
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("one.md");
+        std::fs::write(&file, "one").unwrap();
+        let file = file.canonicalize().unwrap();
+        let path = file.to_str().unwrap().to_string();
+        let state = crate::projects::AppState::new(temp.path().join("config.json")).unwrap();
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SaveSpace {
+                id: "one".into(),
+                name: "One".into(),
+                roots: vec![],
+                files: vec![path.clone()],
+            },
+        )
+        .unwrap();
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SetPreferences {
+                root: path.clone(),
+                preferences: crate::file_workspace::Preferences {
+                    filtered: true,
+                    included: vec!["one.md".into()],
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+        let current = targets(&state);
+        let mut update = super::Update::default();
+        classify(
+            &Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )))
+            .add_path(file.clone()),
+            &current,
+            &mut update,
+        );
+        assert!(update.projects.contains(&path));
+        assert!(update.rescan.is_empty());
+        let mut sibling = super::Update::default();
+        classify(
+            &Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )))
+            .add_path(temp.path().join("two.md")),
+            &current,
+            &mut sibling,
+        );
+        assert!(sibling.projects.is_empty());
+        std::fs::remove_file(&file).unwrap();
+        std::fs::create_dir(&file).unwrap();
+        assert_eq!(desired_paths(&targets(&state)).get(&file), Some(&false));
+    }
+    #[test]
     fn filtered_file_spaces_watch_only_selected_subtrees() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("files");
@@ -620,6 +700,7 @@ mod tests {
             crate::file_workspace::Request::SaveSpace {
                 id: "tools".into(),
                 name: "Tools".into(),
+                files: Vec::new(),
                 roots: vec![path.clone()],
             },
         )
@@ -641,6 +722,7 @@ mod tests {
             crate::file_workspace::Request::SaveSpace {
                 id: "second".into(),
                 name: "Second".into(),
+                files: Vec::new(),
                 roots: vec![path.clone()],
             },
         )
@@ -663,6 +745,7 @@ mod tests {
         };
         let root = PathBuf::from("/projects/app");
         let targets = Targets {
+            file_entries: Default::default(),
             projects: BTreeMap::from([("/projects/app".into(), vec![(root.clone(), false)])]),
             ..Targets::default()
         };
@@ -1078,6 +1161,7 @@ mod tests {
         let root = PathBuf::from("/projects");
         let project = root.join("app");
         let targets = Targets {
+            file_entries: Default::default(),
             discovery: Some(root.clone()),
             discovery_identity: directory_identity(&root),
             known_directories: BTreeSet::from([project.clone()]),
@@ -1196,6 +1280,7 @@ mod tests {
         let project = root.join("app");
         std::fs::create_dir_all(project.join(".git")).unwrap();
         let targets = Targets {
+            file_entries: Default::default(),
             discovery: Some(root.to_path_buf()),
             discovery_identity: directory_identity(root),
             known_directories: BTreeSet::from([project.clone()]),
@@ -1267,6 +1352,7 @@ mod tests {
         let project = PathBuf::from("/projects/app");
         let nested = project.join("nested-repo");
         let targets = Targets {
+            file_entries: Default::default(),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
                 vec![(project.clone(), false), (nested.clone(), false)],

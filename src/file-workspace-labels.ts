@@ -1,6 +1,14 @@
 import { useTranslation } from "react-i18next";
 
 const fr = {
+	add: "Ajouter",
+	addToSpace: "Ajouter à un espace de fichiers…",
+	createSpace: "Créer un espace…",
+	spaceDestination: "Espace de fichiers",
+	elementPath: "Chemin de l’élément",
+	alreadyAdded: "Déjà ajouté à cet espace",
+	spaceReferenceHint: "Les éléments restent à leur emplacement d’origine.",
+	entries: "Éléments",
 	contextMenu: "Actions du fichier",
 	finder: "Afficher dans Finder",
 	openDefault: "Ouvrir avec l’application par défaut",
@@ -82,7 +90,7 @@ const fr = {
 	emptyEditor: "Sélectionnez un fichier",
 	folder: "Dossier",
 	noneVisible: "Aucun élément sélectionné. Choisissez les éléments visibles ou affichez tout.",
-	rootHint: "Chaque ligne est un dossier existant ; les fichiers restent à leur emplacement.",
+	rootHint: "Chaque entrée est un dossier ou un fichier existant ; les éléments restent à leur emplacement.",
 	inclusionHint:
 		"En mode sélection, seuls les éléments cochés sont visibles. Un dossier coché inclut tout son contenu. Les épingles restent accessibles.",
 	searchError: "La recherche a échoué",
@@ -98,6 +106,14 @@ const fr = {
 	loading: "Chargement…",
 };
 const en: typeof fr = {
+	add: "Add",
+	addToSpace: "Add to a file space…",
+	createSpace: "Create a space…",
+	spaceDestination: "File space",
+	elementPath: "Item path",
+	alreadyAdded: "Already added to this space",
+	spaceReferenceHint: "Items stay in their original location.",
+	entries: "Items",
 	contextMenu: "File actions",
 	finder: "Show in Finder",
 	openDefault: "Open with default application",
@@ -176,7 +192,7 @@ const en: typeof fr = {
 	emptyEditor: "Select a file",
 	folder: "Folder",
 	noneVisible: "No items selected. Choose visible items or show everything.",
-	rootHint: "Each entry is an existing folder; files stay in their original location.",
+	rootHint: "Each entry is an existing folder or file; items stay in their original location.",
 	inclusionHint:
 		"Selection mode shows checked items only. Selecting a folder includes its contents. Pins remain accessible.",
 	searchError: "Search failed",

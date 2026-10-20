@@ -50,6 +50,8 @@ export function FileContextMenu({
 	onShare,
 	onClose,
 	onError,
+	onAddToSpace,
+	singleFile = false,
 }: {
 	project: string;
 	target: FileMenuTarget;
@@ -61,6 +63,8 @@ export function FileContextMenu({
 	onShare: () => void;
 	onClose: () => void;
 	onError: (error: string) => void;
+	onAddToSpace?: () => void;
+	singleFile?: boolean;
 }) {
 	const l = useFileLabels();
 	const menu = useRef<HTMLDivElement>(null);
@@ -102,7 +106,11 @@ export function FileContextMenu({
 		...(target.keep ? [{ label: l.keepTab, action: target.keep }] : []),
 		{ label: l.copyName, action: () => writeText(entry.name) },
 		{ label: l.copyRelative, action: () => writeText(entry.path) },
-		{ label: l.copyAbsolute, action: () => writeText(`${project.replace(/\/$/, "")}/${entry.path}`) },
+		{
+			label: l.copyAbsolute,
+			action: () => writeText(singleFile ? project : `${project.replace(/\/$/, "")}/${entry.path}`),
+		},
+		...(onAddToSpace ? [{ label: l.addToSpace, action: onAddToSpace }] : []),
 		{ label: pinned ? l.unpin : l.pin, action: onPin, disabled: busy },
 		...(image
 			? [

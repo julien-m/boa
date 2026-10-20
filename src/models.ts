@@ -60,6 +60,7 @@ export interface Branch {
 }
 export interface Selection {
 	project: string;
+	absolutePath?: string;
 	repo?: string;
 	path: string;
 	oldPath?: string | null;

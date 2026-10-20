@@ -10,6 +10,7 @@ import {
 	fileMenuTarget,
 } from "./file-context-menu";
 import { FileSearchPanel } from "./file-search-panel";
+import { FileSpaceAdd } from "./file-space-add";
 import { FileTree } from "./file-tree";
 import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
 import { defaultPreferences, type FilePreferences, fileWorkspace } from "./file-workspace-api";
@@ -46,6 +47,7 @@ export function toggleIncluded(prefs: FilePreferences, path: string, checked: bo
 }
 export function FileBrowser({
 	root,
+	singleFile = false,
 	repos = [],
 	selected,
 	onOpen,
@@ -54,6 +56,7 @@ export function FileBrowser({
 	folderRequestId,
 }: {
 	root: string;
+	singleFile?: boolean;
 	repos?: import("./models").RepoStatus[];
 	selected?: string;
 	onOpen: (selection: Selection) => void;
@@ -65,6 +68,7 @@ export function FileBrowser({
 	const openLibrary = useImageLibrary();
 	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
+	const [spaceTarget, setSpaceTarget] = useState<FileMenuTarget | null>(null);
 	const [fileMenu, setFileMenu] = useState<FileMenuTarget | null>(null);
 	const menuGeneration = useRef(0);
 	const closeFileMenu = () => {
@@ -517,9 +521,20 @@ export function FileBrowser({
 				</TreeOptionsContext.Provider>
 			</div>
 			<ContextBubbles capture={() => null} context={null} externalRequest={contextRequest} hideTrigger />
+			{spaceTarget && (
+				<FileSpaceAdd
+					project={root}
+					entry={spaceTarget.entry}
+					fullPath={singleFile ? root : `${root.replace(/\/$/, "")}/${spaceTarget.entry.path}`}
+					trigger={spaceTarget.trigger}
+					onClose={() => setSpaceTarget(null)}
+				/>
+			)}
 			{fileMenu && (
 				<FileContextMenu
 					project={root}
+					singleFile={singleFile}
+					onAddToSpace={() => setSpaceTarget(fileMenu)}
 					target={fileMenu}
 					pinned={preferences.pins.includes(fileMenu.entry.path)}
 					busy={busy}
