@@ -23,13 +23,16 @@ export function FileAssetPreview({ preview, selection }: { preview: Preview; sel
 					>
 						<ImageViewer
 							src={preview.dataUrl!}
+							location={selection}
 							alt={label}
 							onError={() => setFailed(preview.dataUrl ?? null)}
 							actions={
 								<MarkdownExpandButton
 									toolbar
 									label={label}
-									content={<ImageViewer src={preview.dataUrl!} alt={label} onError={() => {}} />}
+									content={
+										<ImageViewer src={preview.dataUrl!} location={selection} alt={label} onError={() => {}} />
+									}
 								/>
 							}
 						/>

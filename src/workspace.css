@@ -798,6 +798,11 @@ h2 {
 	border-radius: 4px;
 	min-width: 0;
 }
+.tree-row.selected,
+.tree-row.selected:hover {
+	background: var(--selected);
+	box-shadow: inset 2px 0 var(--blue);
+}
 .tree-row:hover {
 	background: var(--hover);
 }
@@ -2315,4 +2320,58 @@ span.markdown-expandable {
 	min-width: 0;
 	text-align: left;
 	padding: 2px 0;
+}
+
+.control-hint {
+	position: fixed;
+	z-index: 10000;
+	max-width: min(340px, calc(100vw - 16px));
+	padding: 6px 9px;
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	background: var(--panel);
+	color: var(--text);
+	box-shadow: 0 3px 12px #0005;
+	font-size: 12px;
+	line-height: 1.4;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	pointer-events: none;
+}
+
+.image-facts,
+.image-sample {
+	padding: 4px 12px;
+	color: var(--muted);
+	flex-shrink: 0;
+}
+.image-sample {
+	color: var(--blue);
+}
+.image-background-select {
+	max-width: 150px;
+	font-size: 11px;
+}
+.image-background-color {
+	width: 28px;
+	height: 24px;
+	padding: 2px;
+}
+.image-pixel-surface {
+	position: relative;
+	flex: none;
+}
+.image-pixel-surface img {
+	display: block;
+}
+.image-pixel-surface img.picking {
+	cursor: crosshair;
+}
+.image-pixel-grid {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image:
+		linear-gradient(to right, #8888 1px, transparent 1px),
+		linear-gradient(to bottom, #8888 1px, transparent 1px);
 }

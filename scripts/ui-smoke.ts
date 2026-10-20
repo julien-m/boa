@@ -42,6 +42,8 @@ let remoteUrl: string | null = "https://github.com/example/project";
 const openedFolders: string[] = [];
 const openedRepositories: string[] = [];
 let clipboard = "";
+const comparisonRequests: Record<string, unknown>[] = [];
+const finderRequests: Record<string, unknown>[] = [];
 let savedContent: string | null = null;
 let markdownExtra = "";
 let saveConflict = false;
@@ -81,6 +83,16 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "reveal_file":
+			finderRequests.push(args);
+			return null;
+		case "choose_comparison_image":
+			comparisonRequests.push(args);
+			return {
+				dataUrl: `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`,
+				name: "version-b.png",
+				size: 100,
+			};
 		case "file_workspace": {
 			const request = args.request as Record<string, unknown>;
 			const root = String(request.root ?? "");
@@ -354,10 +366,10 @@ try {
 		directory,
 	);
 	await expect(page.getByTestId("open-repository")).toBeDisabled();
-	await expect(page.getByTestId("open-repository")).toHaveAttribute(
-		"title",
-		"Aucun dépôt distant web configuré",
-	);
+	await page.mouse.move(0, 0);
+	await page.getByTestId("open-repository").hover();
+	await expect(page.getByRole("tooltip")).toHaveText("Aucun dépôt distant web configuré");
+	await page.mouse.move(0, 0);
 	remoteUrl = "https://github.com/example/project";
 	await page.evaluate(
 		(project) =>
@@ -797,6 +809,7 @@ try {
 	await expect(widthGrip).toHaveAttribute("aria-valuenow", String(Math.round(Number(persistedWidth))));
 
 	await page.getByTestId("change-sample.ts").first().click();
+	await expect(page.getByTestId("diff-layout")).toHaveAccessibleName(/Diff|diff/);
 	await page.getByTestId("diff-layout").click();
 
 	const selectOriginal = async (startLine: number, endLine: number): Promise<void> => {
@@ -1064,8 +1077,42 @@ try {
 	await page.keyboard.press("ArrowRight");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview-second.png");
 	await expect(lightbox).toHaveClass(/fullscreen/);
+	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
+	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
+	await lightbox.getByLabel("Fond de l’image", { exact: true }).selectOption("checkerboard");
+	await expect(lightbox.locator(".image-canvas")).toHaveCSS("background-image", /conic-gradient/);
+	await lightbox.getByRole("slider", { name: "Niveau de zoom", exact: true }).evaluate((node) => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, "800");
+		node.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await lightbox.getByRole("button", { name: "Grille de pixels", exact: true }).click();
+	await expect(lightbox.locator(".image-pixel-grid")).toHaveCSS("background-size", "8px 8px, 8px 8px");
+	await lightbox.getByRole("button", { name: "Pipette · copier une couleur", exact: true }).click();
+	await lightbox.locator(".image-pixel-surface img").click({ position: { x: 128, y: 128 } });
+	await expect.poll(() => clipboard).toMatch(/^#[0-9A-F]{6}([0-9A-F]{2})?$/);
+	await expect(lightbox.locator(".image-sample")).toContainText("Couleur copiée");
+	await lightbox.getByRole("button", { name: "Comparer deux images", exact: true }).click();
+	const comparison = page.getByRole("dialog", { name: "Comparer deux images", exact: true });
+	await expect(comparison).toBeVisible();
+	await comparison.getByRole("button", { name: "Choisir une deuxième image", exact: true }).click();
+	await expect
+		.poll(() => comparisonRequests.at(-1))
+		.toEqual({ project: `${directory}/second`, directory: "" });
+	await expect(comparison.locator(".image-comparison-canvas img")).toHaveCount(2);
+	await comparison.getByRole("button", { name: "Superposition", exact: true }).click();
+	await comparison.getByRole("slider", { name: "Part visible de la deuxième image", exact: true }).focus();
+	await page.keyboard.press("Home");
+	await page.keyboard.press("ArrowRight");
+	await expect(comparison.locator(".image-comparison-overlay")).toHaveCSS("clip-path", /99%/);
+	await expect(lightbox.locator(".image-pixel-surface img")).toHaveAttribute("alt", "preview.png");
+	await page.keyboard.press("Escape");
+	await expect(comparison).toHaveCount(0);
+	await expect(lightbox).toBeVisible();
+	await lightbox.getByRole("button", { name: "Image suivante", exact: true }).focus();
+	await expect(lightbox.getByRole("tooltip")).toHaveText("Image suivante · → Page ↓");
 	await page.keyboard.press("Escape");
 	await expect(lightbox).toHaveCount(0);
 	await expect(page.locator(".image-library")).toBeVisible();
@@ -1075,7 +1122,8 @@ try {
 	await page.locator(".library-image").first().click();
 	await lightbox.getByRole("button", { name: "Ouvrir dans Fichiers", exact: true }).click();
 	await expect(page.locator(".workspace-reader")).toBeVisible();
-	await page.getByRole("button", { name: "Agrandir : preview.png", exact: true }).click();
+	await browsers.nth(1).getByTestId("file-preview.png").click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Plein écran", exact: true }).click();
 	const fullscreenImage = page.getByRole("dialog", { name: "preview.png", exact: true });
 	await expect(fullscreenImage).toBeVisible();
 	await fullscreenImage.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
@@ -1088,6 +1136,30 @@ try {
 		.getByRole("button", { name: "Retrouver dans l’arborescence : preview.png", exact: true })
 		.click();
 	await expect(browsers.nth(1).getByTestId("file-preview.png")).toBeFocused();
+	await page.getByTestId("toggle-file-tree").focus();
+	await expect(browsers.nth(1).getByTestId("file-preview.png")).toHaveClass(/selected/);
+	await expect(browsers.nth(1).getByTestId("file-preview.png")).toHaveCSS(
+		"background-color",
+		"rgb(48, 62, 96)",
+	);
+
+	const imageRow = browsers.nth(1).getByTestId("file-preview.png");
+	await imageRow.click({ button: "right" });
+	await expect(page.getByRole("menu", { name: "Actions du fichier" })).toBeVisible();
+	await page.getByRole("menuitem", { name: "Afficher dans Finder", exact: true }).click();
+	await expect
+		.poll(() => finderRequests.at(-1))
+		.toEqual({ project: `${directory}/second`, path: "preview.png" });
+	await imageRow.focus();
+	await page.keyboard.press("Shift+F10");
+	await page.getByRole("menuitem", { name: "Copier le nom", exact: true }).click();
+	await expect.poll(() => clipboard).toBe("preview.png");
+	await expect(imageRow).toHaveClass(/selected/);
+	await imageRow.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Comparer deux images", exact: true }).click();
+	await expect(comparison).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(comparison).toHaveCount(0);
 
 	expect(errors).toEqual([]);
 	console.log(

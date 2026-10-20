@@ -1,5 +1,28 @@
 /** Workspace UI and generated context prompts. */
 export const workspaceFr = {
+	imageTools: {
+		background: "Fond de l’image",
+		compare: "Comparer deux images",
+		default: "Fond par défaut",
+		checkerboard: "Damier de transparence",
+		white: "Blanc",
+		black: "Noir",
+		custom: "Couleur personnalisée",
+		resetBackground: "Réinitialiser le fond",
+		pipette: "Pipette · copier une couleur",
+		pickHint: "Cliquez sur un pixel de l’image pour copier sa couleur HEX.",
+		copied: "Couleur copiée : {{color}} · {{rgba}}",
+		copyFailed: "Copie impossible : {{color}} · {{rgba}}",
+		sampleUnavailable:
+			"Pipette indisponible pour cette image. Une image distante peut empêcher la lecture des pixels.",
+		grid: "Grille de pixels",
+		gridHint: "Afficher la grille de pixels · disponible à partir de 400 %",
+		bytes: "o",
+		kib: "Kio",
+		mib: "Mio",
+		unknownSize: "Poids indisponible",
+	},
+
 	edit: {
 		readOnly: "Lecture seule",
 		drafts: "Brouillons ({{count}})",
@@ -108,6 +131,7 @@ export const workspaceFr = {
 		level: "Niveau de zoom",
 		actual: "Taille réelle (100 %)",
 		fit: "Adapter",
+		fitHint: "Adapter l’image à la fenêtre sans la recadrer",
 		fitted: "Adapté : {{percent}} %",
 	},
 	asset: {
@@ -139,6 +163,28 @@ export const workspaceFr = {
 };
 
 export const workspaceEn = {
+	imageTools: {
+		background: "Image background",
+		compare: "Compare two images",
+		default: "Default background",
+		checkerboard: "Transparency checkerboard",
+		white: "White",
+		black: "Black",
+		custom: "Custom color",
+		resetBackground: "Reset background",
+		pipette: "Eyedropper · copy a color",
+		pickHint: "Click an image pixel to copy its HEX color.",
+		copied: "Color copied: {{color}} · {{rgba}}",
+		copyFailed: "Unable to copy: {{color}} · {{rgba}}",
+		sampleUnavailable: "Eyedropper unavailable for this image. A remote image may prevent pixel access.",
+		grid: "Pixel grid",
+		gridHint: "Show the pixel grid · available from 400%",
+		bytes: "B",
+		kib: "KiB",
+		mib: "MiB",
+		unknownSize: "Size unavailable",
+	},
+
 	edit: {
 		readOnly: "Read-only",
 		drafts: "Drafts ({{count}})",
@@ -247,6 +293,7 @@ export const workspaceEn = {
 		level: "Zoom level",
 		actual: "Actual size (100%)",
 		fit: "Fit",
+		fitHint: "Fit the image to the window without cropping",
 		fitted: "Fitted: {{percent}}%",
 	},
 	asset: {

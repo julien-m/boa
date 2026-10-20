@@ -95,6 +95,7 @@ function MarkdownImage({
 				resolved && failed !== resolved ? (
 					<ImageViewer
 						src={resolved}
+						location={{ project, path }}
 						alt={alt || t("markdown.diagram")}
 						onError={() => setFailed(resolved)}
 					/>

@@ -87,7 +87,7 @@ export function FileSearchPanel({
 								type="button"
 								key={`${hit.project}:${hit.path}:${hit.line}:${i}`}
 								onClick={() => onOpen(hit)}
-								title={`${hit.project}/${hit.path}`}
+								data-hint={`${hit.project}/${hit.path}`}
 							>
 								<strong>
 									{hit.directory ? "▸ " : ""}

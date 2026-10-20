@@ -2,6 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Filter, Images, Pin, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { type CodeContext, ContextBubbles } from "./context-bubbles";
+import {
+	FileContextMenu,
+	type FileMenuEvent,
+	type FileMenuTarget,
+	fileMenuTarget,
+} from "./file-context-menu";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileTree } from "./file-tree";
 import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
@@ -14,6 +21,8 @@ export interface TreeOptions {
 	busy: boolean;
 	showAll: boolean;
 	reveal: string;
+	select?: (path: string) => void;
+	contextMenu?: (event: FileMenuEvent, entry: DirectoryEntry, open: () => void, keep?: () => void) => void;
 	update: (prefs: FilePreferences) => void;
 }
 const TreeOptionsContext = createContext<TreeOptions>({
@@ -56,7 +65,44 @@ export function FileBrowser({
 	const openLibrary = useImageLibrary();
 	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
+	const [fileMenu, setFileMenu] = useState<FileMenuTarget | null>(null);
+	const menuGeneration = useRef(0);
+	const closeFileMenu = () => {
+		menuGeneration.current++;
+		setFileMenu(null);
+	};
+	useEffect(() => {
+		const invalidate = () => {
+			menuGeneration.current++;
+		};
+		const escape = (event: globalThis.KeyboardEvent) => {
+			if (event.key === "Escape") invalidate();
+		};
+		document.addEventListener("pointerdown", invalidate, true);
+		document.addEventListener("keydown", escape, true);
+		return () => {
+			invalidate();
+			document.removeEventListener("pointerdown", invalidate, true);
+			document.removeEventListener("keydown", escape, true);
+		};
+	}, [root]);
+	const [contextRequest, setContextRequest] = useState<{ id: string; context: CodeContext }>();
+	const [treeSelection, setTreeSelection] = useState(selected);
+	const select = (path: string) =>
+		window.dispatchEvent(new CustomEvent("boa:tree-selection", { detail: { root, path } }));
+	useEffect(() => {
+		setTreeSelection(selected);
+	}, [selected, root]);
+	useEffect(() => {
+		const listener = (event: Event) => {
+			const detail = (event as CustomEvent<{ root: string; path: string }>).detail;
+			setTreeSelection(detail.root === root ? detail.path : undefined);
+		};
+		window.addEventListener("boa:tree-selection", listener);
+		return () => window.removeEventListener("boa:tree-selection", listener);
+	}, [root]);
 	const openFile = (selection: Selection) => {
+		select(selection.path);
 		closeLibrary?.();
 		onOpen(selection);
 	};
@@ -97,6 +143,7 @@ export function FileBrowser({
 			if (detail.root !== root) return;
 			setPath(detail.path.includes("/") ? detail.path.slice(0, detail.path.lastIndexOf("/")) : "");
 			setSearch(null);
+			select(detail.path);
 			setRevealTarget(detail.path);
 		};
 		window.addEventListener("boa:reveal-file", reveal);
@@ -153,12 +200,67 @@ export function FileBrowser({
 			})
 			.finally(() => setBusy(false));
 	};
+	const showContextMenu = (
+		event: FileMenuEvent,
+		entry: DirectoryEntry,
+		open: () => void,
+		keep?: () => void,
+	) => {
+		menuGeneration.current++;
+		select(entry.path);
+		setFileMenu(
+			fileMenuTarget(
+				event,
+				entry,
+				entry.directory
+					? () => {
+							setPath(entry.path);
+							chooseFolder?.(root, entry.path);
+						}
+					: open,
+				entry.directory ? undefined : keep,
+			),
+		);
+	};
+	const showPinMenu = (event: FileMenuEvent, pin: string) => {
+		const generation = ++menuGeneration.current;
+		setFileMenu(null);
+		select(pin);
+		const target = fileMenuTarget(
+			event,
+			{ name: pin.split("/").pop()!, path: pin, directory: false, symlink: false, repository: false },
+			() => openFile({ project: root, path: pin }),
+		);
+		const parent = pin.includes("/") ? pin.slice(0, pin.lastIndexOf("/")) : "";
+		void api
+			.directory(root, parent)
+			.then((entries) => {
+				if (generation !== menuGeneration.current) return;
+				const entry = entries.find((entry) => entry.path === pin);
+				if (!entry) return;
+				setFileMenu({
+					...target,
+					entry,
+					open: entry.directory
+						? () => {
+								setPath(pin);
+								chooseFolder?.(root, pin);
+							}
+						: target.open,
+					keep: !entry.directory && onKeepOpen ? () => onKeepOpen({ project: root, path: pin }) : undefined,
+				});
+			})
+			.catch((error) => {
+				if (generation === menuGeneration.current) setError(String(error));
+			});
+	};
 	const choosePin = async (value: string) => {
 		try {
 			const parent = value.includes("/") ? value.slice(0, value.lastIndexOf("/")) : "";
 			const entry = (await api.directory(root, parent)).find((e) => e.path === value);
 			if (!entry) throw new Error(value);
 			if (entry.directory) {
+				select(value);
 				setPath(value);
 				chooseFolder?.(root, value);
 			} else openFile({ project: root, path: value });
@@ -209,7 +311,7 @@ export function FileBrowser({
 				<button
 					type="button"
 					className="quiet-button truncate file-browser-root"
-					title={root}
+					data-hint={root}
 					onClick={() => {
 						setPath("");
 						chooseFolder?.(root, "");
@@ -222,7 +324,7 @@ export function FileBrowser({
 						type="button"
 						className="icon-button"
 						aria-label={l.folderImages}
-						title={l.folderImages}
+						data-hint={l.folderImages}
 						onClick={() => openLibrary(root, path)}
 					>
 						<Images size={14} />
@@ -232,7 +334,7 @@ export function FileBrowser({
 					type="button"
 					className="icon-button"
 					aria-label={l.filter}
-					title={l.filter}
+					data-hint={l.filter}
 					onClick={() => setMenu(!menu)}
 				>
 					<Filter size={13} />
@@ -292,7 +394,7 @@ export function FileBrowser({
 				<button
 					type="button"
 					className="quiet-button"
-					title={path}
+					data-hint={path}
 					onClick={() => {
 						setPath("");
 						chooseFolder?.(root, "");
@@ -328,7 +430,18 @@ export function FileBrowser({
 								} catch {}
 							}}
 						>
-							<button type="button" className="tree-pin-open" title={pin} onClick={() => void choosePin(pin)}>
+							<button
+								type="button"
+								className={`tree-pin-open ${treeSelection === pin ? "selected" : ""}`}
+								aria-current={treeSelection === pin ? "true" : undefined}
+								data-hint={pin}
+								onContextMenu={(event) => showPinMenu(event, pin)}
+								onKeyDown={(event) => {
+									if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))
+										showPinMenu(event, pin);
+								}}
+								onClick={() => void choosePin(pin)}
+							>
 								<Pin size={12} />
 								<span className="truncate">{pin}</span>
 							</button>
@@ -372,6 +485,7 @@ export function FileBrowser({
 					onClose={closeSearch}
 					onOpen={(hit) => {
 						if (hit.directory) {
+							select(hit.path);
 							setPath(hit.path);
 							chooseFolder?.(root, hit.path);
 							setSearch(null);
@@ -381,18 +495,65 @@ export function FileBrowser({
 			)}
 			<div hidden={search !== null}>
 				<TreeOptionsContext.Provider
-					value={{ preferences, manage, busy, showAll: showAll || manage, reveal: path, update }}
+					value={{
+						preferences,
+						manage,
+						busy,
+						showAll: showAll || manage,
+						reveal: path,
+						select,
+						contextMenu: showContextMenu,
+						update,
+					}}
 				>
 					<FileTree
 						project={root}
 						path={path}
 						repos={repos}
-						selected={selected}
+						selected={treeSelection}
 						onOpen={(p) => openFile({ project: root, path: p })}
-						onKeepOpen={(p) => onKeepOpen?.({ project: root, path: p })}
+						onKeepOpen={onKeepOpen ? (p) => onKeepOpen({ project: root, path: p }) : undefined}
 					/>
 				</TreeOptionsContext.Provider>
 			</div>
+			<ContextBubbles capture={() => null} context={null} externalRequest={contextRequest} hideTrigger />
+			{fileMenu && (
+				<FileContextMenu
+					project={root}
+					target={fileMenu}
+					pinned={preferences.pins.includes(fileMenu.entry.path)}
+					busy={busy}
+					onClose={closeFileMenu}
+					onError={setError}
+					onPin={() =>
+						update({
+							...preferences,
+							pins: preferences.pins.includes(fileMenu.entry.path)
+								? preferences.pins.filter((pin) => pin !== fileMenu.entry.path)
+								: [...preferences.pins, fileMenu.entry.path],
+						})
+					}
+					onFolderImages={openLibrary ? () => openLibrary(root, fileMenu.entry.path) : undefined}
+					onSearch={() => {
+						setPath(fileMenu.entry.path);
+						chooseFolder?.(root, fileMenu.entry.path);
+						setSearch("");
+					}}
+					onShare={() =>
+						setContextRequest({
+							id: crypto.randomUUID(),
+							context: {
+								project: root,
+								path: fileMenu.entry.path,
+								code: "",
+								startLine: null,
+								endLine: null,
+								label: fileMenu.entry.name,
+							},
+						})
+					}
+				/>
+			)}
 			{search === null && preferences.filtered && !preferences.included.length && !showAll && !manage && (
 				<p className="muted small">{l.noneVisible}</p>
 			)}

@@ -34,6 +34,12 @@ const previewLabels = (value: Preview): Preview => ({
 });
 
 export const api = {
+	revealFile: (project: string, path: string): Promise<void> => invoke("reveal_file", { project, path }),
+	chooseComparisonImage: (
+		project?: string,
+		directory?: string,
+	): Promise<{ dataUrl: string; name: string; size: number } | null> =>
+		invoke("choose_comparison_image", { project: project ?? null, directory: directory ?? null }),
 	search: (
 		project: string,
 		query: string,

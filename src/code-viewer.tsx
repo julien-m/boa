@@ -260,7 +260,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								type="button"
 								className="icon-button"
 								data-testid="diff-previous"
-								title={t("viewer.previous")}
+								data-hint={t("viewer.previous")}
 								aria-label={t("viewer.previous")}
 								disabled={!query.data || query.isFetching}
 								onClick={() => diffRef.current?.goToDiff("previous")}
@@ -271,7 +271,7 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								type="button"
 								className="icon-button"
 								data-testid="diff-next"
-								title={t("viewer.next")}
+								data-hint={t("viewer.next")}
 								aria-label={t("viewer.next")}
 								disabled={!query.data || query.isFetching}
 								onClick={() => diffRef.current?.goToDiff("next")}
@@ -286,7 +286,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 							className="icon-button"
 							data-testid="diff-layout"
 							onClick={() => setSideBySide(!sideBySide)}
-							title={sideBySide ? t("viewer.inlineDiff") : t("viewer.sideBySideDiff")}
+							data-hint={sideBySide ? t("viewer.inlineDiff") : t("viewer.sideBySideDiff")}
+							aria-label={sideBySide ? t("viewer.inlineDiff") : t("viewer.sideBySideDiff")}
 						>
 							{sideBySide ? <PanelLeftClose size={15} /> : <SplitSquareHorizontal size={15} />}
 						</button>
@@ -328,7 +329,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								<button
 									type="button"
 									disabled={draft.saving}
-									title={t("edit.undo")}
+									data-hint={t("edit.undo")}
+									aria-label={t("edit.undo")}
 									onClick={() => editorRef.current?.trigger("boa", "undo", null)}
 								>
 									↶
@@ -336,7 +338,8 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 								<button
 									type="button"
 									disabled={draft.saving}
-									title={t("edit.redo")}
+									data-hint={t("edit.redo")}
+									aria-label={t("edit.redo")}
 									onClick={() => editorRef.current?.trigger("boa", "redo", null)}
 								>
 									↷

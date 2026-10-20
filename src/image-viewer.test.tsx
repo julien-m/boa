@@ -2,15 +2,19 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ImageViewer } from "./image-viewer";
+import { requestImageAction } from "./image-actions";
+import { ImageViewer, imageByteSize } from "./image-viewer";
 import "./i18n";
 
+const clipboard = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: clipboard }));
 let host: HTMLDivElement, root: Root;
 let resize: () => void;
 let bounds: { width: number; height: number };
 beforeEach(() => {
 	Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 	bounds = { width: 432, height: 232 };
+	clipboard.mockReset().mockResolvedValue(undefined);
 	vi.stubGlobal(
 		"ResizeObserver",
 		class {
@@ -46,7 +50,7 @@ async function loadImage() {
 	return img;
 }
 const button = (name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!;
-it("fits at first, zooms from 25 to 200% using intrinsic size, resets to 100%, and follows resize only in Fit", async () => {
+it("fits at first, zooms from 25 to 1600% using intrinsic size, resets to 100%, and follows resize only in Fit", async () => {
 	await render();
 	expect(button("Agrandir l’image").disabled).toBe(true);
 	const img = await loadImage();
@@ -63,7 +67,15 @@ it("fits at first, zooms from 25 to 200% using intrinsic size, resets to 100%, a
 	await act(async () => button("Taille réelle (100 %)").click());
 	for (let i = 0; i < 4; i++) await act(async () => button("Agrandir l’image").click());
 	expect(img.style.width).toBe("1600px");
+	expect(button("Agrandir l’image").disabled).toBe(false);
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "1600");
+		slider.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	expect(img.style.width).toBe("12800px");
 	expect(button("Agrandir l’image").disabled).toBe(true);
+	await act(async () => button("Taille réelle (100 %)").click());
+	for (let i = 0; i < 4; i++) await act(async () => button("Agrandir l’image").click());
 	for (let i = 0; i < 7; i++) await act(async () => button("Réduire").click());
 	expect(img.style.width).toBe("200px");
 	expect(button("Réduire").disabled).toBe(true);
@@ -80,9 +92,9 @@ it("fits at first, zooms from 25 to 200% using intrinsic size, resets to 100%, a
 	await act(async () => resize());
 	expect(img.style.width).toBe("800px");
 	expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.getAttribute("min")).toBe("25");
-	expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.getAttribute("max")).toBe("200");
+	expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.getAttribute("max")).toBe("1600");
 });
-it("Fit enlarges small images to the available viewport, including beyond the manual zoom limit", async () => {
+it("Fit enlarges small images to the available viewport, above intrinsic size", async () => {
 	bounds = { width: 1832, height: 932 };
 	await render();
 	const img = await loadImage();
@@ -109,4 +121,115 @@ it("resets for a different image and shows a readable decoding failure instead o
 		"Cette image ne peut pas être affichée",
 	);
 	expect(host.querySelector(".visual-zoom")).toBeNull();
+});
+
+it("changes the image background, resets it and aligns a pixel grid to intrinsic pixels", async () => {
+	await render("data:image/png;base64,AAAA");
+	await loadImage();
+	expect(host.querySelector(".image-facts")?.textContent).toBe("800 × 400 px · 3 o");
+	const select = host.querySelector<HTMLSelectElement>(".image-background-select")!;
+	await act(async () => {
+		select.value = "white";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	expect(host.querySelector<HTMLElement>(".image-canvas")!.style.backgroundColor).toBe("#fff");
+	await act(async () => {
+		select.value = "checkerboard";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	expect(host.querySelector<HTMLElement>(".image-canvas")!.style.backgroundImage).toContain("conic-gradient");
+	await act(async () => {
+		select.value = "custom";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	const color = host.querySelector<HTMLInputElement>('input[type="color"]')!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(color, "#123456");
+		color.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	expect(host.querySelector<HTMLElement>(".image-canvas")!.style.backgroundColor).toBe("#123456");
+	await act(async () => button("Réinitialiser le fond").click());
+	expect(host.querySelector<HTMLElement>(".image-canvas")!.style.backgroundColor).toBe("");
+	expect(button("Grille de pixels").disabled).toBe(true);
+	const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "800");
+		slider.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await act(async () => button("Grille de pixels").click());
+	expect(host.querySelector<HTMLElement>(".image-pixel-grid")?.style.backgroundSize).toBe("8px 8px");
+	expect(host.querySelector("img")?.style.imageRendering).toBe("pixelated");
+	expect(imageByteSize("https://example.test/image.png")).toBeUndefined();
+});
+it("samples one intrinsic pixel, copies HEX with alpha and reports inaccessible pixels clearly", async () => {
+	await render();
+	const img = await loadImage();
+	vi.spyOn(img, "getBoundingClientRect").mockReturnValue({
+		left: 0,
+		top: 0,
+		width: 400,
+		height: 200,
+	} as DOMRect);
+	const draw = vi.fn();
+	vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+		drawImage: draw,
+		getImageData: () => ({ data: new Uint8ClampedArray([255, 128, 0, 128]) }),
+	} as unknown as CanvasRenderingContext2D);
+	await act(async () => button("Pipette · copier une couleur").click());
+	await act(async () =>
+		img.dispatchEvent(new MouseEvent("pointerdown", { clientX: 200, clientY: 100, bubbles: true })),
+	);
+	expect(draw).toHaveBeenCalledWith(img, 400, 200, 1, 1, 0, 0, 1, 1);
+	expect(clipboard).toHaveBeenCalledWith("#FF800080");
+	expect(host.querySelector('[role="status"]')?.textContent).toContain("rgba(255, 128, 0, 0.502)");
+	draw.mockImplementation(() => {
+		throw new DOMException("Tainted canvas", "SecurityError");
+	});
+	await act(async () => button("Pipette · copier une couleur").click());
+	await act(async () =>
+		img.dispatchEvent(new MouseEvent("pointerdown", { clientX: 200, clientY: 100, bubbles: true })),
+	);
+	expect(clipboard).toHaveBeenCalledTimes(1);
+	expect(host.querySelector('[role="status"]')?.textContent).toContain("Pipette indisponible");
+});
+
+it("opens image comparison above the reader and restores its trigger on closing", async () => {
+	await render();
+	await loadImage();
+	const compare = button("Comparer deux images");
+	await act(async () => {
+		compare.focus();
+		compare.click();
+	});
+	const dialog = document.querySelector<HTMLDialogElement>("dialog.image-comparison")!;
+	expect(dialog.hasAttribute("open")).toBe(true);
+	await act(async () => dialog.dispatchEvent(new Event("cancel", { bubbles: true, cancelable: true })));
+	expect(document.querySelector("dialog.image-comparison")).toBeNull();
+	expect(document.activeElement).toBe(compare);
+});
+
+it("consumes only the selected image action after image load and handles subsequent requests once", async () => {
+	const fullscreen = vi.fn();
+	requestImageAction("/project", "other.png", "fullscreen");
+	await act(async () =>
+		root.render(
+			<ImageViewer
+				src="data:image/png;base64,fixture"
+				alt="Diagram"
+				onError={() => {}}
+				location={{ project: "/project", path: "a.png" }}
+				actions={
+					<button data-image-fullscreen onClick={fullscreen}>
+						Fullscreen
+					</button>
+				}
+			/>,
+		),
+	);
+	await loadImage();
+	expect(fullscreen).not.toHaveBeenCalled();
+	await act(async () => requestImageAction("/project", "a.png", "fullscreen"));
+	expect(fullscreen).toHaveBeenCalledTimes(1);
+	await act(async () => window.dispatchEvent(new CustomEvent("boa:image-action")));
+	expect(fullscreen).toHaveBeenCalledTimes(1);
 });

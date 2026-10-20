@@ -119,7 +119,7 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 										type="button"
 										role="tab"
 										aria-selected={!!state.selected && key(state.selected) === key(tab)}
-										title={`${tab.project}/${tab.path}`}
+										data-hint={`${tab.project}/${tab.path}`}
 										className={state.preview === key(tab) ? "preview-tab" : ""}
 										onClick={() => setState((s) => ({ ...s, selected: tab }))}
 										onDoubleClick={() => open(tab, true)}

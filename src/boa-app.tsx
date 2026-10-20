@@ -293,7 +293,7 @@ export default function App() {
 							type="button"
 							data-testid="guidance-toggle"
 							className="guidance-badge"
-							title={t("guidanceTitle")}
+							data-hint={t("guidanceTitle")}
 							onClick={() => setGuidancePaused(!guidancePaused)}
 						>
 							{guidancePaused ? t("paused") : t("guidanceReceived", { source: navigation.source })}
@@ -307,7 +307,8 @@ export default function App() {
 						data-testid="refresh-all"
 						className="icon-button"
 						onClick={handleRefresh}
-						title={t("refreshProjects")}
+						data-hint={t("refreshProjects")}
+						aria-label={t("refreshProjects")}
 					>
 						<RefreshCw size={14} className={scanning ? "spin" : ""} />
 					</button>
@@ -375,7 +376,7 @@ export default function App() {
 											setSettingsOpen(false);
 											setArchivesOpen(false);
 										}}
-										title={project.path}
+										data-hint={project.path}
 									>
 										<span className="project-initial">{project.name[0]?.toUpperCase()}</span>
 										<span className="nav-project-copy">
@@ -781,7 +782,7 @@ function ProjectCard({
 				<button
 					type="button"
 					className="icon-button"
-					title={t("archiveTitle")}
+					data-hint={t("archiveTitle")}
 					aria-label={t("archiveProject", { name: project.name })}
 					data-testid={`archive-project-${project.name}`}
 					onClick={onArchive}
@@ -793,7 +794,8 @@ function ProjectCard({
 					data-testid={`pin-project-${project.name}`}
 					className={`icon-button pin-button ${project.pinned ? "pinned" : ""}`}
 					onClick={onPin}
-					title={project.pinned ? t("unpin") : t("pin")}
+					data-hint={project.pinned ? t("unpin") : t("pin")}
+					aria-label={project.pinned ? t("unpin") : t("pin")}
 					aria-pressed={project.pinned}
 				>
 					<Pin size={13} fill={project.pinned ? "currentColor" : "none"} />

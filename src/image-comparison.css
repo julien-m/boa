@@ -1,0 +1,103 @@
+.image-comparison {
+	width: 100vw;
+	height: 100vh;
+	max-width: none;
+	max-height: none;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	color: var(--text, #ddd);
+	background: var(--bg, #17181b);
+}
+.image-comparison[open] {
+	display: flex;
+	flex-direction: column;
+}
+.image-comparison::backdrop {
+	background: #000b;
+}
+.image-comparison > header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px 16px;
+	border-bottom: 1px solid #8884;
+}
+.image-comparison-toolbar {
+	display: flex;
+	gap: 12px;
+	flex-wrap: wrap;
+	align-items: center;
+	padding: 12px 16px;
+}
+.image-comparison-toolbar label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+}
+.image-comparison-toolbar input[type="range"] {
+	width: 112px;
+}
+.image-comparison > p {
+	margin: 4px 16px;
+	font-size: 12px;
+}
+.image-comparison [role="alert"] {
+	color: #f5a69d;
+}
+.image-comparison-viewport {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 16px;
+}
+.image-comparison-images {
+	display: flex;
+	gap: 16px;
+	width: max-content;
+	min-width: 100%;
+	min-height: 100%;
+	justify-content: safe center;
+	align-items: safe center;
+}
+.image-comparison-images figure {
+	margin: 0;
+	flex: none;
+}
+.image-comparison-images figcaption {
+	max-width: 40vw;
+	height: 24px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	font-size: 12px;
+}
+.image-comparison-canvas {
+	position: relative;
+	background-color: #fff;
+	background-image: conic-gradient(#d0d0d0 25%, transparent 0 50%, #d0d0d0 0 75%, transparent 0);
+	background-size: 16px 16px;
+	overflow: hidden;
+}
+.image-comparison-canvas img {
+	display: block;
+	max-width: none;
+	max-height: none;
+}
+.image-comparison-overlay {
+	background: inherit;
+	position: absolute;
+	inset: 0;
+}
+.image-comparison-divider {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: #70adff;
+	pointer-events: none;
+}
+.image-comparison-decoder {
+	display: none;
+}

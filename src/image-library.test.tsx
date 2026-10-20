@@ -68,6 +68,7 @@ afterEach(async () => {
 	client.clear();
 	host.remove();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
 });
 async function flush() {
 	await act(async () => {
@@ -155,6 +156,13 @@ it("opens a folder-scoped library and reveals its image in the tree, reopening a
 	expect(open).toHaveBeenCalledWith({ project: "/fixture", path: "assets/one.png" });
 	expect(host.querySelector('[data-testid="toggle-file-tree"]')?.getAttribute("aria-expanded")).toBe("true");
 	expect(host.querySelector('[data-testid="file-assets/one.png"]')).toBe(document.activeElement);
+	await act(async () => host.querySelector("textarea")!.focus());
+	expect(host.querySelector('[data-testid="file-assets/one.png"]')?.classList.contains("selected")).toBe(
+		true,
+	);
+	expect(host.querySelector('[data-testid="file-assets/one.png"]')?.getAttribute("aria-current")).toBe(
+		"true",
+	);
 });
 it("keeps failed thumbnail cards actionable and displays a partial-list notice", async () => {
 	images.mockResolvedValue({
@@ -250,4 +258,86 @@ it("keeps image navigation available after a preview failure", async () => {
 	await flush();
 	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("logo.svg");
 	expect(open).not.toHaveBeenCalled();
+});
+
+it("keeps a clicked folder visibly selected after focus leaves the tree", async () => {
+	await render();
+	const folder = host.querySelector<HTMLButtonElement>('[data-testid="file-assets"]')!;
+	await act(async () => folder.click());
+	await flush();
+	await act(async () => host.querySelector("textarea")!.focus());
+	expect(folder.classList.contains("selected")).toBe(true);
+	const file = host.querySelector<HTMLButtonElement>('[data-testid="file-assets/one.png"]')!;
+	await act(async () => file.click());
+	expect(file.classList.contains("selected")).toBe(true);
+	expect(folder.classList.contains("selected")).toBe(false);
+});
+it("preserves numeric zoom and the ratio computed by Fit across next and previous images", async () => {
+	vi.stubGlobal(
+		"ResizeObserver",
+		class {
+			observe() {}
+			disconnect() {}
+		},
+	);
+	vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1632);
+	vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(832);
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
+	await flush();
+	const dialog = document.querySelector<HTMLDialogElement>("dialog.library-lightbox")!;
+	const load = async (width: number, height: number) => {
+		const img = dialog.querySelector("img")!;
+		Object.defineProperties(img, {
+			naturalWidth: { value: width, configurable: true },
+			naturalHeight: { value: height, configurable: true },
+		});
+		await act(async () => img.dispatchEvent(new Event("load")));
+		return img;
+	};
+	await load(800, 400);
+	await setValue(dialog.querySelector<HTMLInputElement>('input[type="range"]')!, "50");
+	await setValue(dialog.querySelector<HTMLSelectElement>(".image-background-select")!, "checkerboard");
+	await act(async () =>
+		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image suivante"]')!.click(),
+	);
+	await flush();
+	expect((await load(1000, 500)).style.width).toBe("500px");
+	expect(dialog.querySelector<HTMLSelectElement>(".image-background-select")?.value).toBe("checkerboard");
+	await act(async () =>
+		[...dialog.querySelectorAll<HTMLButtonElement>("button")]
+			.find((b) => b.textContent === "Adapter")!
+			.click(),
+	);
+	expect(dialog.querySelector("img")?.style.width).toBe("1600px");
+	await act(async () =>
+		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image précédente"]')!.click(),
+	);
+	await flush();
+	expect((await load(800, 400)).style.width).toBe("1280px");
+	expect(dialog.querySelector(".visual-zoom-value")?.textContent).toBe("160 %");
+});
+
+it("revealing an already open file clears a selection in another root", async () => {
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<FileBrowser root="/first" onOpen={() => {}} />
+				<FileBrowser root="/second" selected="assets/one.png" onOpen={() => {}} />
+			</QueryClientProvider>,
+		),
+	);
+	await flush();
+	await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="file-assets"]')!.click());
+	await flush();
+	await act(async () =>
+		window.dispatchEvent(
+			new CustomEvent("boa:reveal-file", { detail: { root: "/second", path: "assets/one.png" } }),
+		),
+	);
+	await flush();
+	expect(host.querySelectorAll(".tree-row.selected")).toHaveLength(1);
+	expect(host.querySelector(".tree-row.selected")?.getAttribute("data-testid")).toBe("file-assets/one.png");
 });

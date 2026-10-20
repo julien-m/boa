@@ -139,7 +139,7 @@ export function DraftIndicator() {
 					<button
 						type="button"
 						key={keyOf(draft.project, draft.path)}
-						title={`${draft.project}/${draft.path}`}
+						data-hint={`${draft.project}/${draft.path}`}
 						onClick={(event) => {
 							event.currentTarget.closest("details")?.removeAttribute("open");
 							window.dispatchEvent(
