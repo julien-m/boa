@@ -211,10 +211,12 @@ it("browses filtered images with buttons and arrows, keeps fullscreen and restor
 	expect(open).not.toHaveBeenCalled();
 	await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-label="Plein écran"]')!.click());
 	expect(dialog.classList.contains("fullscreen")).toBe(true);
+	dialog.querySelector<HTMLButtonElement>('button[aria-label="Quitter le plein écran"]')!.focus();
 	await act(async () =>
 		dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })),
 	);
 	await flush();
+	expect(document.activeElement).toBe(dialog.querySelector('button[aria-label="Fermer"]'));
 	expect(previewImage).toHaveBeenLastCalledWith({ project: "/fixture", path: "logo.svg" });
 	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("logo.svg");
 	expect(dialog.classList.contains("fullscreen")).toBe(true);

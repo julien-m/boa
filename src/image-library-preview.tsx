@@ -43,6 +43,12 @@ export function ImageLibraryPreview({
 		gcTime: 0,
 		refetchOnWindowFocus: false,
 	});
+	const step = (direction: number) => {
+		if (query.isFetching) return;
+		// Image controls are replaced while the next file loads; keep keyboard focus in the dialog.
+		close.current?.focus({ preventScroll: true });
+		onStep(direction);
+	};
 	useEffect(() => {
 		setFailed(false);
 	}, [image.path, image.modified, image.size]);
@@ -77,7 +83,7 @@ export function ImageLibraryPreview({
 						: 0;
 				if (!direction) return;
 				event.preventDefault();
-				if (!query.isFetching) onStep(direction);
+				step(direction);
 			}}
 		>
 			<header>
@@ -96,7 +102,7 @@ export function ImageLibraryPreview({
 					title={l.previousImage}
 					aria-keyshortcuts="ArrowLeft PageUp"
 					disabled={index <= 0 || query.isFetching}
-					onClick={() => onStep(-1)}
+					onClick={() => step(-1)}
 				>
 					<ChevronLeft size={18} />
 				</button>
@@ -107,7 +113,7 @@ export function ImageLibraryPreview({
 					title={l.nextImage}
 					aria-keyshortcuts="ArrowRight PageDown"
 					disabled={index >= total - 1 || query.isFetching}
-					onClick={() => onStep(1)}
+					onClick={() => step(1)}
 				>
 					<ChevronRight size={18} />
 				</button>
