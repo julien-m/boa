@@ -2,12 +2,12 @@ import { RotateCcw, X } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { api } from "./api";
 import { comparisonLabels } from "./image-comparison-labels";
 import "./image-comparison.css";
 
 type Dimensions = { width: number; height: number };
 type ImageVersion = Dimensions & { src: string; name: string; size: number };
-const MAX_BYTES = 8 * 1024 * 1024;
 
 /** Both versions use the same physical pixel coordinates and scale. */
 export function ImageComparison({
@@ -15,18 +15,20 @@ export function ImageComparison({
 	alt,
 	onClose,
 	fileBytes,
+	location,
 }: {
 	src: string;
 	alt: string;
 	onClose: () => void;
 	fileBytes?: number;
+	location?: { project: string; path: string };
 }) {
 	const { i18n } = useTranslation();
 	const labels = comparisonLabels[i18n.language.startsWith("fr") ? "fr" : "en"];
 	const dialog = useRef<HTMLDialogElement>(null);
 	const close = useRef<HTMLButtonElement>(null);
 	const viewport = useRef<HTMLDivElement>(null);
-	const reader = useRef<FileReader | null>(null);
+	const request = useRef(0);
 	const [original, setOriginal] = useState<Dimensions | null>(null);
 	const [second, setSecond] = useState<ImageVersion | null>(null);
 	const [candidate, setCandidate] = useState<{ src: string; name: string; size: number } | null>(null);
@@ -44,7 +46,7 @@ export function ImageComparison({
 		element?.showModal();
 		close.current?.focus({ preventScroll: true });
 		return () => {
-			reader.current?.abort();
+			request.current += 1;
 			if (element?.open) element.close();
 			if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
 		};
@@ -87,46 +89,21 @@ export function ImageComparison({
 	};
 	const imageStyle = (dimensions: Dimensions | null): CSSProperties =>
 		dimensions ? { width: dimensions.width * scale, height: dimensions.height * scale } : {};
-	const choose = (file: File | undefined) => {
-		if (!file) return;
-		reader.current?.abort();
-		reader.current = null;
+	const choose = async () => {
+		const current = ++request.current;
 		setCandidate(null);
-		setBusy(false);
-		setError(null);
-		if (file.size > MAX_BYTES) {
-			setError("large");
-			return;
-		}
-		if (
-			!/\.(png|jpe?g|gif|webp|svg)$/i.test(file.name) ||
-			(file.type && !/^image\/(png|jpeg|gif|webp|svg\+xml)$/.test(file.type))
-		) {
-			setError("invalid");
-			return;
-		}
-		const next = new FileReader();
-		reader.current = next;
 		setBusy(true);
-		next.onload = () => {
-			if (reader.current !== next) return;
-			if (typeof next.result === "string")
-				setCandidate({ src: next.result, name: file.name, size: file.size });
-			else {
-				setError("failed");
-				setBusy(false);
-			}
-		};
-		next.onerror = () => {
-			if (reader.current === next) {
-				setError("failed");
-				setBusy(false);
-			}
-		};
+		setError(null);
 		try {
-			next.readAsDataURL(file);
-		} catch {
-			setError("failed");
+			const slash = location?.path.lastIndexOf("/") ?? -1;
+			const directory = slash >= 0 ? location?.path.slice(0, slash) : "";
+			const result = await api.chooseComparisonImage(location?.project, location ? directory : undefined);
+			if (current !== request.current) return;
+			if (result) setCandidate({ src: result.dataUrl, name: result.name, size: result.size });
+			else setBusy(false);
+		} catch (cause) {
+			if (current !== request.current) return;
+			setError(String(cause));
 			setBusy(false);
 		}
 	};
@@ -160,18 +137,14 @@ export function ImageComparison({
 				</button>
 			</header>
 			<div className="image-comparison-toolbar">
-				<label className="image-comparison-picker">
+				<button
+					type="button"
+					className="quiet-button image-comparison-picker"
+					disabled={busy}
+					onClick={choose}
+				>
 					{labels.choose}
-					<input
-						type="file"
-						aria-label={labels.choose}
-						accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.png,.jpg,.jpeg,.gif,.webp,.svg"
-						onChange={(event) => {
-							choose(event.currentTarget.files?.[0]);
-							event.currentTarget.value = "";
-						}}
-					/>
-				</label>
+				</button>
 				<button
 					type="button"
 					className="quiet-button"
@@ -263,7 +236,7 @@ export function ImageComparison({
 					</label>
 				)}
 			</div>
-			{error && <p role="alert">{labels[error as "large" | "invalid" | "failed"]}</p>}
+			{error && <p role="alert">{error === "failed" ? labels.failed : error}</p>}
 			{busy && <p role="status">{labels.loading}</p>}
 			{!second && !busy && <p>{labels.empty}</p>}
 			{candidate && (

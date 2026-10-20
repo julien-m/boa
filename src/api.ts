@@ -34,6 +34,11 @@ const previewLabels = (value: Preview): Preview => ({
 });
 
 export const api = {
+	chooseComparisonImage: (
+		project?: string,
+		directory?: string,
+	): Promise<{ dataUrl: string; name: string; size: number } | null> =>
+		invoke("choose_comparison_image", { project: project ?? null, directory: directory ?? null }),
 	search: (
 		project: string,
 		query: string,

@@ -2,17 +2,12 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { api } from "./api";
 import { ImageComparison } from "./image-comparison";
 import "./i18n";
 
 let root: Root, host: HTMLDivElement;
-let reader: {
-	result: string;
-	onload: (() => void) | null;
-	onerror: (() => void) | null;
-	readAsDataURL: ReturnType<typeof vi.fn>;
-	abort: ReturnType<typeof vi.fn>;
-};
+vi.mock("./api", () => ({ api: { chooseComparisonImage: vi.fn() } }));
 beforeEach(() => {
 	Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 	vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(400);
@@ -24,19 +19,9 @@ beforeEach(() => {
 			disconnect() {}
 		},
 	);
-	vi.stubGlobal(
-		"FileReader",
-		class {
-			result = "data:image/png;base64,second";
-			onload = null;
-			onerror = null;
-			readAsDataURL = vi.fn();
-			abort = vi.fn();
-			constructor() {
-				reader = this;
-			}
-		},
-	);
+	vi.mocked(api.chooseComparisonImage)
+		.mockReset()
+		.mockResolvedValue({ dataUrl: "data:image/png;base64,second", name: "second.png", size: 3 });
 	vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(832);
 	vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(464);
 	vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (this: HTMLDialogElement) {
@@ -57,7 +42,14 @@ afterEach(async () => {
 });
 async function render(onClose = vi.fn()) {
 	await act(async () =>
-		root.render(<ImageComparison src="data:image/png;base64,first" alt="First" onClose={onClose} />),
+		root.render(
+			<ImageComparison
+				src="data:image/png;base64,first"
+				alt="First"
+				onClose={onClose}
+				location={{ project: "/project", path: "images/current.png" }}
+			/>,
+		),
 	);
 	await load(document.querySelector<HTMLImageElement>('img[alt="First"]')!, 800, 400);
 }
@@ -68,10 +60,12 @@ async function load(image: HTMLImageElement, width: number, height: number) {
 	});
 	await act(async () => image.dispatchEvent(new Event("load")));
 }
-async function choose(file: File) {
-	const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
-	Object.defineProperty(input, "files", { value: [file], configurable: true });
-	await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+async function choose() {
+	await act(async () =>
+		[...document.querySelectorAll<HTMLButtonElement>("button")]
+			.find((element) => element.textContent === "Choisir une deuxième image")!
+			.click(),
+	);
 }
 const button = (text: string) =>
 	[...document.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -79,9 +73,8 @@ const button = (text: string) =>
 	)!;
 it("compares different physical dimensions at one scale and keeps manual zoom across modes", async () => {
 	await render();
-	await choose(new File(["png"], "second.png", { type: "image/png" }));
-	expect(reader.readAsDataURL).toHaveBeenCalledOnce();
-	await act(async () => reader.onload?.());
+	await choose();
+	expect(api.chooseComparisonImage).toHaveBeenCalledWith("/project", "images");
 	const images = [...document.querySelectorAll<HTMLImageElement>(".image-comparison-canvas img")];
 	expect(images.map((image) => [image.style.width, image.style.height])).toEqual([
 		["392px", "196px"],
@@ -121,22 +114,33 @@ it("compares different physical dimensions at one scale and keeps manual zoom ac
 		),
 	).toBe(true);
 });
-it("bounds file reads, reports errors, and preserves existing versions after a failed replacement", async () => {
+it("keeps both versions after native cancellation or failure", async () => {
 	await render();
-	await choose(new File(["png"], "second.png", { type: "image/png" }));
-	await act(async () => reader.onload?.());
-	const large = new File([""], "large.png", { type: "image/png" });
-	Object.defineProperty(large, "size", { value: 8 * 1024 * 1024 + 1 });
-	await choose(large);
-	expect(document.querySelector('[role="alert"]')!.textContent).toContain("8 Mio");
-	await choose(new File(["x"], "wrong.mp4", { type: "video/mp4" }));
-	expect(document.querySelector('[role="alert"]')!.textContent).toContain("PNG");
-	await choose(new File(["x"], "corrupt.webp", { type: "image/webp" }));
-	await act(async () => reader.onerror?.());
-	expect(document.querySelector('[role="alert"]')!.textContent).toContain("ne peut pas");
+	await choose();
+	vi.mocked(api.chooseComparisonImage).mockResolvedValueOnce(null);
+	await choose();
+	expect(document.querySelector('[role="alert"]')).toBeNull();
+	vi.mocked(api.chooseComparisonImage).mockRejectedValueOnce("Image trop volumineuse (8 Mo maximum).");
+	await choose();
+	expect(document.querySelector('[role="alert"]')!.textContent).toContain("8 Mo");
 	expect(document.querySelector('img[alt="First"]')).not.toBeNull();
 	expect(document.querySelector('img[alt="second.png"]')).not.toBeNull();
 });
+it("requests the project root when the current image has no parent folder", async () => {
+	await act(async () =>
+		root.render(
+			<ImageComparison
+				src="data:image/png;base64,first"
+				alt="First"
+				onClose={() => {}}
+				location={{ project: "/project", path: "current.png" }}
+			/>,
+		),
+	);
+	await choose();
+	expect(api.chooseComparisonImage).toHaveBeenCalledWith("/project", "");
+});
+
 it("handles Escape, ignores queued stale close, and restores triggering focus", async () => {
 	const trigger = document.createElement("button");
 	document.body.append(trigger);

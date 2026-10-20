@@ -5,6 +5,8 @@ mod context;
 mod file_workspace;
 mod files;
 mod git;
+#[path = "image-comparison.rs"]
+mod image_comparison;
 mod projects;
 mod search;
 #[cfg(test)]
@@ -429,6 +431,54 @@ async fn file_workspace(
     .await
 }
 
+#[tauri::command]
+async fn choose_comparison_image(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    project: Option<String>,
+    directory: Option<String>,
+) -> Result<Option<image_comparison::ChosenImage>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let initial = work(state.inner().clone(), move |state| {
+        let root = project
+            .as_deref()
+            .map(|path| state.registered(path))
+            .transpose()?;
+        image_comparison::initial_directory(root.as_deref(), directory.as_deref())
+    })
+    .await?;
+    let english = state.settings()?.language == "en";
+    let mut picker = app
+        .dialog()
+        .file()
+        .set_title(if english {
+            "Choose a second image"
+        } else {
+            "Choisir une deuxième image"
+        })
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+    if let Some(directory) = initial {
+        picker = picker.set_directory(directory);
+    }
+    let (send, receive) = tokio::sync::oneshot::channel();
+    picker.pick_file(move |path| {
+        let _ = send.send(path);
+    });
+    let Some(chosen) = receive
+        .await
+        .map_err(|_| "Ouverture impossible".to_string())?
+    else {
+        return Ok(None);
+    };
+    // Only this native picker result authorizes reading a file outside registered projects.
+    let path = chosen
+        .into_path()
+        .map_err(|_| "Chemin non UTF-8".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || image_comparison::read_chosen(&path).map(Some))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Starts the desktop application and registers repository commands.
 pub fn run() {
     let app = tauri::Builder::default()
@@ -476,6 +526,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_projects,
+            choose_comparison_image,
             get_settings,
             set_watch_directory,
             set_language,
