@@ -73,7 +73,12 @@ export function FileSpaceAdd({
 				<p>{l.spaceReferenceHint}</p>
 				<label>
 					{l.spaceDestination}
-					<select value={space} disabled={busy} onChange={(e) => setSpace(e.target.value)}>
+					<select
+						aria-label={l.spaceDestination}
+						value={space}
+						disabled={busy}
+						onChange={(e) => setSpace(e.target.value)}
+					>
 						<option value="">{l.createSpace}</option>
 						{query.data?.spaces.map((s) => (
 							<option value={s.id} key={s.id}>
