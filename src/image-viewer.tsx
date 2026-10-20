@@ -121,7 +121,6 @@ function ImageContent({
 			? zoom / 100
 			: natural
 				? Math.min(
-						1,
 						bounds.width > 0 ? bounds.width / natural.width : 1,
 						bounds.height > 0 ? bounds.height / natural.height : 1,
 					)
