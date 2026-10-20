@@ -214,6 +214,9 @@ describe("file image and unsupported previews", () => {
 		const dialog = document.querySelector<HTMLDialogElement>("dialog.markdown-expanded")!;
 		expect(dialog.open).toBe(true);
 		expect(dialog.querySelector('input[type="range"]')).not.toBeNull();
+		// StrictMode can queue a close event during cleanup, then immediately reopen the same dialog.
+		await act(async () => dialog.dispatchEvent(new Event("close")));
+		expect(dialog.isConnected).toBe(true);
 		const image = dialog.querySelector("img")!;
 		Object.defineProperties(image, { naturalWidth: { value: 800 }, naturalHeight: { value: 400 } });
 		await act(async () => image.dispatchEvent(new Event("load")));

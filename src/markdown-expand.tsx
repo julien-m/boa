@@ -31,7 +31,10 @@ function ExpandedMarkdown({ value, onClose }: { value: Expansion; onClose: () =>
 				e.preventDefault();
 				onClose();
 			}}
-			onClose={onClose}
+			onClose={(event) => {
+				// Ignore a queued cleanup close if StrictMode has already reopened this dialog.
+				if (!event.currentTarget.open) onClose();
+			}}
 		>
 			<header>
 				<strong>{value.label}</strong>
