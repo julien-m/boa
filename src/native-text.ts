@@ -2,6 +2,7 @@ import { i18n } from "./i18n";
 
 // Only call this for native UI labels and error messages, never repository content.
 const englishText: Record<string, string> = {
+	"Miniature indisponible": "Thumbnail unavailable",
 	"Espace de fichiers invalide": "Invalid file space",
 	"Préférences de fichiers invalides": "Invalid file preferences",
 	"Raccourcis invalides ou identiques": "Invalid or duplicate shortcuts",

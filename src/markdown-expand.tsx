@@ -31,7 +31,10 @@ function ExpandedMarkdown({ value, onClose }: { value: Expansion; onClose: () =>
 				e.preventDefault();
 				onClose();
 			}}
-			onClose={onClose}
+			onClose={(event) => {
+				// Ignore a queued cleanup close if StrictMode has already reopened this dialog.
+				if (!event.currentTarget.open) onClose();
+			}}
 		>
 			<header>
 				<strong>{value.label}</strong>
@@ -73,10 +76,12 @@ export function MarkdownExpandButton({
 	content,
 	label,
 	wholeDocument = false,
+	toolbar = false,
 }: {
 	content: ReactNode;
 	label: string;
 	wholeDocument?: boolean;
+	toolbar?: boolean;
 }) {
 	const expand = useContext(ExpansionContext);
 	const { t } = useTranslation("workspace");
@@ -84,7 +89,7 @@ export function MarkdownExpandButton({
 	return (
 		<button
 			type="button"
-			className={`icon-button markdown-expand-button ${wholeDocument ? "markdown-expand-document" : ""}`}
+			className={`icon-button markdown-expand-button ${wholeDocument || toolbar ? "markdown-expand-document" : ""}`}
 			title={t("markdown.expand", { name: label })}
 			aria-label={t("markdown.expand", { name: label })}
 			onClick={(e) =>

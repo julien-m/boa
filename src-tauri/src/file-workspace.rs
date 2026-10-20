@@ -1,5 +1,7 @@
 //! Explicit file collections. No implicit discovery, indexing or Git scans.
 use crate::projects::AppState;
+#[path = "image-library.rs"]
+mod image_library;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -42,6 +44,14 @@ impl Default for Shortcuts {
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum Request {
     List,
+    Images {
+        root: String,
+        folder: String,
+    },
+    Thumbnail {
+        root: String,
+        path: String,
+    },
     SaveSpace {
         id: String,
         name: String,
@@ -80,7 +90,7 @@ pub(crate) fn visible(path: &str, prefs: &Preferences) -> bool {
             path == p || path.starts_with(&format!("{p}/")) || p.starts_with(&format!("{path}/"))
         })
 }
-fn selected(path: &str, prefs: &Preferences) -> bool {
+pub(crate) fn selected(path: &str, prefs: &Preferences) -> bool {
     !prefs.filtered
         || prefs
             .included
@@ -102,6 +112,8 @@ fn valid_shortcut(s: &str) -> bool {
 }
 pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, String> {
     match request {
+        Request::Images { root, folder } => image_library::list(state, &root, &folder),
+        Request::Thumbnail { root, path } => image_library::thumbnail(state, &root, &path),
         Request::List => {
             let c = state.config.lock().map_err(|e| e.to_string())?;
             Ok(json!({"spaces":c.file_spaces,"shortcuts":c.shortcuts}))

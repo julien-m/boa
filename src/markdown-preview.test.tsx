@@ -198,6 +198,48 @@ it("selects the JavaScript grammar for MJS in the reader and Git diff", async ()
 });
 
 describe("file image and unsupported previews", () => {
+	it("expands a file image after Fit, keeps zoom controls and restores the original image and focus", async () => {
+		assetState.kind = "image";
+		assetState.dataUrl = "data:image/png;base64,fixture";
+		await render(<CodeViewer selection={{ project: "/fixture", path: "plan.png" }} />);
+		const original = host.querySelector<HTMLImageElement>("img")!;
+		Object.defineProperties(original, { naturalWidth: { value: 800 }, naturalHeight: { value: 400 } });
+		await act(async () => original.dispatchEvent(new Event("load")));
+		await act(async () =>
+			host.querySelector<HTMLButtonElement>('button[aria-label="Taille réelle (100 %)"]')!.click(),
+		);
+		for (let i = 0; i < 2; i++)
+			await act(async () =>
+				host.querySelector<HTMLButtonElement>('button[aria-label="Agrandir l’image"]')!.click(),
+			);
+		expect(original.style.width).toBe("1200px");
+		const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Agrandir : plan.png"]')!;
+		expect(expand.previousElementSibling?.textContent).toBe("Adapter");
+		await act(async () => expand.click());
+		const dialog = document.querySelector<HTMLDialogElement>("dialog.markdown-expanded")!;
+		expect(dialog.open).toBe(true);
+		expect(dialog.querySelector('input[type="range"]')).not.toBeNull();
+		// StrictMode can queue a close event during cleanup, then immediately reopen the same dialog.
+		await act(async () => dialog.dispatchEvent(new Event("close")));
+		expect(dialog.isConnected).toBe(true);
+		const image = dialog.querySelector("img")!;
+		Object.defineProperties(image, { naturalWidth: { value: 800 }, naturalHeight: { value: 400 } });
+		await act(async () => image.dispatchEvent(new Event("load")));
+		expect(image.style.width).toBe("1200px");
+		await act(async () =>
+			dialog.querySelector<HTMLButtonElement>('button[aria-label="Agrandir l’image"]')!.click(),
+		);
+		expect(image.style.width).toBe("1400px");
+		expect(original.style.width).toBe("1400px");
+		expect(dialog.querySelector("[aria-pressed]")?.textContent).toBe("Adapter");
+		await act(async () => dialog.querySelector<HTMLButtonElement>("[aria-pressed]")!.click());
+		expect(dialog.querySelector('[aria-pressed="true"]')?.textContent).toBe("Adapter");
+		await act(async () => dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
+		expect(document.querySelector("dialog.markdown-expanded")).toBeNull();
+		expect(host.querySelector("img")).toBe(original);
+		expect(original.style.width).toBe("800px");
+		expect(document.activeElement).toBe(expand);
+	});
 	it("renders PNG instead of the editor, recovers from decoding failure, and opens externally only on request", async () => {
 		assetState.kind = "image";
 		assetState.dataUrl = "data:image/png;base64,iVBORw0KGgo=";

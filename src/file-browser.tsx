@@ -1,9 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Filter, Pin, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Filter, Images, Pin, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileTree } from "./file-tree";
+import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
 import { defaultPreferences, type FilePreferences, fileWorkspace } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { DirectoryEntry, Selection } from "./models";
@@ -52,6 +53,13 @@ export function FileBrowser({
 	folderRequestId?: string;
 }) {
 	const l = useFileLabels();
+	const openLibrary = useImageLibrary();
+	const chooseFolder = useLibraryFolder();
+	const closeLibrary = useCloseImageLibrary();
+	const openFile = (selection: Selection) => {
+		closeLibrary?.();
+		onOpen(selection);
+	};
 	const client = useQueryClient();
 	const pref = useQuery({
 		queryKey: ["file-preferences", root],
@@ -71,7 +79,55 @@ export function FileBrowser({
 	};
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
-	useEffect(() => setPath(folder), [folder, folderRequestId]);
+	const [revealTarget, setRevealTarget] = useState("");
+	useEffect(() => {
+		const browse = (event: Event) => {
+			const detail = (event as CustomEvent<{ root: string; folder: string }>).detail;
+			if (detail.root === root) {
+				setPath(detail.folder);
+				setSearch(null);
+			}
+		};
+		window.addEventListener("boa:library-folder", browse);
+		return () => window.removeEventListener("boa:library-folder", browse);
+	}, [root]);
+	useEffect(() => {
+		const reveal = (e: Event) => {
+			const detail = (e as CustomEvent<{ root: string; path: string }>).detail;
+			if (detail.root !== root) return;
+			setPath(detail.path.includes("/") ? detail.path.slice(0, detail.path.lastIndexOf("/")) : "");
+			setSearch(null);
+			setRevealTarget(detail.path);
+		};
+		window.addEventListener("boa:reveal-file", reveal);
+		return () => window.removeEventListener("boa:reveal-file", reveal);
+	}, [root]);
+	useEffect(() => {
+		if (!revealTarget || !browser.current) return;
+		const element = browser.current;
+		const reveal = () => {
+			const row = [...element.querySelectorAll<HTMLElement>("[data-testid]")].find(
+				(node) => node.dataset.testid === `file-${revealTarget}`,
+			);
+			if (row) {
+				row.scrollIntoView?.({ block: "nearest" });
+				row.focus({ preventScroll: true });
+				setRevealTarget("");
+			}
+		};
+		const observer = new MutationObserver(reveal);
+		observer.observe(element, { childList: true, subtree: true });
+		reveal();
+		const timeout = setTimeout(() => setRevealTarget(""), 3000);
+		return () => {
+			observer.disconnect();
+			clearTimeout(timeout);
+		};
+	}, [revealTarget]);
+	useEffect(() => {
+		setPath(folder);
+		if (folderRequestId) chooseFolder?.(root, folder);
+	}, [folder, folderRequestId, root, chooseFolder]);
 	useEffect(() => {
 		const listener = (e: Event) => {
 			if ((e as CustomEvent).detail?.root === root) setSearch("");
@@ -87,7 +143,10 @@ export function FileBrowser({
 		client.setQueryData(["file-preferences", root], value);
 		void fileWorkspace
 			.setPreferences(root, value)
-			.then((p) => client.setQueryData(["file-preferences", root], p))
+			.then((p) => {
+				client.setQueryData(["file-preferences", root], p);
+				void client.invalidateQueries({ queryKey: ["image-library", root] });
+			})
 			.catch((e) => {
 				client.setQueryData(["file-preferences", root], previous);
 				setError(String(e));
@@ -99,8 +158,10 @@ export function FileBrowser({
 			const parent = value.includes("/") ? value.slice(0, value.lastIndexOf("/")) : "";
 			const entry = (await api.directory(root, parent)).find((e) => e.path === value);
 			if (!entry) throw new Error(value);
-			if (entry.directory) setPath(value);
-			else onOpen({ project: root, path: value });
+			if (entry.directory) {
+				setPath(value);
+				chooseFolder?.(root, value);
+			} else openFile({ project: root, path: value });
 		} catch (e) {
 			setError(String(e));
 		}
@@ -145,9 +206,28 @@ export function FileBrowser({
 			}}
 		>
 			<div className="file-browser-toolbar">
-				<span className="truncate" title={root}>
+				<button
+					type="button"
+					className="quiet-button truncate file-browser-root"
+					title={root}
+					onClick={() => {
+						setPath("");
+						chooseFolder?.(root, "");
+					}}
+				>
 					{root.split("/").pop() || root}
-				</span>
+				</button>
+				{openLibrary && (
+					<button
+						type="button"
+						className="icon-button"
+						aria-label={l.folderImages}
+						title={l.folderImages}
+						onClick={() => openLibrary(root, path)}
+					>
+						<Images size={14} />
+					</button>
+				)}
 				<button
 					type="button"
 					className="icon-button"
@@ -209,7 +289,15 @@ export function FileBrowser({
 				</div>
 			)}
 			{path && (
-				<button type="button" className="quiet-button" title={path} onClick={() => setPath("")}>
+				<button
+					type="button"
+					className="quiet-button"
+					title={path}
+					onClick={() => {
+						setPath("");
+						chooseFolder?.(root, "");
+					}}
+				>
 					← {l.back} · {path}
 				</button>
 			)}
@@ -285,8 +373,9 @@ export function FileBrowser({
 					onOpen={(hit) => {
 						if (hit.directory) {
 							setPath(hit.path);
+							chooseFolder?.(root, hit.path);
 							setSearch(null);
-						} else onOpen({ ...hit, line: hit.line || undefined });
+						} else openFile({ ...hit, line: hit.line || undefined });
 					}}
 				/>
 			)}
@@ -299,7 +388,7 @@ export function FileBrowser({
 						path={path}
 						repos={repos}
 						selected={selected}
-						onOpen={(p) => onOpen({ project: root, path: p })}
+						onOpen={(p) => openFile({ project: root, path: p })}
 						onKeepOpen={(p) => onKeepOpen?.({ project: root, path: p })}
 					/>
 				</TreeOptionsContext.Provider>

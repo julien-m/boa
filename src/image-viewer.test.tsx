@@ -82,6 +82,20 @@ it("fits at first, zooms from 25 to 200% using intrinsic size, resets to 100%, a
 	expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.getAttribute("min")).toBe("25");
 	expect(host.querySelector<HTMLInputElement>('input[type="range"]')?.getAttribute("max")).toBe("200");
 });
+it("Fit enlarges small images to the available viewport, including beyond the manual zoom limit", async () => {
+	bounds = { width: 1832, height: 932 };
+	await render();
+	const img = await loadImage();
+	expect(img.style.width).toBe("1800px");
+	expect(img.style.height).toBe("900px");
+	expect(button("Taille réelle (100 %)").textContent).toBe("225 %");
+	bounds = { width: 1232, height: 1032 };
+	await act(async () => resize());
+	expect(img.style.width).toBe("1200px");
+	expect(img.style.height).toBe("600px");
+	await act(async () => button("Taille réelle (100 %)").click());
+	expect(img.style.width).toBe("800px");
+});
 it("resets for a different image and shows a readable decoding failure instead of broken zoom", async () => {
 	await render();
 	await loadImage();

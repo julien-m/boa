@@ -27,6 +27,13 @@ export interface FileHit {
 	directory: boolean;
 	kind: "path" | "content";
 }
+export interface LibraryImage {
+	path: string;
+	name: string;
+	format: string;
+	size: number;
+	modified: number;
+}
 export const defaultPreferences: FilePreferences = { filtered: false, included: [], pins: [], sort: "name" };
 export const defaultShortcuts: SearchShortcuts = { contextual: "Mod+F", global: "Mod+Shift+F" };
 export function fileCommand<T>(request: Record<string, unknown>): Promise<T> {
@@ -35,6 +42,10 @@ export function fileCommand<T>(request: Record<string, unknown>): Promise<T> {
 	});
 }
 export const fileWorkspace = {
+	images: (root: string, folder: string): Promise<{ images: LibraryImage[]; limited: boolean }> =>
+		fileCommand({ action: "images", root, folder }),
+	thumbnail: (root: string, path: string): Promise<string> =>
+		fileCommand({ action: "thumbnail", root, path }),
 	state: (): Promise<WorkspaceState> => fileCommand({ action: "list" }),
 	save: (space: FileSpace): Promise<FileSpace> => fileCommand({ action: "save-space", ...space }),
 	remove: (id: string): Promise<boolean> => fileCommand({ action: "remove-space", id }),
