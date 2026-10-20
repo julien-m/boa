@@ -354,10 +354,9 @@ try {
 		directory,
 	);
 	await expect(page.getByTestId("open-repository")).toBeDisabled();
-	await expect(page.getByTestId("open-repository")).toHaveAttribute(
-		"title",
-		"Aucun dépôt distant web configuré",
-	);
+	await page.getByTestId("open-repository").hover();
+	await expect(page.getByRole("tooltip")).toHaveText("Aucun dépôt distant web configuré");
+	await page.mouse.move(0, 0);
 	remoteUrl = "https://github.com/example/project";
 	await page.evaluate(
 		(project) =>
