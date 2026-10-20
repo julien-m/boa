@@ -797,6 +797,7 @@ try {
 	await expect(widthGrip).toHaveAttribute("aria-valuenow", String(Math.round(Number(persistedWidth))));
 
 	await page.getByTestId("change-sample.ts").first().click();
+	await expect(page.getByTestId("diff-layout")).toHaveAccessibleName(/Diff|diff/);
 	await page.getByTestId("diff-layout").click();
 
 	const selectOriginal = async (startLine: number, endLine: number): Promise<void> => {
@@ -1064,8 +1065,12 @@ try {
 	await page.keyboard.press("ArrowRight");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview-second.png");
 	await expect(lightbox).toHaveClass(/fullscreen/);
+	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
+	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await lightbox.getByRole("button", { name: "Image suivante", exact: true }).focus();
+	await expect(lightbox.getByRole("tooltip")).toHaveText("Image suivante · → Page ↓");
 	await page.keyboard.press("Escape");
 	await expect(lightbox).toHaveCount(0);
 	await expect(page.locator(".image-library")).toBeVisible();
@@ -1088,6 +1093,12 @@ try {
 		.getByRole("button", { name: "Retrouver dans l’arborescence : preview.png", exact: true })
 		.click();
 	await expect(browsers.nth(1).getByTestId("file-preview.png")).toBeFocused();
+	await page.getByTestId("toggle-file-tree").focus();
+	await expect(browsers.nth(1).getByTestId("file-preview.png")).toHaveClass(/selected/);
+	await expect(browsers.nth(1).getByTestId("file-preview.png")).toHaveCSS(
+		"background-color",
+		"rgb(48, 62, 96)",
+	);
 
 	expect(errors).toEqual([]);
 	console.log(

@@ -50,6 +50,7 @@ function FileRow({
 	const relative = activeRepo ? `${project}/${entry.path}`.slice(activeRepo.path.length + 1) : "";
 	const change = activeRepo?.changes.find((item) => item.path === relative);
 	const handleOpen = (): void => {
+		options.select?.(entry.path);
 		if (entry.directory) {
 			setExpanded(!expanded);
 			chooseFolder?.(project, entry.path);
@@ -91,8 +92,9 @@ function FileRow({
 					onDoubleClick={() => {
 						if (!entry.directory) onKeepOpen?.(entry.path);
 					}}
-					title={entry.path}
+					data-hint={entry.path}
 					aria-expanded={entry.directory ? expanded : undefined}
+					aria-current={selected === entry.path ? "true" : undefined}
 				>
 					{entry.directory ? (
 						expanded ? (
@@ -117,7 +119,7 @@ function FileRow({
 						type="button"
 						className="tree-inline-pin icon-button"
 						aria-label={`${l.folderImages} : ${entry.path}`}
-						title={l.folderImages}
+						data-hint={l.folderImages}
 						onClick={() => openLibrary(project, entry.path)}
 					>
 						<Images size={13} />
@@ -127,8 +129,8 @@ function FileRow({
 					type="button"
 					disabled={options.busy}
 					className={`tree-inline-pin icon-button ${options.preferences.pins.includes(entry.path) ? "pinned" : ""}`}
-					title={l.pin}
-					aria-label={`${l.pin} ${entry.path}`}
+					data-hint={options.preferences.pins.includes(entry.path) ? l.unpin : l.pin}
+					aria-label={`${options.preferences.pins.includes(entry.path) ? l.unpin : l.pin} ${entry.path}`}
 					onClick={() =>
 						options.update({
 							...options.preferences,

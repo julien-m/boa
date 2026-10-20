@@ -120,7 +120,7 @@ export function ContextBubbles({
 				type="button"
 				data-testid="create-context"
 				className="quiet-button"
-				title={t("context.shortcut")}
+				data-hint={t("context.shortcut")}
 				aria-expanded={Boolean(draft)}
 				onMouseDown={(event) => event.preventDefault()}
 				onClick={() => (draft ? setDraft(null) : open())}

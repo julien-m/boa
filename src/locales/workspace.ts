@@ -108,6 +108,7 @@ export const workspaceFr = {
 		level: "Niveau de zoom",
 		actual: "Taille réelle (100 %)",
 		fit: "Adapter",
+		fitHint: "Adapter l’image à la fenêtre sans la recadrer",
 		fitted: "Adapté : {{percent}} %",
 	},
 	asset: {
@@ -247,6 +248,7 @@ export const workspaceEn = {
 		level: "Zoom level",
 		actual: "Actual size (100%)",
 		fit: "Fit",
+		fitHint: "Fit the image to the window without cropping",
 		fitted: "Fitted: {{percent}}%",
 	},
 	asset: {

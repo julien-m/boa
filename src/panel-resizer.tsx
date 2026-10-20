@@ -41,7 +41,7 @@ export function PanelResizer({
 			aria-valuemin={minimum}
 			aria-valuemax={maximum}
 			aria-label={fileTree ? t("resizer.treeWidth") : vertical ? t("resizer.width") : t("resizer.height")}
-			title={vertical ? t("resizer.widthHint") : t("resizer.heightHint")}
+			data-hint={vertical ? t("resizer.widthHint") : t("resizer.heightHint")}
 			data-testid={fileTree ? "file-tree-resizer" : vertical ? "git-width-resizer" : "git-resizer"}
 			className={vertical ? "git-resizer vertical" : "git-resizer"}
 			onPointerDown={(event) => {

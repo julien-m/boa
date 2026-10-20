@@ -78,7 +78,7 @@ function ImageCard({
 			<button
 				type="button"
 				className="library-image"
-				title={image.path}
+				data-hint={image.path}
 				aria-label={image.path}
 				onClick={(event) => onOpen(image.path, event.currentTarget)}
 			>
@@ -97,7 +97,7 @@ function ImageCard({
 				type="button"
 				className="icon-button library-reveal"
 				aria-label={`${l.revealFile} : ${image.path}`}
-				title={l.revealFile}
+				data-hint={l.revealFileHint}
 				onClick={() => onReveal(image.path)}
 			>
 				<FolderSearch size={14} />
@@ -176,7 +176,7 @@ export function ImageLibrary({
 					type="search"
 					maxLength={1000}
 					aria-label={l.imageFilter}
-					title={l.imageSearchHint}
+					data-hint={l.imageSearchHint}
 					aria-describedby={hintId}
 					placeholder={l.imageFilter}
 					value={filter}

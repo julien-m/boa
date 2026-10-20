@@ -136,7 +136,7 @@ export function ProjectView({
 					<button
 						type="button"
 						data-testid="open-project-folder"
-						title={t("project.openFolder")}
+						data-hint={t("project.openFolder")}
 						aria-label={t("project.openFolder")}
 						onClick={() => {
 							setFolderError("");
@@ -152,7 +152,7 @@ export function ProjectView({
 						className={layout === "split" ? "active" : ""}
 						aria-pressed={layout === "split"}
 						onClick={() => handleLayout("split")}
-						title={t("project.filesAndGit")}
+						data-hint={t("project.filesAndGit")}
 					>
 						<Columns2 size={14} />
 						<span>{t("project.mixed")}</span>
@@ -182,7 +182,8 @@ export function ProjectView({
 						className="icon-button"
 						data-testid="project-refresh"
 						onClick={onRefresh}
-						title={t("project.refresh")}
+						data-hint={t("project.refresh")}
+						aria-label={t("project.refresh")}
 					>
 						<RefreshCw size={14} className={pending ? "spin" : ""} />
 					</button>
@@ -229,7 +230,7 @@ export function ProjectView({
 											role="tab"
 											aria-selected={!selection?.repo && selection?.path === tab.path}
 											className={preview === tab.path ? "preview-tab" : ""}
-											title={tab.path}
+											data-hint={tab.path}
 											data-testid={`tab-${tab.path}`}
 											onClick={() => setSelection(tab)}
 											onDoubleClick={() => openFile(tab, true)}
@@ -246,7 +247,7 @@ export function ProjectView({
 											className="tab-close"
 											data-testid={`close-tab-${tab.path}`}
 											aria-label={t("tabs.close", { path: tab.path })}
-											title={t("tabs.close", { path: tab.path })}
+											data-hint={t("tabs.close", { path: tab.path })}
 											onClick={() => closeFile(tab.path)}
 										>
 											<X size={12} />

@@ -1,17 +1,38 @@
 /** Shared visual zoom; 100% uses intrinsic CSS pixels, independently of the viewport. */
 import { Minus, Plus } from "lucide-react";
-import { createContext, type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 
-const ImageZoomContext = createContext<{
+interface ZoomSession {
 	zoom: number | null;
 	setZoom: (value: number | null) => void;
-} | null>(null);
-/** Shares the chosen zoom/Fit mode with the reader's expanded view, including portal content. */
-export function ImageZoom({ children }: { children: ReactNode }) {
+	onScale: (percent: number) => void;
+}
+const ImageZoomContext = createContext<ZoomSession | null>(null);
+/** Retains even the precise ratio computed by Fit before browsing another image. */
+export function useImageZoomSession() {
 	const [zoom, setZoom] = useState<number | null>(null);
-	const value = useMemo(() => ({ zoom, setZoom }), [zoom]);
-	return <ImageZoomContext.Provider value={value}>{children}</ImageZoomContext.Provider>;
+	const measured = useRef(100);
+	const onScale = useCallback((percent: number) => {
+		measured.current = percent;
+	}, []);
+	const retain = () => setZoom((current) => current ?? measured.current);
+	const state = useMemo(() => ({ zoom, setZoom, onScale }), [zoom, onScale]);
+	return { state, retain };
+}
+/** Shares zoom/Fit across portals and image changes when supplied a browsing session. */
+export function ImageZoom({ children, session }: { children: ReactNode; session?: ZoomSession }) {
+	const local = useImageZoomSession();
+	return <ImageZoomContext.Provider value={session ?? local.state}>{children}</ImageZoomContext.Provider>;
 }
 
 export function ZoomControls({
@@ -65,14 +86,21 @@ export function ZoomControls({
 			<button
 				type="button"
 				className="quiet-button visual-zoom-value"
-				title={t("zoom.actual")}
+				data-hint={t("zoom.actual")}
 				aria-label={t("zoom.actual")}
 				disabled={!ready}
 				onClick={() => change(100)}
 			>
 				{ready ? `${percent} %` : "—"}
 			</button>
-			<button type="button" className="quiet-button" aria-pressed={fitting} disabled={!ready} onClick={onFit}>
+			<button
+				type="button"
+				className="quiet-button"
+				data-hint={t("zoom.fitHint")}
+				aria-pressed={fitting}
+				disabled={!ready}
+				onClick={onFit}
+			>
 				{t("zoom.fit")}
 			</button>
 			{actions}
@@ -126,6 +154,9 @@ function ImageContent({
 					)
 				: 1;
 	const percent = Math.max(1, Math.round(scale * 100));
+	useLayoutEffect(() => {
+		if (natural && bounds.width > 0 && bounds.height > 0) sharedZoom?.onScale(scale * 100);
+	}, [natural, bounds, sharedZoom, scale]);
 	const resetScroll = () => {
 		if (viewport.current) {
 			viewport.current.scrollTop = 0;

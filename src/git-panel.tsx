@@ -115,7 +115,7 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 						className="quiet-button git-remote-button"
 						data-testid="open-repository"
 						disabled={!remote.data}
-						title={
+						data-hint={
 							remote.data
 								? t("openRepositoryUrl", { url: remote.data })
 								: remote.error
@@ -152,7 +152,7 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 								key={item.path}
 								data-testid={`repo-${item.path}`}
 								className={`repo-button ${item.path === repo.path ? "selected" : ""}`}
-								title={item.path}
+								data-hint={item.path}
 								onClick={() => handleRepository(item.path)}
 							>
 								<span>
@@ -355,7 +355,7 @@ function ChangeTree({
 				data-testid={`change-${change.path}`}
 				className={`change-row ${selected === change.path ? "selected" : ""}`}
 				aria-pressed={selected === change.path}
-				title={change.oldPath ? `${change.oldPath} → ${change.path}` : change.path}
+				data-hint={change.oldPath ? `${change.oldPath} → ${change.path}` : change.path}
 				onClick={() => onSelect(change)}
 			>
 				<FileCode2 size={13} />

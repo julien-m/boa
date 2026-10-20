@@ -90,7 +90,7 @@ export function FileWorkspace({
 							data-testid="toggle-file-tree"
 							aria-label={showTree ? t("project.hideTree") : t("project.showTree")}
 							aria-expanded={showTree}
-							title={showTree ? t("project.hideTree") : t("project.showTree")}
+							data-hint={showTree ? t("project.hideTree") : t("project.showTree")}
 							onClick={() => setShowTree((value) => !value)}
 						>
 							{showTree ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}

@@ -14,6 +14,7 @@ export interface TreeOptions {
 	busy: boolean;
 	showAll: boolean;
 	reveal: string;
+	select?: (path: string) => void;
 	update: (prefs: FilePreferences) => void;
 }
 const TreeOptionsContext = createContext<TreeOptions>({
@@ -56,7 +57,22 @@ export function FileBrowser({
 	const openLibrary = useImageLibrary();
 	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
+	const [treeSelection, setTreeSelection] = useState(selected);
+	const select = (path: string) =>
+		window.dispatchEvent(new CustomEvent("boa:tree-selection", { detail: { root, path } }));
+	useEffect(() => {
+		setTreeSelection(selected);
+	}, [selected, root]);
+	useEffect(() => {
+		const listener = (event: Event) => {
+			const detail = (event as CustomEvent<{ root: string; path: string }>).detail;
+			setTreeSelection(detail.root === root ? detail.path : undefined);
+		};
+		window.addEventListener("boa:tree-selection", listener);
+		return () => window.removeEventListener("boa:tree-selection", listener);
+	}, [root]);
 	const openFile = (selection: Selection) => {
+		select(selection.path);
 		closeLibrary?.();
 		onOpen(selection);
 	};
@@ -97,6 +113,7 @@ export function FileBrowser({
 			if (detail.root !== root) return;
 			setPath(detail.path.includes("/") ? detail.path.slice(0, detail.path.lastIndexOf("/")) : "");
 			setSearch(null);
+			select(detail.path);
 			setRevealTarget(detail.path);
 		};
 		window.addEventListener("boa:reveal-file", reveal);
@@ -159,6 +176,7 @@ export function FileBrowser({
 			const entry = (await api.directory(root, parent)).find((e) => e.path === value);
 			if (!entry) throw new Error(value);
 			if (entry.directory) {
+				select(value);
 				setPath(value);
 				chooseFolder?.(root, value);
 			} else openFile({ project: root, path: value });
@@ -209,7 +227,7 @@ export function FileBrowser({
 				<button
 					type="button"
 					className="quiet-button truncate file-browser-root"
-					title={root}
+					data-hint={root}
 					onClick={() => {
 						setPath("");
 						chooseFolder?.(root, "");
@@ -222,7 +240,7 @@ export function FileBrowser({
 						type="button"
 						className="icon-button"
 						aria-label={l.folderImages}
-						title={l.folderImages}
+						data-hint={l.folderImages}
 						onClick={() => openLibrary(root, path)}
 					>
 						<Images size={14} />
@@ -232,7 +250,7 @@ export function FileBrowser({
 					type="button"
 					className="icon-button"
 					aria-label={l.filter}
-					title={l.filter}
+					data-hint={l.filter}
 					onClick={() => setMenu(!menu)}
 				>
 					<Filter size={13} />
@@ -292,7 +310,7 @@ export function FileBrowser({
 				<button
 					type="button"
 					className="quiet-button"
-					title={path}
+					data-hint={path}
 					onClick={() => {
 						setPath("");
 						chooseFolder?.(root, "");
@@ -328,7 +346,12 @@ export function FileBrowser({
 								} catch {}
 							}}
 						>
-							<button type="button" className="tree-pin-open" title={pin} onClick={() => void choosePin(pin)}>
+							<button
+								type="button"
+								className="tree-pin-open"
+								data-hint={pin}
+								onClick={() => void choosePin(pin)}
+							>
 								<Pin size={12} />
 								<span className="truncate">{pin}</span>
 							</button>
@@ -372,6 +395,7 @@ export function FileBrowser({
 					onClose={closeSearch}
 					onOpen={(hit) => {
 						if (hit.directory) {
+							select(hit.path);
 							setPath(hit.path);
 							chooseFolder?.(root, hit.path);
 							setSearch(null);
@@ -381,13 +405,13 @@ export function FileBrowser({
 			)}
 			<div hidden={search !== null}>
 				<TreeOptionsContext.Provider
-					value={{ preferences, manage, busy, showAll: showAll || manage, reveal: path, update }}
+					value={{ preferences, manage, busy, showAll: showAll || manage, reveal: path, select, update }}
 				>
 					<FileTree
 						project={root}
 						path={path}
 						repos={repos}
-						selected={selected}
+						selected={treeSelection}
 						onOpen={(p) => openFile({ project: root, path: p })}
 						onKeepOpen={(p) => onKeepOpen?.({ project: root, path: p })}
 					/>
