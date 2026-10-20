@@ -7,6 +7,7 @@ import {
 	Folder,
 	FolderGit2,
 	FolderOpen,
+	Images,
 	Link,
 	Pin,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { orderedEntries, toggleIncluded, useTreeOptions } from "./file-browser";
+import { useImageLibrary } from "./file-workspace";
 import { selectedPath, visiblePath } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { DirectoryEntry, RepoStatus } from "./models";
@@ -38,6 +40,7 @@ function FileRow({
 	depth = 0,
 }: TreeProps & { entry: DirectoryEntry }) {
 	const options = useTreeOptions();
+	const openLibrary = useImageLibrary();
 	const l = useFileLabels();
 	const [expanded, setExpanded] = useState(false);
 	const activeRepo = repos
@@ -103,6 +106,17 @@ function FileRow({
 						</span>
 					)}
 				</button>
+				{entry.directory && openLibrary && (
+					<button
+						type="button"
+						className="tree-inline-pin icon-button"
+						aria-label={`${l.folderImages} : ${entry.path}`}
+						title={l.folderImages}
+						onClick={() => openLibrary(project, entry.path)}
+					>
+						<Images size={13} />
+					</button>
+				)}
 				<button
 					type="button"
 					disabled={options.busy}

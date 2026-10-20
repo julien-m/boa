@@ -3,16 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
+import { FileWorkspace } from "./file-workspace";
 import { type FileSpace } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { Selection } from "./models";
-import { PanelResizer } from "./panel-resizer";
 
 const key = (s: Selection) => JSON.stringify([s.project, s.path]);
 export function FileSpaceView({ space, navigation }: { space: FileSpace; navigation: Selection | null }) {
 	const l = useFileLabels();
 	const editing = useFileEditing();
-	const container = useRef<HTMLDivElement>(null);
 	const [state, setState] = useState<{
 		tabs: Selection[];
 		preview: string | null;
@@ -88,9 +87,12 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 					{space.roots.length} {l.roots.toLowerCase()}
 				</span>
 			</header>
-			<div className="file-workspace" ref={container}>
-				<aside className="file-sidebar">
-					<div className="tree-scroll">
+			<FileWorkspace
+				libraryRoot={space.roots[0]}
+				onOpen={(value) => open(value)}
+				navigationKey={navigation?.navigationId}
+				tree={
+					<>
 						{space.roots.map((root) => (
 							<FileBrowser
 								key={root}
@@ -102,9 +104,9 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 								onKeepOpen={(value) => open(value, true)}
 							/>
 						))}
-					</div>
-				</aside>
-				<PanelResizer container={container} vertical fileTree />
+					</>
+				}
+			>
 				<div className="file-editor">
 					{!!state.tabs.length && (
 						<div className="file-tabs" role="tablist" aria-label={l.files}>
@@ -139,7 +141,7 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 					)}
 					<CodeViewer selection={state.selected} />
 				</div>
-			</div>
+			</FileWorkspace>
 		</div>
 	);
 }

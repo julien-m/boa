@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { ImageViewer } from "./image-viewer";
+import { MarkdownExpandButton, MarkdownExpansion } from "./markdown-expand";
 import type { Preview, Selection } from "./models";
 
 export function FileAssetPreview({ preview, selection }: { preview: Preview; selection: Selection }) {
@@ -11,14 +12,27 @@ export function FileAssetPreview({ preview, selection }: { preview: Preview; sel
 	const [opening, setOpening] = useState(false);
 	const [error, setError] = useState("");
 	const image = preview.kind === "image" && preview.dataUrl && failed !== preview.dataUrl;
+	const label = selection.path.split("/").pop() ?? "";
 	return (
 		<div className="file-asset-preview" data-testid="file-asset-preview">
 			{image ? (
-				<ImageViewer
-					src={preview.dataUrl!}
-					alt={selection.path.split("/").pop() ?? ""}
-					onError={() => setFailed(preview.dataUrl ?? null)}
-				/>
+				<MarkdownExpansion
+					key={JSON.stringify([selection.project, selection.path])}
+					revision={preview.dataUrl!}
+				>
+					<ImageViewer
+						src={preview.dataUrl!}
+						alt={label}
+						onError={() => setFailed(preview.dataUrl ?? null)}
+						actions={
+							<MarkdownExpandButton
+								toolbar
+								label={label}
+								content={<ImageViewer src={preview.dataUrl!} alt={label} onError={() => {}} />}
+							/>
+						}
+					/>
+				</MarkdownExpansion>
 			) : (
 				<div className="file-asset-message" role="status">
 					<h2>{t("asset.unavailable")}</h2>

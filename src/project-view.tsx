@@ -201,6 +201,9 @@ export function ProjectView({
 			{summary?.scanLimited && <div className="scan-note">{t("project.scanLimited")}</div>}
 			{layout !== "git" && (
 				<FileWorkspace
+					libraryRoot={project.path}
+					onOpen={openFile}
+					navigationKey={navigation?.navigationId}
 					tree={
 						<FileBrowser
 							root={project.path}

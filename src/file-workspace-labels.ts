@@ -1,6 +1,20 @@
 import { useTranslation } from "react-i18next";
 
 const fr = {
+	library: "Bibliothèque",
+	images: "Images",
+	folderImages: "Images de ce dossier",
+	libraryScope: "Dossier et sous-dossiers",
+	imageFilter: "Filtrer les images…",
+	imageType: "Format d’image",
+	allImageTypes: "Tous les formats",
+	imageEmpty: "Aucune image dans ce dossier avec ces filtres.",
+	imageLimited:
+		"Liste partielle : choisissez un dossier plus précis. Les dossiers techniques et les liens sont exclus.",
+	thumbnailUnavailable: "Miniature indisponible",
+	revealFile: "Retrouver dans l’arborescence",
+	refreshImages: "Actualiser les images",
+	moreImages: "Afficher la suite",
 	discardChanges: "Abandonner les modifications non enregistrées de ce fichier ?",
 	spaces: "ESPACES DE FICHIERS",
 	create: "Nouvel espace",
@@ -65,6 +79,19 @@ const fr = {
 	loading: "Chargement…",
 };
 const en: typeof fr = {
+	library: "Library",
+	images: "Images",
+	folderImages: "Images in this folder",
+	libraryScope: "Folder and subfolders",
+	imageFilter: "Filter images…",
+	imageType: "Image format",
+	allImageTypes: "All formats",
+	imageEmpty: "No images in this folder with these filters.",
+	imageLimited: "Partial list: choose a narrower folder. Technical folders and links are excluded.",
+	thumbnailUnavailable: "Thumbnail unavailable",
+	revealFile: "Reveal in file tree",
+	refreshImages: "Refresh images",
+	moreImages: "Show more",
 	discardChanges: "Discard unsaved changes to this file?",
 	spaces: "FILE SPACES",
 	create: "New space",

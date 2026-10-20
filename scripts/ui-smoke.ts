@@ -87,6 +87,13 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			if (request.action === "list") return { spaces: fileSpaces, shortcuts: searchShortcuts };
 			if (request.action === "preferences")
 				return filePreferences[root] ?? { filtered: false, included: [], pins: [], sort: "name" };
+			if (request.action === "images")
+				return {
+					images: [{ name: "preview.png", path: "preview.png", format: "png", modified: 1, size: 100 }],
+					limited: false,
+				};
+			if (request.action === "thumbnail")
+				return `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`;
 			if (request.action === "set-preferences") {
 				filePreferences[root] = request.preferences as (typeof filePreferences)[string];
 				return filePreferences[root];
@@ -178,6 +185,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				"config.yaml",
 				"wrangler.toml",
 				"wrangler.jsonc",
+				"preview.png",
 			].map((name) => ({
 				name,
 				path: name,
@@ -191,6 +199,15 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
+			if (args.path === "preview.png")
+				return {
+					original: "",
+					modified: "",
+					path: "preview.png",
+					label: "Lecture seule",
+					kind: "image",
+					dataUrl: `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`,
+				};
 			return {
 				original: "",
 				modified:
@@ -1011,6 +1028,42 @@ try {
 	await page.keyboard.press("Escape");
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "file-space.png") });
+
+	// Real layout coverage: the scoped gallery occupies the center and its image opens the shared fullscreen zoom.
+	await browsers.nth(1).getByRole("button", { name: "Images de ce dossier", exact: true }).click();
+	await expect(page.locator(".image-library")).toBeVisible();
+	await expect
+		.poll(() => page.locator(".image-library").evaluate((node) => node.getBoundingClientRect().height))
+		.toBeGreaterThan(150);
+	await expect(page.locator(".library-thumbnail img")).toBeVisible();
+	await page.getByLabel("Format d’image", { exact: true }).selectOption("png");
+	await page.getByRole("searchbox", { name: "Filtrer les images…", exact: true }).fill("preview");
+	await page.locator(".library-image").click();
+	await expect(page.locator(".file-image-stage img")).toBeVisible();
+	await expect
+		.poll(() => page.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
+		.toBeGreaterThan(150);
+	await page.getByRole("button", { name: "Agrandir : preview.png", exact: true }).click();
+	const fullscreenImage = page.getByRole("dialog", { name: "preview.png", exact: true });
+	await expect(fullscreenImage).toBeVisible();
+	await expect
+		.poll(() => fullscreenImage.evaluate((node) => Math.round(node.getBoundingClientRect().width)))
+		.toBe(1440);
+	await expect(fullscreenImage.locator('input[type="range"]')).toBeVisible();
+	await fullscreenImage.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
+	await fullscreenImage.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
+	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
+	await fullscreenImage.getByRole("button", { name: "Adapter", exact: true }).click();
+	await page.keyboard.press("Escape");
+	await expect(fullscreenImage).toHaveCount(0);
+	await page.getByRole("button", { name: "Bibliothèque", exact: true }).click();
+	await expect(page.getByRole("searchbox", { name: "Filtrer les images…", exact: true })).toHaveValue(
+		"preview",
+	);
+	await page
+		.getByRole("button", { name: "Retrouver dans l’arborescence : preview.png", exact: true })
+		.click();
+	await expect(browsers.nth(1).getByTestId("file-preview.png")).toBeFocused();
 
 	expect(errors).toEqual([]);
 	console.log(

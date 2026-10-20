@@ -2116,3 +2116,131 @@ span.markdown-expandable {
 	height: 100%;
 	padding: 0;
 }
+
+/* Central image library; the reader stays mounted when switching tabs. */
+.file-workspace-content,
+.workspace-reader,
+.workspace-library {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	flex: 1;
+	overflow: hidden;
+}
+.workspace-reader[hidden],
+.workspace-library[hidden] {
+	display: none;
+}
+.workspace-reader > .file-editor {
+	flex: 1;
+}
+.library-tabs {
+	display: flex;
+	gap: 4px;
+	padding: 4px 12px;
+	border-bottom: 1px solid #3a3d46;
+	flex-shrink: 0;
+}
+.library-tabs button {
+	font-size: 12px;
+	padding: 4px 12px;
+}
+.library-tabs .active {
+	color: #b4c9ff;
+	background: #2c3343;
+}
+.image-library {
+	min-height: 0;
+	flex: 1;
+	overflow: auto;
+	padding: 16px;
+}
+.library-toolbar {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+.library-scope {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-right: auto;
+	min-width: 0;
+}
+.library-scope small {
+	color: #9da2ad;
+	overflow-wrap: anywhere;
+}
+.library-toolbar input {
+	flex: 1;
+	min-width: 140px;
+	max-width: 320px;
+}
+.library-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 16px;
+}
+.library-card {
+	position: relative;
+	min-width: 0;
+	border: 1px solid #3a3d46;
+	border-radius: 8px;
+	overflow: hidden;
+	background: #24262b;
+}
+.library-image {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	width: 100%;
+	padding: 8px;
+	text-align: left;
+	border: 0;
+	background: transparent;
+}
+.library-image > strong,
+.library-image > small {
+	display: block;
+	max-width: 100%;
+}
+.library-image > strong {
+	font-size: 12px;
+	padding-right: 24px;
+}
+.library-image > small {
+	color: #9da2ad;
+	font-size: 10px;
+}
+.library-thumbnail {
+	width: 100%;
+	height: 144px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	color: #9da2ad;
+}
+.library-thumbnail img {
+	display: block;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+}
+.library-thumbnail small {
+	font-size: 10px;
+}
+.library-reveal {
+	position: absolute;
+	bottom: 20px;
+	right: 4px;
+	background: #24262b;
+}
+.library-more {
+	display: block;
+	margin: 16px auto;
+}
