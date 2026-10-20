@@ -21,6 +21,9 @@ const IO_TIMEOUT: Duration = Duration::from_secs(3);
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "lowercase", deny_unknown_fields)]
 enum Request {
+    Workspace {
+        request: crate::file_workspace::Request,
+    },
     List {},
     Add {
         path: String,
@@ -72,6 +75,9 @@ fn bind(path: &Path) -> Result<UnixListener, String> {
 
 fn execute(state: &AppState, request: Request) -> Result<(Value, bool), String> {
     match request {
+        Request::Workspace { request } => {
+            Ok((crate::file_workspace::execute(state, request)?, true))
+        }
         Request::List {} => {
             let count = state
                 .config

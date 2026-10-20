@@ -34,6 +34,8 @@ struct Targets {
     known_directories: BTreeSet<PathBuf>,
     directory_identities: BTreeMap<PathBuf, Option<(u64, u64)>>,
     projects: BTreeMap<String, Vec<(PathBuf, bool)>>,
+    spaces: BTreeMap<String, crate::file_workspace::Preferences>,
+    git_projects: BTreeSet<String>,
 }
 
 fn directory_identity(path: &Path) -> Option<(u64, u64)> {
@@ -71,6 +73,7 @@ fn targets(state: &AppState) -> Targets {
         .map(|path| (path.clone(), directory_identity(path)))
         .collect();
     for project in config.projects.iter().filter(|project| !project.archived) {
+        result.git_projects.insert(project.path.clone());
         let root = PathBuf::from(&project.path);
         let mut roots = vec![(root.clone(), false)];
         if let Some(snapshot) = cache.get(&root) {
@@ -78,6 +81,23 @@ fn targets(state: &AppState) -> Targets {
             roots.extend(snapshot.metadata.iter().cloned().map(|path| (path, true)));
         }
         result.projects.insert(project.path.clone(), roots);
+    }
+    for space in &config.file_spaces {
+        for root in &space.roots {
+            result.spaces.insert(
+                root.clone(),
+                config
+                    .file_preferences
+                    .get(root)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            result
+                .projects
+                .entry(root.clone())
+                .or_default()
+                .push((PathBuf::from(root), false));
+        }
     }
     for roots in result.projects.values() {
         for (path, _) in roots {
@@ -98,11 +118,41 @@ fn desired_paths(targets: &Targets) -> BTreeMap<PathBuf, bool> {
             desired.entry(parent.to_path_buf()).or_insert(false);
         }
     }
-    for roots in targets.projects.values() {
-        for (path, _) in roots {
-            desired.insert(path.clone(), true);
-            if let Some(parent) = path.parent() {
+    for (project, roots) in &targets.projects {
+        if let Some(pref) = targets.spaces.get(project) {
+            let root = PathBuf::from(project);
+            // Observe only selected subtrees; the root itself is a non-recursive lifecycle watch.
+            desired.entry(root.clone()).or_insert(false);
+            if let Some(parent) = root.parent() {
                 desired.entry(parent.to_path_buf()).or_insert(false);
+            }
+            if pref.filtered {
+                for relative in pref.included.iter().chain(&pref.pins) {
+                    let path = root.join(relative);
+                    let recursive = path.is_dir();
+                    desired
+                        .entry(path.clone())
+                        .and_modify(|v| *v |= recursive)
+                        .or_insert(recursive);
+                    if let Some(parent) = path.parent() {
+                        desired.entry(parent.to_path_buf()).or_insert(false);
+                    }
+                }
+            } else {
+                desired.insert(root, true);
+            }
+            // A root also registered as a Git project keeps its existing recursive watcher.
+            if targets.git_projects.contains(project) {
+                for (path, _) in roots {
+                    desired.insert(path.clone(), true);
+                }
+            }
+        } else {
+            for (path, _) in roots {
+                desired.insert(path.clone(), true);
+                if let Some(parent) = path.parent() {
+                    desired.entry(parent.to_path_buf()).or_insert(false);
+                }
             }
         }
     }
@@ -333,18 +383,30 @@ fn classify(event: &Event, targets: &Targets, update: &mut Update) {
             update.discovery |= root_lifecycle || child && directory_event;
         }
         for (project, roots) in &targets.projects {
-            if roots.iter().any(|(root, metadata)| {
-                relevant_file(root, *metadata, path)
-                    && !(path.is_dir()
-                        && !(matches!(event.kind, EventKind::Any)
-                            && path.file_name().is_some_and(|name| name == ".git"))
-                        && matches!(
-                            event.kind,
-                            EventKind::Modify(ModifyKind::Metadata(_))
-                                | EventKind::Modify(ModifyKind::Data(_))
-                                | EventKind::Any
-                        ))
-            }) {
+            let in_space = targets.git_projects.contains(project)
+                || targets.spaces.get(project).is_none_or(|pref| {
+                    path.strip_prefix(project).is_ok_and(|relative| {
+                        crate::file_workspace::visible(&relative.to_string_lossy(), pref)
+                            || pref
+                                .pins
+                                .iter()
+                                .any(|pin| path.starts_with(Path::new(project).join(pin)))
+                    })
+                });
+            if in_space
+                && roots.iter().any(|(root, metadata)| {
+                    relevant_file(root, *metadata, path)
+                        && !(path.is_dir()
+                            && !(matches!(event.kind, EventKind::Any)
+                                && path.file_name().is_some_and(|name| name == ".git"))
+                            && matches!(
+                                event.kind,
+                                EventKind::Modify(ModifyKind::Metadata(_))
+                                    | EventKind::Modify(ModifyKind::Data(_))
+                                    | EventKind::Any
+                            ))
+                })
+            {
                 update.projects.insert(project.clone());
                 if matches!(
                     event.kind,
@@ -543,6 +605,52 @@ pub(crate) fn start(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn filtered_file_spaces_watch_only_selected_subtrees() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("files");
+        std::fs::create_dir_all(root.join("skills")).unwrap();
+        std::fs::create_dir_all(root.join("other")).unwrap();
+        let state = crate::projects::AppState::new(temp.path().join("config.json")).unwrap();
+        let root = root.canonicalize().unwrap();
+        let path = root.to_string_lossy().to_string();
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SaveSpace {
+                id: "tools".into(),
+                name: "Tools".into(),
+                roots: vec![path.clone()],
+            },
+        )
+        .unwrap();
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SetPreferences {
+                root: path.clone(),
+                preferences: crate::file_workspace::Preferences {
+                    filtered: true,
+                    included: vec!["skills".into()],
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SaveSpace {
+                id: "second".into(),
+                name: "Second".into(),
+                roots: vec![path.clone()],
+            },
+        )
+        .unwrap();
+        let targets = super::targets(&state);
+        let paths = super::desired_paths(&targets);
+        assert_eq!(paths.get(&root), Some(&false));
+        assert_eq!(paths.get(&root.join("skills")), Some(&true));
+        assert!(!paths.contains_key(&root.join("other")));
+    }
     use super::*;
     use notify::event::{AccessKind, DataChange, RenameMode};
 
@@ -973,6 +1081,8 @@ mod tests {
             discovery: Some(root.clone()),
             discovery_identity: directory_identity(&root),
             known_directories: BTreeSet::from([project.clone()]),
+            spaces: Default::default(),
+            git_projects: Default::default(),
             directory_identities: BTreeMap::from([(project.clone(), directory_identity(&project))]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),
@@ -1089,6 +1199,8 @@ mod tests {
             discovery: Some(root.to_path_buf()),
             discovery_identity: directory_identity(root),
             known_directories: BTreeSet::from([project.clone()]),
+            spaces: Default::default(),
+            git_projects: Default::default(),
             directory_identities: BTreeMap::from([(project.clone(), directory_identity(&project))]),
             projects: BTreeMap::from([(
                 project.to_string_lossy().into_owned(),

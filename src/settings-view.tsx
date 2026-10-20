@@ -1,9 +1,11 @@
 /** Explicit opt-in to automatic local project discovery. */
+
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Languages, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type ProjectSettings } from "./api";
+import { FileWorkspaceSettings } from "./file-workspace-settings";
 import { setInterfaceLanguage } from "./i18n";
 
 export function SettingsView({
@@ -126,6 +128,7 @@ export function SettingsView({
 					<p>{t("archiveHint")}</p>
 				</div>
 			</section>
+			<FileWorkspaceSettings />
 		</div>
 	);
 }

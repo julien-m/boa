@@ -1,4 +1,5 @@
 /** Project dashboard, pinned navigation and native project import. */
+
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
@@ -26,6 +27,10 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { DraftIndicator } from "./file-editing";
+import { FileSearchPanel } from "./file-search-panel";
+import { FileSpaceView } from "./file-space-view";
+import { defaultShortcuts, type FileHit, fileWorkspace } from "./file-workspace-api";
+import { useFileLabels } from "./file-workspace-labels";
 import { createFilesystemRefresh, projectSummaryOptions } from "./filesystem-refresh";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
@@ -33,6 +38,7 @@ import { countRepos, type Project, type Summary } from "./models";
 import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
+import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
 
@@ -48,6 +54,21 @@ export default function App() {
 		queryFn: api.projects,
 	});
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const fl = useFileLabels();
+	const workspace = useQuery({ queryKey: ["file-workspace"], queryFn: fileWorkspace.state, retry: false });
+	const [selectedSpace, setSelectedSpace] = useState<string | null>(null);
+	const activeSpace = workspace.data?.spaces.find((s) => s.id === selectedSpace);
+	const [globalSearch, setGlobalSearch] = useState(false);
+	useEffect(
+		() => installSearchShortcuts(workspace.data?.shortcuts ?? defaultShortcuts),
+		[workspace.data?.shortcuts],
+	);
+	useEffect(() => {
+		const show = () => setGlobalSearch(true);
+		window.addEventListener("boa:global-search", show);
+		return () => window.removeEventListener("boa:global-search", show);
+	}, []);
+
 	const language = settings.data?.language;
 	useEffect(() => {
 		if (!language) return;
@@ -84,7 +105,10 @@ export default function App() {
 				if (!raw) return;
 				const request = parseNavigation(raw);
 				const target = await api.navigate(request.file);
-				await api.add(target.project);
+				const spaces = await fileWorkspace.state();
+				const containing = spaces.spaces.find((s) => s.roots.includes(target.project));
+				setSelectedSpace(containing?.id ?? null);
+				if (!containing) await api.add(target.project);
 				await client.invalidateQueries({ queryKey: ["projects"] });
 				if (disposed || pausedRef.current) return;
 				setSelectedPath(target.project);
@@ -128,6 +152,8 @@ export default function App() {
 		let cleanup: (() => void) | undefined;
 		void listen("boa:projects-changed", () => {
 			void client.invalidateQueries({ queryKey: ["projects"] });
+			void client.invalidateQueries({ queryKey: ["file-workspace"] });
+			void client.invalidateQueries({ queryKey: ["file-preferences"] });
 		})
 			.then((unlisten) => {
 				if (disposed) unlisten();
@@ -195,6 +221,7 @@ export default function App() {
 			if (typeof path !== "string") return;
 			const project = await api.add(path);
 			await client.invalidateQueries({ queryKey: ["projects"] });
+			setSelectedSpace(null);
 			setSelectedPath(project.path);
 			setSettingsOpen(false);
 			setArchivesOpen(false);
@@ -205,6 +232,7 @@ export default function App() {
 	useEffect(() => {
 		const resume = (event: Event): void => {
 			const target = (event as CustomEvent<Selection>).detail;
+			setSelectedSpace(workspace.data?.spaces.find((s) => s.roots.includes(target.project))?.id ?? null);
 			setSelectedPath(target.project);
 			setSettingsOpen(false);
 			setArchivesOpen(false);
@@ -212,7 +240,7 @@ export default function App() {
 		};
 		window.addEventListener("boa:resume-draft", resume);
 		return () => window.removeEventListener("boa:resume-draft", resume);
-	}, []);
+	}, [workspace.data?.spaces]);
 	const handleProjectRefresh = (): void => {
 		if (selected) {
 			void client.invalidateQueries({ queryKey: ["summary", selected.path] });
@@ -291,8 +319,9 @@ export default function App() {
 					<button
 						type="button"
 						data-testid="dashboard-nav"
-						className={`nav-button ${!selected && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+						className={`nav-button ${!selected && !activeSpace && !settingsOpen && !archivesOpen ? "selected" : ""}`}
 						onClick={() => {
+							setSelectedSpace(null);
 							setSelectedPath(null);
 							setSettingsOpen(false);
 							setArchivesOpen(false);
@@ -300,6 +329,31 @@ export default function App() {
 					>
 						<LayoutDashboard size={16} />
 						{t("overview")}
+					</button>
+					<div className="nav-section-title">{fl.spaces}</div>
+					{(workspace.data?.spaces ?? []).map((space) => (
+						<button
+							type="button"
+							key={space.id}
+							className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+							onClick={() => {
+								setSelectedSpace(space.id);
+								setSettingsOpen(false);
+								setArchivesOpen(false);
+							}}
+						>
+							{space.name}
+						</button>
+					))}
+					<button
+						type="button"
+						className="nav-button"
+						onClick={() => {
+							setSettingsOpen(true);
+							setArchivesOpen(false);
+						}}
+					>
+						+ {fl.create}
 					</button>
 					<div className="nav-section-title pinned-heading">
 						{t("pinnedProjects")} <span>{ordered.filter((project) => project.pinned).length}</span>
@@ -314,8 +368,9 @@ export default function App() {
 										type="button"
 										key={project.path}
 										data-testid={`nav-project-${project.name}`}
-										className={`nav-project ${!settingsOpen && !archivesOpen && selected?.path === project.path ? "selected" : ""}`}
+										className={`nav-project ${!activeSpace && !settingsOpen && !archivesOpen && selected?.path === project.path ? "selected" : ""}`}
 										onClick={() => {
+											setSelectedSpace(null);
 											setSelectedPath(project.path);
 											setSettingsOpen(false);
 											setArchivesOpen(false);
@@ -402,6 +457,42 @@ export default function App() {
 							</button>
 						</div>
 					)}
+					{globalSearch && (
+						<div
+							className="file-search-overlay"
+							onMouseDown={(e) => {
+								if (e.target === e.currentTarget) setGlobalSearch(false);
+							}}
+						>
+							<div role="dialog" aria-modal="true" aria-label={fl.global}>
+								<h2>{fl.global}</h2>
+								<FileSearchPanel
+									roots={[
+										...new Set([
+											...ordered.map((p) => p.path),
+											...(workspace.data?.spaces ?? []).flatMap((s) => s.roots),
+										]),
+									]}
+									onClose={() => setGlobalSearch(false)}
+									onOpen={(hit: FileHit) => {
+										const containing = workspace.data?.spaces.find((s) => s.roots.includes(hit.project));
+										setSelectedSpace(containing?.id ?? null);
+										setSelectedPath(hit.project);
+										setSettingsOpen(false);
+										setArchivesOpen(false);
+										setNavigation({
+											project: hit.project,
+											path: hit.directory ? `${hit.path}/` : hit.path,
+											line: hit.line || undefined,
+											source: "CLI",
+											navigationId: crypto.randomUUID(),
+										});
+										setGlobalSearch(false);
+									}}
+								/>
+							</div>
+						</div>
+					)}
 					{settingsOpen ? (
 						settings.data ? (
 							<SettingsView
@@ -416,6 +507,12 @@ export default function App() {
 								{settings.error ? String(settings.error) : t("loadingSettings")}
 							</div>
 						)
+					) : activeSpace && !archivesOpen ? (
+						<FileSpaceView
+							key={activeSpace.id}
+							space={activeSpace}
+							navigation={navigation && activeSpace.roots.includes(navigation.project) ? navigation : null}
+						/>
 					) : archivesOpen ? (
 						<div className="dashboard settings-view" data-testid="archives-view">
 							<div className="eyebrow">{t("workspaceEyebrow")}</div>
@@ -557,7 +654,10 @@ export default function App() {
 											summary={summary.data}
 											pending={summary.isPending}
 											error={summary.error ? String(summary.error) : undefined}
-											onOpen={() => setSelectedPath(project.path)}
+											onOpen={() => {
+												setSelectedSpace(null);
+												setSelectedPath(project.path);
+											}}
 											onPin={() => {
 												void handlePin(project);
 											}}

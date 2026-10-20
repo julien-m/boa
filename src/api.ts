@@ -27,7 +27,11 @@ const settingsLabels = (value: ProjectSettings): ProjectSettings => ({
 	...value,
 	watchError: value.watchError ? localizeNativeText(value.watchError) : null,
 });
-const previewLabels = (value: Preview): Preview => ({ ...value, label: localizeNativeText(value.label) });
+const previewLabels = (value: Preview): Preview => ({
+	...value,
+	label: localizeNativeText(value.label),
+	reason: value.reason ? localizeNativeText(value.reason) : undefined,
+});
 
 export const api = {
 	search: (
@@ -45,6 +49,7 @@ export const api = {
 		invoke("repository_web_url", { project, repo }),
 	openRepository: (project: string, repo: string): Promise<void> =>
 		invoke("open_repository", { project, repo }),
+	openFile: (project: string, path: string): Promise<void> => invoke("open_file", { project, path }),
 	openProjectFolder: (project: string): Promise<void> => invoke("open_project_folder", { project }),
 	settings: (): Promise<ProjectSettings> => invoke<ProjectSettings>("get_settings").then(settingsLabels),
 	setLanguage: (language: "fr" | "en"): Promise<ProjectSettings> => invoke("set_language", { language }),

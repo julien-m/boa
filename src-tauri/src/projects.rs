@@ -46,6 +46,12 @@ pub(crate) struct Project {
 pub(crate) struct Config {
     pub projects: Vec<Project>,
     #[serde(default)]
+    pub file_spaces: Vec<crate::file_workspace::Space>,
+    #[serde(default)]
+    pub file_preferences: std::collections::BTreeMap<String, crate::file_workspace::Preferences>,
+    #[serde(default)]
+    pub shortcuts: crate::file_workspace::Shortcuts,
+    #[serde(default)]
     pub watch_directory: Option<String>,
     #[serde(default = "default_language")]
     pub language: String,
@@ -59,6 +65,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             projects: Vec::new(),
+            file_spaces: Vec::new(),
+            file_preferences: Default::default(),
+            shortcuts: Default::default(),
             watch_directory: None,
             language: default_language(),
         }
@@ -333,13 +342,19 @@ impl AppState {
     }
 
     pub fn registered(&self, project: &str) -> Result<PathBuf, String> {
+        let path = Path::new(project)
+            .canonicalize()
+            .map_err(|e| format!("Projet inaccessible : {e}"))?;
         let config = self.config.lock().map_err(|e| e.to_string())?;
-        if !config.projects.iter().any(|p| p.path == project) {
+        if !config.projects.iter().any(|p| Path::new(&p.path) == path)
+            && !config
+                .file_spaces
+                .iter()
+                .any(|s| s.roots.iter().any(|r| Path::new(r) == path))
+        {
             return Err("Projet non enregistré dans BOA".into());
         }
-        Path::new(project)
-            .canonicalize()
-            .map_err(|e| format!("Projet inaccessible : {e}"))
+        Ok(path)
     }
 
     pub fn repositories(&self, project: &Path) -> Result<(Vec<PathBuf>, bool), String> {

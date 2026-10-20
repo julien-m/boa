@@ -27,6 +27,13 @@ describe("native text localization", () => {
 	it("translates native errors, preview labels and operations in English", () => {
 		i18n.resolvedLanguage = "en";
 		expect(localizeNativeText("Chemin hors du projet")).toBe("Path outside the project");
+		expect(localizeNativeText("Espace de fichiers invalide")).toBe("Invalid file space");
+		expect(localizeNativeText("Sélectionnez un dossier")).toBe("Select a folder");
+		expect(localizeNativeText("Préférences de fichiers invalides")).toBe("Invalid file preferences");
+		expect(localizeNativeText("Raccourcis invalides ou identiques")).toBe("Invalid or duplicate shortcuts");
+		expect(localizeNativeText("Requête de recherche invalide")).toBe("Invalid search request");
+		expect(localizeNativeText("Dossier de recherche non enregistré")).toBe("Unregistered search root");
+
 		expect(localizeNativeText("Lecture seule")).toBe("Read-only");
 		expect(localizeNativeText("HEAD → index")).toBe("HEAD → index");
 		expect(localizeNativeText("Index → fichiers locaux")).toBe("Index → working files");
