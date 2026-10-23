@@ -351,7 +351,12 @@ export function FileBrowser({
 							type="checkbox"
 							checked={preferences.filtered}
 							disabled={busy}
-							onChange={(e) => update({ ...preferences, filtered: e.target.checked })}
+							onChange={(e) => {
+								if (e.target.checked && !preferences.included.length) {
+									setManage(true);
+									setMenu(false);
+								} else update({ ...preferences, filtered: e.target.checked });
+							}}
 						/>
 						{l.selected}
 					</label>
@@ -360,13 +365,22 @@ export function FileBrowser({
 						className="quiet-button"
 						onClick={() => {
 							setManage(!manage);
-							if (!manage && !preferences.filtered) update({ ...preferences, filtered: true });
 							setMenu(false);
 						}}
 					>
 						{l.manage}
 					</button>
-					<button type="button" className="quiet-button" onClick={() => setShowAll(!showAll)}>
+					<button
+						type="button"
+						className="quiet-button"
+						disabled={busy}
+						onClick={() => {
+							if (!preferences.included.length) {
+								update({ ...preferences, filtered: false });
+								setShowAll(false);
+							} else setShowAll(!showAll);
+						}}
+					>
 						{showAll ? l.restoreSelection : l.all}
 					</button>
 					<select
@@ -377,6 +391,7 @@ export function FileBrowser({
 					>
 						<option value="name">{l.nameSort}</option>
 						<option value="modified">{l.modifiedSort}</option>
+						<option value="modified-asc">{l.modifiedAscendingSort}</option>
 					</select>
 				</div>
 			)}
@@ -570,15 +585,26 @@ export function FileBrowser({
 				/>
 			)}
 			{search === null && preferences.filtered && !preferences.included.length && !showAll && !manage && (
-				<p className="muted small">{l.noneVisible}</p>
+				<div>
+					<p className="muted small">{l.noneVisible}</p>
+					<button
+						type="button"
+						className="quiet-button"
+						disabled={busy}
+						onClick={() => update({ ...preferences, filtered: false })}
+					>
+						{l.all}
+					</button>
+				</div>
 			)}
 		</div>
 	);
 }
 export function orderedEntries(entries: DirectoryEntry[], prefs: FilePreferences) {
 	return [...entries].sort((a, b) =>
-		prefs.sort === "modified"
-			? (b.modified ?? 0) - (a.modified ?? 0) || a.name.localeCompare(b.name)
+		prefs.sort === "modified" || prefs.sort === "modified-asc"
+			? ((b.modified ?? 0) - (a.modified ?? 0)) * (prefs.sort === "modified-asc" ? -1 : 1) ||
+				a.name.localeCompare(b.name)
 			: Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name),
 	);
 }

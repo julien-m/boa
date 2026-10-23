@@ -71,6 +71,7 @@ export interface Selection {
 	line?: number;
 	endLine?: number;
 	navigationId?: string;
+	anchor?: string;
 }
 export interface Comparison {
 	base: string;

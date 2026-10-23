@@ -45,3 +45,10 @@ describe("workspace CLI requests", () => {
 		expect(() => parseWorkspace(["spaces", "list", "--pin", "README.md"])).toThrow();
 	});
 });
+
+it("accepts oldest-first ordering through the public CLI boundary", () => {
+	const sort = "modified-asc";
+	expect(parseWorkspace(["files", "configure", "/tmp/chronology", "--sort", sort])).toMatchObject({
+		request: { preferences: { sort } },
+	});
+});

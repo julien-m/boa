@@ -72,7 +72,7 @@ function FileRow({
 					<input
 						type="checkbox"
 						aria-label={`${l.choose} ${entry.path}`}
-						checked={selectedPath(entry.path, options.preferences)}
+						checked={selectedPath(entry.path, { ...options.preferences, filtered: true })}
 						disabled={
 							options.busy ||
 							(options.preferences.filtered &&

@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { LibraryImage } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
+import { useFinderContextMenu } from "./finder-context-menu";
 import { ImageViewer, ImageZoom, useImageZoomSession } from "./image-viewer";
 
 export function ImageLibraryPreview({
@@ -35,6 +36,7 @@ export function ImageLibraryPreview({
 	const dialog = useRef<HTMLDialogElement>(null);
 	const close = useRef<HTMLButtonElement>(null);
 	const zoomSession = useImageZoomSession();
+	const finder = useFinderContextMenu(root, image.path);
 	const [fullscreen, setFullscreen] = useState(false);
 	const [failed, setFailed] = useState(false);
 	const query = useQuery({
@@ -76,7 +78,12 @@ export function ImageLibraryPreview({
 				onClose={(event) => {
 					if (!event.currentTarget.open) onClose();
 				}}
+				onContextMenu={(event) => {
+					if ((event.target as HTMLElement).closest(".image-viewport")) finder.onContextMenu(event);
+				}}
 				onKeyDown={(event) => {
+					finder.onKeyDown(event);
+					if (event.defaultPrevented) return;
 					if (event.metaKey || event.ctrlKey || event.altKey) return;
 					if ((event.target as HTMLElement).closest("input,textarea,select,[contenteditable]")) return;
 					const direction = ["ArrowRight", "PageDown"].includes(event.key)
@@ -89,6 +96,7 @@ export function ImageLibraryPreview({
 					step(direction);
 				}}
 			>
+				{finder.menu}
 				<header>
 					<div className="library-preview-title">
 						<strong className="truncate" title={image.path}>

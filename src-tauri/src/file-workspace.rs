@@ -198,7 +198,8 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                 state.registered(root)?;
                 if preferences.included.len() > 1000
                     || preferences.pins.len() > 1000
-                    || !["", "name", "modified"].contains(&preferences.sort.as_str())
+                    || !["", "name", "modified", "modified-asc"]
+                        .contains(&preferences.sort.as_str())
                     || preferences
                         .included
                         .iter()
@@ -754,11 +755,21 @@ mod tests {
                     filtered: true,
                     included: vec![".codex//skills/".into()],
                     pins: vec![".codex//skills/a.md".into()],
-                    sort: "modified".into(),
+                    sort: "modified-asc".into(),
                 },
             },
         )
         .unwrap();
+        assert_eq!(
+            AppState::new(config.clone())
+                .unwrap()
+                .config
+                .lock()
+                .unwrap()
+                .file_preferences[&root.canonicalize().unwrap().to_string_lossy().to_string()]
+                .sort,
+            "modified-asc"
+        );
         let result = execute(
             &state,
             Request::Search {

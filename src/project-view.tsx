@@ -256,7 +256,13 @@ export function ProjectView({
 								))}
 							</div>
 						)}
-						<CodeViewer selection={selection} />
+						<CodeViewer
+							selection={selection}
+							onOpen={(value) => {
+								if (value.project === project.path) openFile(value, true);
+								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
+							}}
+						/>
 					</div>
 				</FileWorkspace>
 			)}

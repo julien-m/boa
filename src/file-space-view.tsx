@@ -145,7 +145,13 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 							))}
 						</div>
 					)}
-					<CodeViewer selection={state.selected} />
+					<CodeViewer
+						selection={state.selected}
+						onOpen={(value) => {
+							if (entries.includes(value.project)) open(value, true);
+							else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
+						}}
+					/>
 				</div>
 			</FileWorkspace>
 		</div>

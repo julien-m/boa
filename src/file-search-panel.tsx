@@ -3,6 +3,7 @@ import { Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type FileHit, fileWorkspace } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
+import { SearchInput } from "./search-input";
 export function FileSearchPanel({
 	roots,
 	mode = "all",
@@ -54,12 +55,19 @@ export function FileSearchPanel({
 				}}
 			>
 				{!live && <Search size={14} />}
-				<input
+				<SearchInput
 					autoFocus
 					aria-label={l.search}
 					placeholder={live ? l.typeToFilter : l.searchHint}
 					value={input}
-					onChange={(e) => setInput(e.target.value)}
+					onClear={() => {
+						setInput("");
+						setQuery("");
+					}}
+					onChange={(e) => {
+						setInput(e.target.value);
+						if (!e.target.value) setQuery("");
+					}}
 				/>
 				<button type="button" className="icon-button" aria-label={l.close} onClick={onClose}>
 					<X size={14} />

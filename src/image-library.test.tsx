@@ -10,6 +10,7 @@ import "./i18n";
 
 const images = vi.hoisted(() => vi.fn());
 const thumbnail = vi.hoisted(() => vi.fn());
+const revealFile = vi.hoisted(() => vi.fn());
 const previewImage = vi.hoisted(() => vi.fn());
 vi.mock("./file-workspace-api", async (load) => ({
 	...(await load<typeof import("./file-workspace-api")>()),
@@ -21,6 +22,7 @@ vi.mock("./file-workspace-api", async (load) => ({
 }));
 vi.mock("./api", () => ({
 	api: {
+		revealFile,
 		preview: previewImage,
 		directory: async (_root: string, path: string) =>
 			path === "assets"
@@ -50,6 +52,7 @@ beforeEach(() => {
 		],
 		limited: false,
 	});
+	revealFile.mockReset().mockResolvedValue(undefined);
 	thumbnail.mockReset().mockResolvedValue("data:image/png;base64,fixture");
 	previewImage.mockReset().mockResolvedValue({
 		kind: "image",
@@ -340,4 +343,117 @@ it("revealing an already open file clears a selection in another root", async ()
 	await flush();
 	expect(host.querySelectorAll(".tree-row.selected")).toHaveLength(1);
 	expect(host.querySelector(".tree-row.selected")?.getAttribute("data-testid")).toBe("file-assets/one.png");
+});
+
+it("loads batches or all metadata, preserves all after refresh and resets pagination on filters and scope", async () => {
+	const entries = Array.from({ length: 100 }, (_, index) => ({
+		name: `image-${index}.png`,
+		path: `assets/image-${index}.png`,
+		format: "png",
+		size: 10,
+		modified: 1,
+	}));
+	images.mockResolvedValue({ images: entries, limited: false });
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const cards = () => host.querySelectorAll(".library-card").length;
+	const more = () => host.querySelector<HTMLButtonElement>(".library-more")!;
+	expect(cards()).toBe(48);
+	await act(async () => more().click());
+	expect(cards()).toBe(96);
+	await act(async () => button("Tout charger").click());
+	expect(cards()).toBe(entries.length);
+	expect(more()).toBeNull();
+	const added = { ...entries[0], name: "added.png", path: "assets/added.png" };
+	images.mockResolvedValue({ images: [...entries, added], limited: false });
+	await act(async () =>
+		host.querySelector<HTMLButtonElement>('button[aria-label="Actualiser les images"]')!.click(),
+	);
+	await flush();
+	expect(cards()).toBe(entries.length + 1);
+	expect(thumbnail).not.toHaveBeenCalled();
+	await setValue(host.querySelector(".image-library input")!, "image");
+	expect(cards()).toBe(48);
+	await act(async () => button("Tout charger").click());
+	await setValue(host.querySelector(".image-library select")!, "png");
+	expect(cards()).toBe(48);
+	await act(async () => button("Tout charger").click());
+	await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="file-assets"]')!.click());
+	await flush();
+	expect(images).toHaveBeenLastCalledWith("/fixture", "assets");
+	expect(cards()).toBe(48);
+}, 2000);
+
+it("clears the library search with its button or Escape while retaining focus and resetting pagination", async () => {
+	const entries = Array.from({ length: 49 }, (_, index) => ({
+		name: `image-${index}.png`,
+		path: `image-${index}.png`,
+		format: "png",
+		size: 10,
+		modified: 1,
+	}));
+	images.mockResolvedValue({ images: entries, limited: false });
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const input = host.querySelector<HTMLInputElement>(".image-library input")!;
+	await setValue(input, "image");
+	await act(async () => button("Tout charger").click());
+	await act(async () => host.querySelector<HTMLButtonElement>(".image-library .search-clear")!.click());
+	expect(input.value).toBe("");
+	expect(document.activeElement).toBe(input);
+	expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+	await setValue(input, "missing");
+	expect(host.querySelectorAll(".library-card")).toHaveLength(0);
+	const escaped = vi.fn();
+	document.body.addEventListener("keydown", escaped);
+	await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+	expect(input.value).toBe("");
+	expect(document.activeElement).toBe(input);
+	expect(escaped).not.toHaveBeenCalled();
+	document.body.removeEventListener("keydown", escaped);
+	expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+}, 2000);
+
+it("reveals the gallery image in Finder through mouse and keyboard context menus", async () => {
+	const open = await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const tile = host.querySelector<HTMLButtonElement>(".library-image")!;
+	const path = tile.getAttribute("aria-label")!;
+	const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+	await act(async () => tile.dispatchEvent(event));
+	expect(event.defaultPrevented).toBe(true);
+	const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+	const reveal = menu.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+	expect(reveal.textContent).toBe("Afficher dans Finder");
+	await act(async () => reveal.click());
+	expect(revealFile).toHaveBeenCalledWith("/fixture", path);
+	expect(open).not.toHaveBeenCalled();
+	expect(document.activeElement).toBe(tile);
+	await act(async () =>
+		tile.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+		),
+	);
+	expect(document.querySelector('[role="menu"]')).not.toBeNull();
+	await act(async () =>
+		document.activeElement!.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+		),
+	);
+	expect(document.querySelector('[role="menu"]')).toBeNull();
+	expect(document.activeElement).toBe(tile);
+	await act(async () => tile.click());
+	await flush();
+	const dialog = document.querySelector<HTMLDialogElement>("dialog.library-lightbox")!;
+	const viewport = dialog.querySelector<HTMLElement>(".image-viewport")!;
+	await act(async () =>
+		viewport.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	expect(dialog.querySelector('[role="menu"]')).not.toBeNull();
+	await act(async () => dialog.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+	expect(revealFile).toHaveBeenLastCalledWith("/fixture", path);
+	expect(dialog.isConnected).toBe(true);
 });

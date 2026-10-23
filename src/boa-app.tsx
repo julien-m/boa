@@ -38,6 +38,7 @@ import { countRepos, type Project, type Summary } from "./models";
 import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
+import { SearchInput } from "./search-input";
 import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
@@ -241,7 +242,11 @@ export default function App() {
 			setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
 		};
 		window.addEventListener("boa:resume-draft", resume);
-		return () => window.removeEventListener("boa:resume-draft", resume);
+		window.addEventListener("boa:open-file", resume);
+		return () => {
+			window.removeEventListener("boa:resume-draft", resume);
+			window.removeEventListener("boa:open-file", resume);
+		};
 	}, [workspace.data?.spaces]);
 	const handleProjectRefresh = (): void => {
 		if (selected) {
@@ -628,16 +633,17 @@ export default function App() {
 										<option value="grid">{t("grid")}</option>
 										<option value="list">{t("list")}</option>
 									</select>
-									<label className="search-field">
+									<div className="search-field">
 										<Search size={14} />
-										<input
+										<SearchInput
 											data-testid="project-search"
 											placeholder={t("searchProjects")}
 											value={search}
+											onClear={() => setSearch("")}
 											onChange={(event) => setSearch(event.target.value)}
 											aria-label={t("searchProjects")}
 										/>
-									</label>
+									</div>
 									<button
 										type="button"
 										data-testid="filter-changes"

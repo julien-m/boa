@@ -12,6 +12,7 @@ import { api } from "./api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { FileAssetPreview } from "./file-asset-preview";
 import { useFileEditing } from "./file-editing";
+import { localMarkdownLink } from "./markdown-links";
 import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
 import { relocateLine } from "./reading-position";
@@ -80,8 +81,9 @@ function language(path: string): string {
 interface CodeViewerProps {
 	selection: Selection | null;
 	compact?: boolean;
+	onOpen?: (selection: Selection) => void;
 }
-export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
+export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerProps) {
 	const { t } = useTranslation("workspace");
 	const editing = useFileEditing();
 	const draft = selection && !selection.repo ? editing.draft(selection.project, selection.path) : undefined;
@@ -450,10 +452,29 @@ export function CodeViewer({ selection, compact = false }: CodeViewerProps) {
 						project={selection.project}
 						path={selection.path}
 						content={query.data.modified}
-						navigation={selection.line ? selection : undefined}
+						navigation={selection.line || selection.anchor !== undefined ? selection : undefined}
 						restorePosition={
 							markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined
 						}
+						onOpenLink={(href) => {
+							void (async () => {
+								const document =
+									selection.absolutePath ?? `${selection.repo ?? selection.project}/${selection.path}`;
+								const link = localMarkdownLink(href, document);
+								if (!link) {
+									await writeText(href);
+									setNotice({ key: "viewer.linkCopied" });
+									return;
+								}
+								const inside = !selection.absolutePath && link.file.startsWith(`${selection.project}/`);
+								const target = inside
+									? { project: selection.project, path: link.file.slice(selection.project.length + 1) }
+									: await api.navigate(link.file);
+								const next = { ...target, anchor: link.anchor, navigationId: crypto.randomUUID() };
+								if (onOpen) onOpen(next);
+								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: next }));
+							})().catch((error: unknown) => setNotice({ key: "viewer.rawError", error: String(error) }));
+						}}
 						onCopyLink={(href) => {
 							void writeText(href).then(
 								() => setNotice({ key: "viewer.linkCopied" }),
