@@ -8,6 +8,7 @@ import { FileWorkspace } from "./file-workspace";
 import { matchesImage } from "./image-library";
 import "./i18n";
 
+const setPreferences = vi.hoisted(() => vi.fn());
 const images = vi.hoisted(() => vi.fn());
 const thumbnail = vi.hoisted(() => vi.fn());
 const revealFile = vi.hoisted(() => vi.fn());
@@ -16,6 +17,7 @@ vi.mock("./file-workspace-api", async (load) => ({
 	...(await load<typeof import("./file-workspace-api")>()),
 	fileWorkspace: {
 		preferences: async () => ({ filtered: false, included: [], pins: [], sort: "name" }),
+		setPreferences,
 		images,
 		thumbnail,
 	},
@@ -45,6 +47,7 @@ beforeEach(() => {
 			disconnect() {}
 		},
 	);
+	setPreferences.mockReset().mockImplementation(async (_root, value) => value);
 	images.mockReset().mockResolvedValue({
 		images: [
 			{ name: "one.png", path: "assets/one.png", format: "png", size: 100, modified: 1 },
@@ -213,6 +216,9 @@ it("browses filtered images with buttons and arrows, keeps fullscreen and restor
 	const open = await render();
 	await act(async () => button("Bibliothèque").click());
 	await flush();
+	const paths = [...host.querySelectorAll<HTMLButtonElement>(".library-image")].map(
+		(tile) => tile.getAttribute("aria-label")!,
+	);
 	const tile = host.querySelector<HTMLButtonElement>(".library-image")!;
 	await act(async () => tile.click());
 	await flush();
@@ -228,18 +234,18 @@ it("browses filtered images with buttons and arrows, keeps fullscreen and restor
 	);
 	await flush();
 	expect(document.activeElement).toBe(dialog.querySelector('button[aria-label="Fermer"]'));
-	expect(previewImage).toHaveBeenLastCalledWith({ project: "/fixture", path: "logo.svg" });
-	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("logo.svg");
+	expect(previewImage).toHaveBeenLastCalledWith({ project: "/fixture", path: paths[1] });
+	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe(paths[1].split("/").pop());
 	expect(dialog.classList.contains("fullscreen")).toBe(true);
 	await act(async () =>
 		dialog
 			.querySelector('input[type="range"]')!
 			.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })),
 	);
-	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("logo.svg");
+	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe(paths[1].split("/").pop());
 	await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true })));
 	await flush();
-	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("one.png");
+	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe(paths[0].split("/").pop());
 	await act(async () => dialog.dispatchEvent(new Event("cancel", { cancelable: true })));
 	expect(document.querySelector("dialog.library-lightbox")).toBeNull();
 	expect(document.activeElement).toBe(tile);
@@ -251,6 +257,9 @@ it("keeps image navigation available after a preview failure", async () => {
 	const open = await render();
 	await act(async () => button("Bibliothèque").click());
 	await flush();
+	const paths = [...host.querySelectorAll<HTMLButtonElement>(".library-image")].map(
+		(tile) => tile.getAttribute("aria-label")!,
+	);
 	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
 	await flush();
 	const dialog = document.querySelector<HTMLDialogElement>("dialog.library-lightbox")!;
@@ -259,7 +268,7 @@ it("keeps image navigation available after a preview failure", async () => {
 		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image suivante"]')!.click(),
 	);
 	await flush();
-	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe("logo.svg");
+	expect(dialog.querySelector("img")?.getAttribute("alt")).toBe(paths[1].split("/").pop());
 	expect(open).not.toHaveBeenCalled();
 });
 
@@ -345,81 +354,94 @@ it("revealing an already open file clears a selection in another root", async ()
 	expect(host.querySelector(".tree-row.selected")?.getAttribute("data-testid")).toBe("file-assets/one.png");
 });
 
-it("loads batches or all metadata and preserves all after refresh", async () => {
-	const entries = Array.from({ length: 97 }, (_, index) => ({
+function paginationImages(count: number) {
+	return Array.from({ length: count }, (_, index) => ({
 		name: `image-${index}.png`,
 		path: `assets/image-${index}.png`,
 		format: "png",
 		size: 10,
 		modified: 1,
 	}));
+}
+
+it("loads the next batch without loading all remaining metadata", async () => {
+	const entries = paginationImages(97);
 	images.mockResolvedValue({ images: entries, limited: false });
 	await render();
 	await act(async () => button("Bibliothèque").click());
 	await flush();
-	const cards = () => host.querySelectorAll(".library-card").length;
-	const more = () => host.querySelector<HTMLButtonElement>(".library-more")!;
-	expect(cards()).toBe(48);
-	await act(async () => more().click());
-	expect(cards()).toBe(96);
+	expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+	await act(async () => host.querySelector<HTMLButtonElement>(".library-more")!.click());
+	expect(host.querySelectorAll(".library-card")).toHaveLength(96);
+	expect(button("Tout charger")).toBeDefined();
+	expect(thumbnail).not.toHaveBeenCalled();
+}, 2000);
+
+it("loads all metadata and includes newly returned images after refresh", async () => {
+	const entries = paginationImages(49);
+	images.mockResolvedValue({ images: entries, limited: false });
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
 	await act(async () => button("Tout charger").click());
-	expect(cards()).toBe(entries.length);
-	expect(more()).toBeNull();
+	expect(host.querySelectorAll(".library-card")).toHaveLength(entries.length);
+	expect(host.querySelector(".library-more")).toBeNull();
 	const added = { ...entries[0], name: "added.png", path: "assets/added.png" };
 	images.mockResolvedValue({ images: [...entries, added], limited: false });
 	await act(async () =>
 		host.querySelector<HTMLButtonElement>('button[aria-label="Actualiser les images"]')!.click(),
 	);
 	await flush();
-	expect(cards()).toBe(entries.length + 1);
+	expect(host.querySelectorAll(".library-card")).toHaveLength(entries.length + 1);
 	expect(thumbnail).not.toHaveBeenCalled();
 }, 2000);
 
-it("resets all-image pagination on filters and scope changes", async () => {
-	const entries = Array.from({ length: 49 }, (_, index) => ({
-		name: `image-${index}.png`,
-		path: `assets/image-${index}.png`,
-		format: "png",
-		size: 10,
-		modified: 1,
-	}));
-	images.mockResolvedValue({ images: entries, limited: false });
-	await render();
-	await act(async () => button("Bibliothèque").click());
-	await flush();
-	const cards = () => host.querySelectorAll(".library-card").length;
-	await act(async () => button("Tout charger").click());
-	await setValue(host.querySelector(".image-library input")!, "image");
-	expect(cards()).toBe(48);
-	await act(async () => button("Tout charger").click());
-	await setValue(host.querySelector(".image-library select")!, "png");
-	expect(cards()).toBe(48);
-	await act(async () => button("Tout charger").click());
-	await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="file-assets"]')!.click());
-	await flush();
-	expect(images).toHaveBeenLastCalledWith("/fixture", "assets");
-	expect(cards()).toBe(48);
-}, 2000);
+it.each(["name", "format", "scope"])(
+	"resets all-image pagination on %s change",
+	async (change) => {
+		images.mockResolvedValue({ images: paginationImages(49), limited: false });
+		await render();
+		await act(async () => button("Bibliothèque").click());
+		await flush();
+		await act(async () => button("Tout charger").click());
+		if (change === "name") await setValue(host.querySelector(".image-library input")!, "image");
+		else if (change === "format") await setValue(host.querySelector(".image-library select")!, "png");
+		else {
+			await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="file-assets"]')!.click());
+			await flush();
+			expect(images).toHaveBeenLastCalledWith("/fixture", "assets");
+		}
+		expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+	},
+	2000,
+);
 
-it("clears the library search with its button or Escape while retaining focus and resetting pagination", async () => {
-	const entries = Array.from({ length: 49 }, (_, index) => ({
-		name: `image-${index}.png`,
-		path: `image-${index}.png`,
-		format: "png",
-		size: 10,
-		modified: 1,
-	}));
-	images.mockResolvedValue({ images: entries, limited: false });
+it.each(["button", "Escape"])(
+	"clears the library search via %s, retaining focus and resetting pagination",
+	async (method) => {
+		images.mockResolvedValue({ images: paginationImages(49), limited: false });
+		await render();
+		await act(async () => button("Bibliothèque").click());
+		await flush();
+		const input = host.querySelector<HTMLInputElement>(".image-library input")!;
+		await setValue(input, "image");
+		await act(async () => button("Tout charger").click());
+		await act(async () => {
+			if (method === "button") host.querySelector<HTMLButtonElement>(".image-library .search-clear")!.click();
+			else input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		});
+		expect(input.value).toBe("");
+		expect(document.activeElement).toBe(input);
+		expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+	},
+	2000,
+);
+
+it("clears unmatched library results on Escape without propagating it", async () => {
 	await render();
 	await act(async () => button("Bibliothèque").click());
 	await flush();
 	const input = host.querySelector<HTMLInputElement>(".image-library input")!;
-	await setValue(input, "image");
-	await act(async () => button("Tout charger").click());
-	await act(async () => host.querySelector<HTMLButtonElement>(".image-library .search-clear")!.click());
-	expect(input.value).toBe("");
-	expect(document.activeElement).toBe(input);
-	expect(host.querySelectorAll(".library-card")).toHaveLength(48);
 	await setValue(input, "missing");
 	expect(host.querySelectorAll(".library-card")).toHaveLength(0);
 	const escaped = vi.fn();
@@ -429,7 +451,7 @@ it("clears the library search with its button or Escape while retaining focus an
 	expect(document.activeElement).toBe(input);
 	expect(escaped).not.toHaveBeenCalled();
 	document.body.removeEventListener("keydown", escaped);
-	expect(host.querySelectorAll(".library-card")).toHaveLength(48);
+	expect(host.querySelectorAll(".library-card")).toHaveLength(2);
 }, 2000);
 
 it("reveals the gallery image in Finder through mouse and keyboard context menus", async () => {
@@ -472,4 +494,69 @@ it("reveals the gallery image in Finder through mouse and keyboard context menus
 	await act(async () => dialog.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
 	expect(revealFile).toHaveBeenLastCalledWith("/fixture", path);
 	expect(dialog.isConnected).toBe(true);
+});
+
+it("shares persisted sorting with the tree, keeps filters and reports save failures", async () => {
+	images.mockResolvedValue({
+		images: [
+			{ name: "a.png", path: "a.png", format: "png", size: 2, modified: 10, added: 20 },
+			{ name: "z.png", path: "z.png", format: "png", size: 1, modified: 20, added: 10 },
+		],
+		limited: false,
+	});
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const select = host.querySelector<HTMLSelectElement>('.image-library select[aria-label="Trier par"]')!;
+	const grid = () =>
+		[...host.querySelectorAll(".library-image")].map((node) => node.getAttribute("aria-label"));
+	await setValue(host.querySelector(".image-library input")!, "png");
+	await setValue(select, "added-asc");
+	await flush();
+	expect(grid()).toEqual(["z.png", "a.png"]);
+	expect(client.getQueryData(["file-preferences", "/fixture"])).toMatchObject({ sort: "added-asc" });
+	await act(async () => button("Bibliothèque").click());
+	await act(async () => button("Bibliothèque").click());
+	expect(select.value).toBe("added-asc");
+	expect(host.querySelector<HTMLInputElement>(".image-library input")!.value).toBe("png");
+	setPreferences.mockRejectedValueOnce(new Error("save failed"));
+	await setValue(select, "size");
+	await flush();
+	expect(grid()).toEqual(["z.png", "a.png"]);
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain("save failed");
+});
+
+it("prevents tree and library preferences from overwriting each other during saves", async () => {
+	let finish!: () => void;
+	setPreferences.mockImplementation(
+		(_root, value) =>
+			new Promise((resolve) => {
+				finish = () => resolve(value);
+			}),
+	);
+	await render();
+	await act(async () =>
+		host.querySelector<HTMLButtonElement>('button[aria-label="Visibilité et tri"]')!.click(),
+	);
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const treeSort = host.querySelector<HTMLSelectElement>(".file-browser-options select")!;
+	const librarySort = host.querySelector<HTMLSelectElement>('.image-library select[aria-label="Trier par"]')!;
+	await setValue(librarySort, "added");
+	await flush();
+	expect(treeSort.disabled).toBe(true);
+	await setValue(treeSort, "created");
+	expect(setPreferences).toHaveBeenCalledTimes(1);
+	await act(async () => finish());
+	await flush();
+	expect(treeSort.value).toBe("added");
+	await setValue(treeSort, "size");
+	await flush();
+	expect(librarySort.disabled).toBe(true);
+	await setValue(librarySort, "name");
+	expect(setPreferences).toHaveBeenCalledTimes(2);
+	await act(async () => finish());
+	await flush();
+	expect(librarySort.value).toBe("size");
+	expect(client.getQueryData(["file-preferences", "/fixture"])).toMatchObject({ sort: "size" });
 });

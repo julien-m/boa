@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { orderedEntries, toggleIncluded } from "./file-browser";
+import { sortFiles } from "./file-sort";
 import { defaultPreferences, fileWorkspace, selectedPath, visiblePath } from "./file-workspace-api";
 import { i18n } from "./i18n";
 import { shortcutMatches, validSearchShortcuts } from "./search-shortcuts";
@@ -59,4 +60,30 @@ it("localizes command failures while preserving opaque paths and OS details", as
 	await i18n.changeLanguage("fr");
 	vi.mocked(invoke).mockRejectedValueOnce(`Projet inaccessible : ${payload}`);
 	await expect(fileWorkspace.preferences("/fixture")).rejects.toBe(`Projet inaccessible : ${payload}`);
+});
+
+it("sorts each criterion in both directions and puts unavailable metadata last", () => {
+	const entries = [
+		{ name: "a.png", path: "a.png", added: 30, created: 10, modified: 20, size: 3 },
+		{ name: "b.jpg", path: "b.jpg", added: 10, created: 20, modified: 30, size: 1 },
+		{ name: "c.svg", path: "c.svg", added: 20, created: 30, modified: 10, size: 2 },
+	];
+	for (const [sort, paths] of [
+		["name", ["a.png", "b.jpg", "c.svg"]],
+		["added", ["a.png", "c.svg", "b.jpg"]],
+		["created", ["c.svg", "b.jpg", "a.png"]],
+		["modified", ["b.jpg", "a.png", "c.svg"]],
+		["size", ["a.png", "c.svg", "b.jpg"]],
+		["type", ["b.jpg", "a.png", "c.svg"]],
+	] as const) {
+		expect(sortFiles(entries, sort).map((entry) => entry.path)).toEqual(paths);
+		const reverse = sort === "name" || sort === "type" ? `${sort}-desc` : `${sort}-asc`;
+		expect(sortFiles(entries, reverse).map((entry) => entry.path)).toEqual([...paths].reverse());
+		if (sort !== "name" && sort !== "type") {
+			const missing = { name: "unknown", path: "unknown", modified: 0 };
+			for (const direction of [sort, reverse])
+				expect(sortFiles([missing, ...entries], direction).at(-1)).toBe(missing);
+		}
+	}
+	expect(entries.map((entry) => entry.path)).toEqual(["a.png", "b.jpg", "c.svg"]);
 });

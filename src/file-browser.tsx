@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Filter, Images, Pin, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
@@ -10,6 +10,7 @@ import {
 	fileMenuTarget,
 } from "./file-context-menu";
 import { FileSearchPanel } from "./file-search-panel";
+import { FileSortOptions, sortFiles } from "./file-sort";
 import { FileSpaceAdd } from "./file-space-add";
 import { FileTree } from "./file-tree";
 import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
@@ -128,7 +129,24 @@ export function FileBrowser({
 		browser.current?.focus({ preventScroll: true });
 	};
 	const [error, setError] = useState("");
-	const [busy, setBusy] = useState(false);
+	const mutationKey = ["file-preferences", root];
+	const busy = useIsMutating({ mutationKey }) > 0;
+	const saving = useMutation({
+		mutationKey,
+		mutationFn: (request: { root: string; value: FilePreferences; previous: FilePreferences }) =>
+			fileWorkspace.setPreferences(request.root, request.value),
+		onMutate: (request) => {
+			client.setQueryData(["file-preferences", request.root], request.value);
+		},
+		onSuccess: (value, request) => {
+			client.setQueryData(["file-preferences", request.root], value);
+			void client.invalidateQueries({ queryKey: ["image-library", request.root] });
+		},
+		onError: (error, request) => {
+			client.setQueryData(["file-preferences", request.root], request.previous);
+			setError(String(error));
+		},
+	});
 	const [revealTarget, setRevealTarget] = useState("");
 	useEffect(() => {
 		const browse = (event: Event) => {
@@ -187,22 +205,9 @@ export function FileBrowser({
 		return () => window.removeEventListener("boa:tree-search", listener);
 	}, [root]);
 	const update = (value: FilePreferences) => {
-		if (busy) return;
-		setBusy(true);
+		if (client.isMutating({ mutationKey })) return;
 		setError("");
-		const previous = preferences;
-		client.setQueryData(["file-preferences", root], value);
-		void fileWorkspace
-			.setPreferences(root, value)
-			.then((p) => {
-				client.setQueryData(["file-preferences", root], p);
-				void client.invalidateQueries({ queryKey: ["image-library", root] });
-			})
-			.catch((e) => {
-				client.setQueryData(["file-preferences", root], previous);
-				setError(String(e));
-			})
-			.finally(() => setBusy(false));
+		saving.mutate({ root, value, previous: preferences });
 	};
 	const showContextMenu = (
 		event: FileMenuEvent,
@@ -384,14 +389,12 @@ export function FileBrowser({
 						{showAll ? l.restoreSelection : l.all}
 					</button>
 					<select
-						aria-label={l.filter}
+						aria-label={l.sort}
 						value={preferences.sort || "name"}
 						disabled={busy}
 						onChange={(e) => update({ ...preferences, sort: e.target.value })}
 					>
-						<option value="name">{l.nameSort}</option>
-						<option value="modified">{l.modifiedSort}</option>
-						<option value="modified-asc">{l.modifiedAscendingSort}</option>
+						<FileSortOptions />
 					</select>
 				</div>
 			)}
@@ -601,10 +604,5 @@ export function FileBrowser({
 	);
 }
 export function orderedEntries(entries: DirectoryEntry[], prefs: FilePreferences) {
-	return [...entries].sort((a, b) =>
-		prefs.sort === "modified" || prefs.sort === "modified-asc"
-			? ((b.modified ?? 0) - (a.modified ?? 0)) * (prefs.sort === "modified-asc" ? -1 : 1) ||
-				a.name.localeCompare(b.name)
-			: Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name),
-	);
+	return sortFiles(entries, prefs.sort);
 }

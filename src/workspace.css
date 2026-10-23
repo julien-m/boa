@@ -2445,3 +2445,7 @@ span.markdown-expandable {
 	min-width: 0;
 	max-width: none;
 }
+
+.navigation > .nav-button + .nav-section-title {
+	margin-top: 24px;
+}

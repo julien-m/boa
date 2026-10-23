@@ -34,6 +34,8 @@ export interface LibraryImage {
 	format: string;
 	size: number;
 	modified: number;
+	added?: number | null;
+	created?: number | null;
 }
 export const defaultPreferences: FilePreferences = { filtered: false, included: [], pins: [], sort: "name" };
 export const defaultShortcuts: SearchShortcuts = { contextual: "Mod+F", global: "Mod+Shift+F" };

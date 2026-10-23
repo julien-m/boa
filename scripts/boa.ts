@@ -18,7 +18,7 @@ boa open <fichier> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI
 boa spaces list [--json]
 boa spaces save <id> --name <nom> [--root <dossier>] [--file <fichier>] [--json] [--dry-run]
 boa spaces remove <id> [--json] [--dry-run]
-boa files configure <dossier> [--include <chemin-relatif>] [--pin <chemin-relatif>] [--sort name|modified|modified-asc] [--all] [--json] [--dry-run]
+boa files configure <dossier> [--include <chemin-relatif>] [--pin <chemin-relatif>] [--sort name|name-desc|added|added-asc|modified|modified-asc|created|created-asc|type|type-desc|size|size-asc] [--all] [--json] [--dry-run]
 boa files preferences <dossier> [--json]
 boa projects list [--json]
 boa projects add <dossier> [--pin] [--json] [--dry-run]
@@ -109,7 +109,23 @@ export function parseWorkspace(args: string[]): ProjectRequest {
 		request = { action: "preferences", root: resolve(positional[0]) };
 	else if (group === "files" && action === "configure" && positional.length === 1) {
 		const sort = values["--sort"]?.[0] ?? "name";
-		if (!["name", "modified", "modified-asc"].includes(sort)) throw new Error("Invalid sort");
+		if (
+			![
+				"name",
+				"name-desc",
+				"added",
+				"added-asc",
+				"modified",
+				"modified-asc",
+				"created",
+				"created-asc",
+				"type",
+				"type-desc",
+				"size",
+				"size-asc",
+			].includes(sort)
+		)
+			throw new Error("Invalid sort");
 		request = {
 			action: "set-preferences",
 			root: resolve(positional[0]),

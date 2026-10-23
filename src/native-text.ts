@@ -15,6 +15,7 @@ const englishText: Record<string, string> = {
 	"Ce fichier est en lecture seule.": "This file is read-only.",
 	"Le fichier a changé sur le disque. Annulez puis rouvrez l’édition pour repartir de sa version actuelle.":
 		"The file changed on disk. Cancel and reopen editing to start from its current version.",
+	"Image trop volumineuse (32 Mo maximum).": "Image too large (32 MB maximum).",
 	"Image trop volumineuse (8 Mo maximum).": "Image too large (8 MB maximum).",
 	"Format d’image non pris en charge.": "Unsupported image format.",
 	"Aucun dépôt distant web configuré": "No web remote configured",

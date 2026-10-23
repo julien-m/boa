@@ -51,11 +51,11 @@ fn markdown_images_resolve_relative_paths_and_refuse_external_or_oversized_data(
     fs::write(root.join("images/not-image.png"), "private text").unwrap();
     assert!(files::markdown_image(&root, "docs/README.md", "../images/not-image.png").is_err());
     let large = fs::File::create(root.join("images/large.png")).unwrap();
-    large.set_len(8 * 1024 * 1024 + 1).unwrap();
+    large.set_len(files::IMAGE_LIMIT + 1).unwrap();
     assert!(
         files::markdown_image(&root, "docs/README.md", "../images/large.png")
             .unwrap_err()
-            .contains("8 Mo")
+            .contains("32 Mo")
     );
 }
 
@@ -984,11 +984,11 @@ fn file_preview_fallbacks_are_bounded_and_external_open_requires_a_regular_regis
     let large = root.path().join("large.png");
     fs::File::create(&large)
         .unwrap()
-        .set_len(8 * 1024 * 1024 + 1)
+        .set_len(files::IMAGE_LIMIT + 1)
         .unwrap();
     let result = files::file_preview(root.path(), "large.png").unwrap();
     assert_eq!(result.kind, "unsupported");
-    assert!(result.reason.unwrap().contains("8 Mo"));
+    assert!(result.reason.unwrap().contains("32 Mo"));
     assert!(result.data_url.is_none());
     fs::write(root.path().join("broken.png"), "not an image").unwrap();
     assert_eq!(

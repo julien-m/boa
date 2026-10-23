@@ -7,7 +7,7 @@ use std::{
 };
 
 pub(crate) const FILE_LIMIT: u64 = 2 * 1024 * 1024;
-const IMAGE_LIMIT: u64 = 8 * 1024 * 1024;
+pub(crate) const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
     let document = confined(root, document)?;
@@ -40,7 +40,7 @@ fn image_data(path: &Path) -> Result<String, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > IMAGE_LIMIT {
-        return Err("Image trop volumineuse (8 Mo maximum).".into());
+        return Err("Image trop volumineuse (32 Mo maximum).".into());
     }
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
@@ -112,6 +112,67 @@ pub(crate) fn decode(bytes: Vec<u8>) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "Ce fichier n’est pas encodé en UTF-8.".into())
 }
 
+/// macOS records when an item was added to its containing directory separately from birth time.
+/// Unsupported filesystems return None; do not substitute creation or modification dates.
+pub(crate) fn added_time(path: &Path) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::{ffi::CString, os::unix::ffi::OsStrExt};
+        let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+        let mut attributes = libc::attrlist {
+            bitmapcount: libc::ATTR_BIT_MAP_COUNT,
+            reserved: 0,
+            commonattr: libc::ATTR_CMN_ADDEDTIME,
+            volattr: 0,
+            dirattr: 0,
+            fileattr: 0,
+            forkattr: 0,
+        };
+        // getattrlist packs its u32 length followed by a timespec at 4-byte alignment.
+        let mut buffer = [0u8; size_of::<u32>() + size_of::<libc::timespec>()];
+        // SAFETY: the path is NUL-terminated and both buffers are valid for the declared sizes.
+        let status = unsafe {
+            libc::getattrlist(
+                path.as_ptr(),
+                (&mut attributes as *mut libc::attrlist).cast(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                libc::FSOPT_NOFOLLOW,
+            )
+        };
+        if status != 0 || u32::from_ne_bytes(buffer[..4].try_into().ok()?) as usize != buffer.len()
+        {
+            return None;
+        }
+        // SAFETY: the returned buffer contains a complete, potentially unaligned timespec.
+        let time = unsafe {
+            buffer
+                .as_ptr()
+                .add(4)
+                .cast::<libc::timespec>()
+                .read_unaligned()
+        };
+        if time.tv_sec <= 0 || !(0..1_000_000_000).contains(&time.tv_nsec) {
+            return None;
+        }
+        Some(time.tv_sec as u64 * 1000 + time.tv_nsec as u64 / 1_000_000)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+pub(crate) fn created_time(metadata: &fs::Metadata) -> Option<u64> {
+    metadata
+        .created()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|t| t.as_millis() as u64)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Entry {
@@ -121,6 +182,9 @@ pub(crate) struct Entry {
     pub symlink: bool,
     pub repository: bool,
     pub modified: u64,
+    pub added: Option<u64>,
+    pub created: Option<u64>,
+    pub size: Option<u64>,
 }
 
 pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, String> {
@@ -131,7 +195,11 @@ pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, Strin
             .ok_or("Nom de fichier invalide")?
             .to_string_lossy()
             .to_string();
+        let metadata = fs::metadata(root).ok();
         return Ok(vec![Entry {
+            added: added_time(root),
+            created: metadata.as_ref().and_then(created_time),
+            size: metadata.as_ref().map(|m| m.len()),
             name: name.clone(),
             path: name,
             directory: false,
@@ -165,7 +233,15 @@ pub(crate) fn directory(root: &Path, relative: &str) -> Result<Vec<Entry>, Strin
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         let is_directory = kind.is_dir()
             || (kind.is_symlink() && entry.path().canonicalize().is_ok_and(|path| path.is_dir()));
+        let metadata = entry.metadata().ok();
         result.push(Entry {
+            added: added_time(&entry.path()),
+            created: metadata.as_ref().and_then(created_time),
+            size: if is_directory {
+                None
+            } else {
+                metadata.as_ref().map(|m| m.len())
+            },
             modified: entry
                 .metadata()
                 .ok()
