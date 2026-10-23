@@ -155,9 +155,9 @@ Right-click a file, folder or pinned item for BOA actions: reveal in Finder, ope
 
 Un clic droit sur un fichier, dossier ou favori ouvre le menu BOA : retrouver dans Finder, ouvrir, conserver l’onglet, copier le nom/chemin, épingler ou préparer un message de contexte. Les images proposent le plein écran et la comparaison ; les dossiers proposent leur bibliothèque et leur recherche. Le menu est aussi accessible avec Maj+F10 et suit la langue de l’application.
 
-Markdown links to local files open in BOA, relative to the current document. Heading anchors work within a document and across linked files; repeated heading titles get distinct anchors. Navigation preserves active drafts. Files outside the current root must belong to another registered project or space. External URLs keep the existing copy-link behavior.
+Markdown links to local files open in BOA, relative to the current document. Heading anchors work within a document and across linked files; repeated heading titles get distinct anchors. Navigation preserves active drafts. Files outside the current root must belong to another registered project or space; following a link restores an archived target project before opening its file. External URLs keep the existing copy-link behavior.
 
-Les liens Markdown vers des fichiers locaux s’ouvrent dans BOA, relativement au document courant. Les ancres fonctionnent dans le même document et dans un autre fichier ; les titres répétés ont des ancres distinctes. Les brouillons sont conservés. Un fichier hors du dossier courant doit appartenir à un autre projet ou espace enregistré.
+Les liens Markdown vers des fichiers locaux s’ouvrent dans BOA, relativement au document courant. Les ancres fonctionnent dans le même document et dans un autre fichier ; les titres répétés ont des ancres distinctes. Les brouillons sont conservés. Un fichier hors du dossier courant doit appartenir à un autre projet ou espace enregistré ; un projet cible archivé est restauré avant l’ouverture du fichier.
 
 Right-click a Library thumbnail or its enlarged preview (or press Shift+F10) to reveal that image in Finder without leaving the gallery. Le clic droit sur une vignette ou l’aperçu agrandi de la Bibliothèque propose **Afficher dans Finder**, aussi accessible avec Maj+F10.
 

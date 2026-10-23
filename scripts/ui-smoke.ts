@@ -204,10 +204,15 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				item.path === args.project ? { ...item, archived: Boolean(args.archived) } : item,
 			);
 			return null;
-		case "add_project":
-			if (args.path !== directory) throw new Error("Unexpected import path");
-			registeredProjects = [{ ...project, ...registeredProjects[0], archived: false }];
-			return registeredProjects[0];
+		case "add_project": {
+			const existing = registeredProjects.find((item) => item.path === args.path);
+			if (!existing && args.path !== directory) throw new Error("Unexpected import path");
+			const added = { ...project, ...existing, archived: false };
+			registeredProjects = existing
+				? registeredProjects.map((item) => (item.path === added.path ? added : item))
+				: [...registeredProjects, added];
+			return added;
+		}
 		case "pin_project":
 			registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: Boolean(args.pinned) }));
 			return null;
@@ -1030,6 +1035,20 @@ try {
 	await page.getByTestId("archives-nav").click();
 	await page.getByTestId("restore-Auto QA").click();
 	await expect.poll(() => summaryCalls).toBe(beforeRestore + 1);
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("archive-project-Auto QA").click();
+	await page.evaluate(
+		(project) =>
+			window.dispatchEvent(
+				new CustomEvent("boa:open-file", {
+					detail: { project, path: "sample.ts", anchor: "", navigationId: crypto.randomUUID() },
+				}),
+			),
+		`${directory}/auto`,
+	);
+	await expect(page.getByTestId("project-view")).toBeVisible();
+	await expect(page.locator(".project-header")).toContainText("Auto QA");
+	expect(registeredProjects.find((item) => item.name === "Auto QA")?.archived).toBe(false);
 	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("archive-project-Auto QA").click();
 	await page.getByTestId("settings-nav").click();

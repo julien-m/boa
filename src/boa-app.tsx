@@ -233,13 +233,25 @@ export default function App() {
 	useEffect(() => {
 		const resume = (event: Event): void => {
 			const target = (event as CustomEvent<Selection>).detail;
-			setSelectedSpace(
-				workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project))?.id ?? null,
-			);
-			setSelectedPath(target.project);
-			setSettingsOpen(false);
-			setArchivesOpen(false);
-			setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
+			const containing = workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project));
+			const navigate = () => {
+				setSelectedSpace(containing?.id ?? null);
+				setSelectedPath(target.project);
+				setSettingsOpen(false);
+				setArchivesOpen(false);
+				setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
+			};
+			if (
+				!containing &&
+				(event.type === "boa:open-file" ||
+					projects.data?.some((project) => project.path === target.project && project.archived))
+			) {
+				void api
+					.add(target.project)
+					.then(() => client.invalidateQueries({ queryKey: ["projects"] }))
+					.then(navigate)
+					.catch((error: unknown) => setNotice(localizeNativeText(String(error))));
+			} else navigate();
 		};
 		window.addEventListener("boa:resume-draft", resume);
 		window.addEventListener("boa:open-file", resume);
@@ -247,7 +259,7 @@ export default function App() {
 			window.removeEventListener("boa:resume-draft", resume);
 			window.removeEventListener("boa:open-file", resume);
 		};
-	}, [workspace.data?.spaces]);
+	}, [workspace.data?.spaces, projects.data, client]);
 	const handleProjectRefresh = (): void => {
 		if (selected) {
 			void client.invalidateQueries({ queryKey: ["summary", selected.path] });
