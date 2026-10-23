@@ -198,8 +198,22 @@ pub(crate) fn execute(state: &AppState, request: Request) -> Result<Value, Strin
                 state.registered(root)?;
                 if preferences.included.len() > 1000
                     || preferences.pins.len() > 1000
-                    || !["", "name", "modified", "modified-asc"]
-                        .contains(&preferences.sort.as_str())
+                    || ![
+                        "",
+                        "name",
+                        "name-desc",
+                        "added",
+                        "added-asc",
+                        "modified",
+                        "modified-asc",
+                        "created",
+                        "created-asc",
+                        "type",
+                        "type-desc",
+                        "size",
+                        "size-asc",
+                    ]
+                    .contains(&preferences.sort.as_str())
                     || preferences
                         .included
                         .iter()
@@ -755,7 +769,7 @@ mod tests {
                     filtered: true,
                     included: vec![".codex//skills/".into()],
                     pins: vec![".codex//skills/a.md".into()],
-                    sort: "modified-asc".into(),
+                    sort: "added-asc".into(),
                 },
             },
         )
@@ -768,7 +782,7 @@ mod tests {
                 .unwrap()
                 .file_preferences[&root.canonicalize().unwrap().to_string_lossy().to_string()]
                 .sort,
-            "modified-asc"
+            "added-asc"
         );
         let result = execute(
             &state,

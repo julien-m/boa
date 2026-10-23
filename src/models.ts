@@ -35,6 +35,9 @@ export interface DirectoryEntry {
 	symlink: boolean;
 	repository: boolean;
 	modified?: number;
+	added?: number | null;
+	created?: number | null;
+	size?: number | null;
 }
 export interface Preview {
 	kind?: "text" | "image" | "unsupported";

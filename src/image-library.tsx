@@ -1,8 +1,14 @@
 /** Folder-scoped thumbnails are fetched only as their cards approach the viewport. */
-import { useQuery } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderSearch, ImageOff, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { fileWorkspace, type LibraryImage } from "./file-workspace-api";
+import { FileSortOptions, sortFiles } from "./file-sort";
+import {
+	defaultPreferences,
+	type FilePreferences,
+	fileWorkspace,
+	type LibraryImage,
+} from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { useFinderContextMenu } from "./finder-context-menu";
 import { ImageLibraryPreview } from "./image-library-preview";
@@ -132,6 +138,21 @@ export function ImageLibrary({
 }) {
 	const l = useFileLabels();
 	const hintId = useId();
+	const client = useQueryClient();
+	const pref = useQuery({
+		queryKey: ["file-preferences", root],
+		queryFn: () => fileWorkspace.preferences(root),
+		retry: false,
+	});
+	const preferences = pref.data ?? defaultPreferences;
+	const mutationKey = ["file-preferences", root];
+	const busy = useIsMutating({ mutationKey }) > 0;
+	const sorting = useMutation({
+		mutationKey,
+		mutationFn: (request: { root: string; preferences: FilePreferences }) =>
+			fileWorkspace.setPreferences(request.root, request.preferences),
+		onSuccess: (value, request) => client.setQueryData(["file-preferences", request.root], value),
+	});
 	const [filter, setFilter] = useState("");
 	const [format, setFormat] = useState("");
 	const [count, setCount] = useState(48);
@@ -144,8 +165,11 @@ export function ImageLibrary({
 		staleTime: 30_000,
 		refetchOnWindowFocus: false,
 	});
-	const images = (query.data?.images ?? []).filter(
-		(image) => (!format || image.format === format) && matchesImage(image.path, filter),
+	const images = sortFiles(
+		(query.data?.images ?? []).filter(
+			(image) => (!format || image.format === format) && matchesImage(image.path, filter),
+		),
+		preferences.sort,
 	);
 	const index = images.findIndex((image) => image.path === preview?.path);
 	useEffect(() => {
@@ -213,6 +237,17 @@ export function ImageLibrary({
 						</option>
 					))}
 				</select>
+				<select
+					aria-label={l.sort}
+					value={preferences.sort || "name"}
+					disabled={pref.isPending || !!pref.error || busy}
+					onChange={(e) => {
+						if (!client.isMutating({ mutationKey }))
+							sorting.mutate({ root, preferences: { ...preferences, sort: e.target.value } });
+					}}
+				>
+					<FileSortOptions />
+				</select>
 				<button
 					type="button"
 					className="icon-button"
@@ -229,6 +264,11 @@ export function ImageLibrary({
 			<small id={hintId} className="library-search-hint">
 				{l.imageSearchHint}
 			</small>
+			{(pref.error || sorting.error) && (
+				<p className="inline-error" role="alert">
+					{String(pref.error || sorting.error)}
+				</p>
+			)}
 			{query.error && (
 				<p className="inline-error" role="alert">
 					{String(query.error)}

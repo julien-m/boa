@@ -104,11 +104,12 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 					images: (fileSpaces.some((s) => s.files?.includes(root))
 						? [root.split("/").pop()!]
 						: ["preview.png", "preview-second.png"]
-					).map((name) => ({
+					).map((name, index) => ({
 						name,
 						path: name,
 						format: "png",
 						modified: 1,
+						added: index + 1,
 						size: 100,
 					})),
 					limited: false,
@@ -1140,7 +1141,7 @@ try {
 	await page.locator(".file-browser-options").getByRole("button", { name: "Fermer", exact: true }).click();
 	await expect(page.getByTestId("file-config.json")).toBeVisible();
 	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
-	await page.getByRole("combobox", { name: "Visibilité et tri", exact: true }).selectOption("modified-asc");
+	await page.getByRole("combobox", { name: "Trier par", exact: true }).selectOption("modified-asc");
 	await expect.poll(() => filePreferences[directory]?.sort).toBe("modified-asc");
 	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
 	await page.getByRole("button", { name: "Désépingler sample.ts", exact: true }).click();
@@ -1160,9 +1161,7 @@ try {
 	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
 	await expect(page.locator(".tree-pins")).toContainText("sample.ts");
 	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
-	await expect(page.getByRole("combobox", { name: "Visibilité et tri", exact: true })).toHaveValue(
-		"modified-asc",
-	);
+	await expect(page.getByRole("combobox", { name: "Trier par", exact: true })).toHaveValue("modified-asc");
 	await page.getByRole("checkbox", { name: "Sélection visible", exact: true }).uncheck();
 	await expect.poll(() => filePreferences[directory]?.filtered).toBe(false);
 	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
@@ -1215,6 +1214,15 @@ try {
 		.poll(() => page.locator(".image-library").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
 	await expect(page.locator(".library-thumbnail img").first()).toBeVisible();
+	const librarySort = page.locator('.image-library select[aria-label="Trier par"]');
+	await librarySort.selectOption("added");
+	await expect.poll(() => filePreferences[`${directory}/second`]?.sort).toBe("added");
+	await expect(page.locator(".library-image").first()).toHaveAttribute("aria-label", "preview-second.png");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-library-sorting.png") });
+	await librarySort.selectOption("added-asc");
+	await expect(page.locator(".library-image").first()).toHaveAttribute("aria-label", "preview.png");
+	await librarySort.selectOption("name");
 	await page.getByLabel("Format d’image", { exact: true }).selectOption("png");
 	await page.getByRole("searchbox", { name: "Filtrer les images…", exact: true }).fill("preview + png");
 	await expect(page.locator(".library-card")).toHaveCount(2);
@@ -1230,7 +1238,8 @@ try {
 	await expect(libraryFilter).toBeFocused();
 	await libraryFilter.fill("preview + png");
 	const libraryTile = page.locator(".library-image").first();
-	const libraryPath = await libraryTile.getAttribute("aria-label");
+	const libraryPath = (await libraryTile.getAttribute("aria-label"))!;
+	const nextLibraryPath = (await page.locator(".library-image").nth(1).getAttribute("aria-label"))!;
 	await libraryTile.click({ button: "right" });
 	await page.getByRole("menuitem", { name: "Afficher dans Finder", exact: true }).click();
 	await expect
@@ -1246,7 +1255,7 @@ try {
 	const lightbox = page.getByRole("dialog", { name: "Prévisualisation des images", exact: true });
 	await expect(lightbox).toBeVisible();
 	await expect(page.locator(".workspace-reader")).toBeHidden();
-	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	await expect
 		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
@@ -1276,14 +1285,14 @@ try {
 		Reflect.set(window, "boaScaleFrames", { violations, sources, stop: () => cancelAnimationFrame(frame) });
 	});
 	await page.keyboard.press("ArrowRight");
-	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview-second.png");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", nextLibraryPath);
 	await expect(lightbox).toHaveClass(/fullscreen/);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await page.evaluate(
 		() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
 	);
 	await page.keyboard.press("PageUp");
-	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
 	const frames = await page.evaluate(async () => {
@@ -1301,7 +1310,7 @@ try {
 	await lightbox.getByRole("menuitem", { name: "Afficher dans Finder", exact: true }).click();
 	await expect
 		.poll(() => finderRequests.at(-1))
-		.toEqual({ project: `${directory}/second`, path: "preview.png" });
+		.toEqual({ project: `${directory}/second`, path: libraryPath });
 	await expect(lightbox).toBeVisible();
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-scale.png") });
@@ -1330,7 +1339,7 @@ try {
 	await page.keyboard.press("Home");
 	await page.keyboard.press("ArrowRight");
 	await expect(comparison.locator(".image-comparison-overlay")).toHaveCSS("clip-path", /99%/);
-	await expect(lightbox.locator(".image-pixel-surface img")).toHaveAttribute("alt", "preview.png");
+	await expect(lightbox.locator(".image-pixel-surface img")).toHaveAttribute("alt", libraryPath);
 	await page.keyboard.press("Escape");
 	await expect(comparison).toHaveCount(0);
 	await expect(lightbox).toBeVisible();

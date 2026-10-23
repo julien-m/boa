@@ -49,7 +49,7 @@ pub(super) fn list(state: &AppState, root: &str, folder: &str) -> Result<Value, 
                 return Ok(json!({"images":[],"limited":false}));
             }
             vec![
-                json!({"path":name,"name":name,"format":format,"size":metadata.len(),"modified":metadata.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map_or(0,|t|t.as_millis() as u64)}),
+                json!({"path":name,"name":name,"format":format,"size":metadata.len(),"added":files::added_time(&base),"created":files::created_time(&metadata),"modified":metadata.modified().ok().and_then(|t|t.duration_since(UNIX_EPOCH).ok()).map_or(0,|t|t.as_millis() as u64)}),
             ]
         } else {
             vec![]
@@ -145,7 +145,7 @@ pub(super) fn list(state: &AppState, root: &str, folder: &str) -> Result<Value, 
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|t| t.as_millis() as u64)
                 .unwrap_or(0);
-            images.push(json!({"path":relative,"name":name,"format":format,"size":metadata.len(),"modified":modified}));
+            images.push(json!({"path":relative,"name":name,"format":format,"size":metadata.len(),"added":files::added_time(&path),"created":files::created_time(&metadata),"modified":modified}));
         }
     }
     images.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
@@ -273,6 +273,24 @@ mod tests {
         symlink(temp.path().join("outside.svg"), root.join("link.svg")).unwrap();
         let result = list(&state, &root_name, "").unwrap();
         assert_eq!(result["images"].as_array().unwrap().len(), 3);
+        let image = result["images"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|image| image["path"] == "other.svg")
+            .unwrap();
+        let file = files::directory(&root, "")
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.path == "other.svg")
+            .unwrap();
+        assert_eq!(image["created"], json!(file.created));
+        assert_eq!(image["added"], json!(file.added));
+        assert_eq!(image["size"], json!(file.size));
+        assert!(file.created.is_some());
+        #[cfg(target_os = "macos")]
+        assert!(file.added.is_some());
+        assert_eq!(files::added_time(&root.join("missing")), None);
         assert_eq!(
             list(&state, &root_name, "nested").unwrap()["images"]
                 .as_array()

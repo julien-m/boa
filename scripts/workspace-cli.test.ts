@@ -46,8 +46,20 @@ describe("workspace CLI requests", () => {
 	});
 });
 
-it("accepts oldest-first ordering through the public CLI boundary", () => {
-	const sort = "modified-asc";
+it.each([
+	"name",
+	"name-desc",
+	"added",
+	"added-asc",
+	"modified",
+	"modified-asc",
+	"created",
+	"created-asc",
+	"type",
+	"type-desc",
+	"size",
+	"size-asc",
+])("accepts %s ordering through the public CLI boundary", (sort) => {
 	expect(parseWorkspace(["files", "configure", "/tmp/chronology", "--sort", sort])).toMatchObject({
 		request: { preferences: { sort } },
 	});
