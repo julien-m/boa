@@ -168,7 +168,7 @@ pub(super) fn thumbnail(state: &AppState, root: &str, relative: &str) -> Result<
     let cap = if kind == "svg" {
         128 * 1024
     } else {
-        8 * 1024 * 1024
+        files::IMAGE_LIMIT
     };
     let mut bytes = Vec::new();
     file.take(cap + 1)
@@ -187,9 +187,9 @@ pub(super) fn thumbnail(state: &AppState, root: &str, relative: &str) -> Result<
             .with_guessed_format()
             .map_err(|e| e.to_string())?;
         let mut limits = image::Limits::default();
-        limits.max_image_width = Some(4096);
-        limits.max_image_height = Some(4096);
-        limits.max_alloc = Some(64 * 1024 * 1024);
+        limits.max_image_width = Some(8192);
+        limits.max_image_height = Some(8192);
+        limits.max_alloc = Some(128 * 1024 * 1024);
         reader.limits(limits);
         let decoded = reader.decode().map_err(|_| "Miniature indisponible")?;
         let mut output = Cursor::new(Vec::new());
@@ -211,6 +211,43 @@ mod tests {
     use super::*;
     use crate::file_workspace::{Preferences, Request, execute};
     use std::os::unix::fs::symlink;
+    #[test]
+    fn previews_and_thumbnails_support_high_resolution_jpeg_above_eight_mib() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("images");
+        fs::create_dir(&root).unwrap();
+        let path = root.join("wide.jpg");
+        image::RgbImage::new(5000, 4).save(&path).unwrap();
+        // JPEG readers ignore trailing bytes; keep a small decoded fixture above the former byte cap.
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(8 * 1024 * 1024 + 1)
+            .unwrap();
+        let preview = files::file_preview(&root, "wide.jpg").unwrap();
+        assert_eq!(preview.kind, "image", "{:?}", preview.reason);
+        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let root_name = root.to_string_lossy().into_owned();
+        execute(
+            &state,
+            Request::SaveSpace {
+                id: "images".into(),
+                name: "Images".into(),
+                files: vec![],
+                roots: vec![root_name.clone()],
+            },
+        )
+        .unwrap();
+        assert!(
+            thumbnail(&state, &root_name, "wide.jpg")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
+    }
+
     #[test]
     fn reports_partial_lists_and_rejects_oversized_svg_thumbnails() {
         let temp = tempfile::tempdir().unwrap();

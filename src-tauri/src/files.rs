@@ -7,7 +7,7 @@ use std::{
 };
 
 pub(crate) const FILE_LIMIT: u64 = 2 * 1024 * 1024;
-const IMAGE_LIMIT: u64 = 8 * 1024 * 1024;
+pub(crate) const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
     let document = confined(root, document)?;
@@ -40,7 +40,7 @@ fn image_data(path: &Path) -> Result<String, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > IMAGE_LIMIT {
-        return Err("Image trop volumineuse (8 Mo maximum).".into());
+        return Err("Image trop volumineuse (32 Mo maximum).".into());
     }
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
