@@ -345,8 +345,8 @@ it("revealing an already open file clears a selection in another root", async ()
 	expect(host.querySelector(".tree-row.selected")?.getAttribute("data-testid")).toBe("file-assets/one.png");
 });
 
-it("loads batches or all metadata, preserves all after refresh and resets pagination on filters and scope", async () => {
-	const entries = Array.from({ length: 100 }, (_, index) => ({
+it("loads batches or all metadata and preserves all after refresh", async () => {
+	const entries = Array.from({ length: 97 }, (_, index) => ({
 		name: `image-${index}.png`,
 		path: `assets/image-${index}.png`,
 		format: "png",
@@ -373,6 +373,22 @@ it("loads batches or all metadata, preserves all after refresh and resets pagina
 	await flush();
 	expect(cards()).toBe(entries.length + 1);
 	expect(thumbnail).not.toHaveBeenCalled();
+}, 2000);
+
+it("resets all-image pagination on filters and scope changes", async () => {
+	const entries = Array.from({ length: 49 }, (_, index) => ({
+		name: `image-${index}.png`,
+		path: `assets/image-${index}.png`,
+		format: "png",
+		size: 10,
+		modified: 1,
+	}));
+	images.mockResolvedValue({ images: entries, limited: false });
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const cards = () => host.querySelectorAll(".library-card").length;
+	await act(async () => button("Tout charger").click());
 	await setValue(host.querySelector(".image-library input")!, "image");
 	expect(cards()).toBe(48);
 	await act(async () => button("Tout charger").click());
