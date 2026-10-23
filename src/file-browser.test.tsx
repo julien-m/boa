@@ -73,6 +73,10 @@ it("opens a live path filter on typing, preserves the first character and return
 	expect(search).toHaveBeenCalledWith(["/fixture"], "d", "paths");
 	expect(host.querySelector('[data-testid="tree-row"]')).toBe(row);
 	await act(async () => input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+	expect(input?.value).toBe("");
+	expect(host.querySelector(".file-search-panel")).not.toBeNull();
+	expect(document.activeElement).toBe(input);
+	await act(async () => input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
 	expect(host.querySelector(".file-search-panel")).toBeNull();
 	expect(host.querySelector("[data-file-browser]")).toBe(document.activeElement);
 	expect(host.querySelector('[data-testid="tree-row"]')).toBe(row);

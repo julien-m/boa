@@ -142,6 +142,7 @@ export const workspaceFr = {
 	},
 	markdown: {
 		copyLink: "Copier le lien",
+		openLink: "Ouvrir dans BOA",
 		expand: "Agrandir : {{name}}",
 		expandDocument: "Agrandir",
 		closeExpanded: "Fermer la vue agrandie",
@@ -304,6 +305,7 @@ export const workspaceEn = {
 	},
 	markdown: {
 		copyLink: "Copy link",
+		openLink: "Open in BOA",
 		expand: "Expand: {{name}}",
 		expandDocument: "Expand",
 		closeExpanded: "Close expanded view",

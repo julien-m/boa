@@ -4,7 +4,9 @@ import { FolderSearch, ImageOff, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { fileWorkspace, type LibraryImage } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
+import { useFinderContextMenu } from "./finder-context-menu";
 import { ImageLibraryPreview } from "./image-library-preview";
+import { SearchInput } from "./search-input";
 
 export function matchesImage(path: string, query: string) {
 	const normalize = (value: string) =>
@@ -49,6 +51,7 @@ function ImageCard({
 }) {
 	const l = useFileLabels();
 	const card = useRef<HTMLDivElement>(null);
+	const finder = useFinderContextMenu(root, image.path);
 	const [visible, setVisible] = useState(false);
 	const [failed, setFailed] = useState(false);
 	useEffect(() => {
@@ -74,7 +77,13 @@ function ImageCard({
 		refetchOnWindowFocus: false,
 	});
 	return (
-		<div className="library-card" ref={card}>
+		<div
+			className="library-card"
+			ref={card}
+			onContextMenu={finder.onContextMenu}
+			onKeyDown={finder.onKeyDown}
+		>
+			{finder.menu}
 			<button
 				type="button"
 				className="library-image"
@@ -172,7 +181,7 @@ export function ImageLibrary({
 							))}
 					</nav>
 				</div>
-				<input
+				<SearchInput
 					type="search"
 					maxLength={1000}
 					aria-label={l.imageFilter}
@@ -180,6 +189,10 @@ export function ImageLibrary({
 					aria-describedby={hintId}
 					placeholder={l.imageFilter}
 					value={filter}
+					onClear={() => {
+						setFilter("");
+						setCount(48);
+					}}
 					onChange={(e) => {
 						setFilter(e.target.value);
 						setCount(48);
@@ -262,9 +275,14 @@ export function ImageLibrary({
 				/>
 			)}
 			{images.length > count && (
-				<button type="button" className="quiet-button library-more" onClick={() => setCount(count + 48)}>
-					{l.moreImages} · {Math.min(48, images.length - count)}
-				</button>
+				<div>
+					<button type="button" className="quiet-button library-more" onClick={() => setCount(count + 48)}>
+						{l.moreImages} · {Math.min(48, images.length - count)}
+					</button>
+					<button type="button" className="quiet-button" onClick={() => setCount(Number.POSITIVE_INFINITY)}>
+						{l.loadAllImages}
+					</button>
+				</div>
 			)}
 		</section>
 	);

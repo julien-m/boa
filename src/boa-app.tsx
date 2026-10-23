@@ -38,6 +38,7 @@ import { countRepos, type Project, type Summary } from "./models";
 import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
+import { SearchInput } from "./search-input";
 import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
@@ -232,17 +233,33 @@ export default function App() {
 	useEffect(() => {
 		const resume = (event: Event): void => {
 			const target = (event as CustomEvent<Selection>).detail;
-			setSelectedSpace(
-				workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project))?.id ?? null,
-			);
-			setSelectedPath(target.project);
-			setSettingsOpen(false);
-			setArchivesOpen(false);
-			setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
+			const containing = workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project));
+			const navigate = () => {
+				setSelectedSpace(containing?.id ?? null);
+				setSelectedPath(target.project);
+				setSettingsOpen(false);
+				setArchivesOpen(false);
+				setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
+			};
+			if (
+				!containing &&
+				(event.type === "boa:open-file" ||
+					projects.data?.some((project) => project.path === target.project && project.archived))
+			) {
+				void api
+					.add(target.project)
+					.then(() => client.invalidateQueries({ queryKey: ["projects"] }))
+					.then(navigate)
+					.catch((error: unknown) => setNotice(localizeNativeText(String(error))));
+			} else navigate();
 		};
 		window.addEventListener("boa:resume-draft", resume);
-		return () => window.removeEventListener("boa:resume-draft", resume);
-	}, [workspace.data?.spaces]);
+		window.addEventListener("boa:open-file", resume);
+		return () => {
+			window.removeEventListener("boa:resume-draft", resume);
+			window.removeEventListener("boa:open-file", resume);
+		};
+	}, [workspace.data?.spaces, projects.data, client]);
 	const handleProjectRefresh = (): void => {
 		if (selected) {
 			void client.invalidateQueries({ queryKey: ["summary", selected.path] });
@@ -628,16 +645,17 @@ export default function App() {
 										<option value="grid">{t("grid")}</option>
 										<option value="list">{t("list")}</option>
 									</select>
-									<label className="search-field">
+									<div className="search-field">
 										<Search size={14} />
-										<input
+										<SearchInput
 											data-testid="project-search"
 											placeholder={t("searchProjects")}
 											value={search}
+											onClear={() => setSearch("")}
 											onChange={(event) => setSearch(event.target.value)}
 											aria-label={t("searchProjects")}
 										/>
-									</label>
+									</div>
 									<button
 										type="button"
 										data-testid="filter-changes"

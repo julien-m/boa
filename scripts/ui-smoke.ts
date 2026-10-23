@@ -204,10 +204,15 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				item.path === args.project ? { ...item, archived: Boolean(args.archived) } : item,
 			);
 			return null;
-		case "add_project":
-			if (args.path !== directory) throw new Error("Unexpected import path");
-			registeredProjects = [{ ...project, ...registeredProjects[0], archived: false }];
-			return registeredProjects[0];
+		case "add_project": {
+			const existing = registeredProjects.find((item) => item.path === args.path);
+			if (!existing && args.path !== directory) throw new Error("Unexpected import path");
+			const added = { ...project, ...existing, archived: false };
+			registeredProjects = existing
+				? registeredProjects.map((item) => (item.path === added.path ? added : item))
+				: [...registeredProjects, added];
+			return added;
+		}
 		case "pin_project":
 			registeredProjects = registeredProjects.map((item) => ({ ...item, pinned: Boolean(args.pinned) }));
 			return null;
@@ -243,21 +248,39 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
-			if (["preview.png", "preview-second.png"].includes(String(args.path)))
+			if (args.path === "docs/linked.md")
+				return {
+					original: "",
+					modified:
+						"# Document lié\n\n" +
+						"Un paragraphe avant la section.\n\n".repeat(40) +
+						"## Section\n\n[Retour au document](../README.md#mon-document)\n\n" +
+						"Après la section.\n\n".repeat(30),
+					path: String(args.path),
+					label: "Lecture seule",
+				};
+			if (["preview.png", "preview-second.png"].includes(String(args.path))) {
+				const icon = readFileSync("src-tauri/icons/32x32.png");
+				// Distinct decoded sources ensure browsing actually remounts the shared image reader.
+				const source =
+					args.path === "preview-second.png"
+						? `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${icon.readUInt32BE(16)}" height="${icon.readUInt32BE(20)}"><rect width="100%" height="100%" fill="royalblue"/></svg>`)}`
+						: `data:image/png;base64,${icon.toString("base64")}`;
 				return {
 					original: "",
 					modified: "",
 					path: String(args.path),
 					label: "Lecture seule",
 					kind: "image",
-					dataUrl: `data:image/png;base64,${readFileSync("src-tauri/icons/32x32.png").toString("base64")}`,
+					dataUrl: source,
 				};
+			}
 			return {
 				original: "",
 				modified:
 					args.path === "README.md"
 						? markdownExtra +
-							'# Mon document\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n<img src="http://example.com/badge.svg" alt="Large illustration" width="1200" height="800">\n\n<img src="http://example.com/badge.svg" alt="Height only" height="40">\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
+							'# Mon document\n\n[Ouvrir la section liée](docs/linked.md#section) · [Même document](#mon-document)\n\nUne **lecture claire**.\n\n![Plan](images/plan.png)\n\n![Remote](https://example.com/tracking.png)\n\n<p><a href="https://example.com"><img src="http://example.com/badge.svg" alt="Quality badge" width="90" height="40" onerror="window.boaUnsafe = true"></a></p>\n\n<img src="http://example.com/badge.svg" alt="Large illustration" width="1200" height="800">\n\n<img src="http://example.com/badge.svg" alt="Height only" height="40">\n\n![Unavailable](https://example.com/missing.png)\n\n<iframe src="https://example.com/frame"></iframe>\n\n| Nom | État |\n| --- | --- |\n| BOA | Prêt |\n\n```ts\nconst value = 1;\n```\n\n<script>window.boaUnsafe = true</script>'
 						: args.path === "config.json"
 							? '{ "name": "BOA", "count": 2, "enabled": true }'
 							: args.path === "config.xml"
@@ -428,6 +451,15 @@ try {
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
 	await page.getByTestId("pin-project-BOA QA").click();
 	await expect(page.getByTestId("dashboard-counts")).toContainText("2");
+	const dashboardSearch = page.getByTestId("project-search");
+	await dashboardSearch.fill("absent");
+	await page.locator(".search-field .search-clear").click();
+	await expect(dashboardSearch).toHaveValue("");
+	await expect(dashboardSearch).toBeFocused();
+	await dashboardSearch.fill("BOA");
+	await dashboardSearch.press("Escape");
+	await expect(dashboardSearch).toHaveValue("");
+	await expect(dashboardSearch).toBeFocused();
 	await page.getByTestId("project-sort").selectOption("recent");
 	await page.getByTestId("project-display").selectOption("list");
 	await page.getByTestId("open-project-BOA QA").click();
@@ -436,6 +468,31 @@ try {
 		page.getByTestId("markdown-preview").getByRole("heading", { name: "Mon document" }),
 	).toBeVisible();
 	await expect(page.getByTestId("markdown-preview").getByRole("table")).toContainText("Prêt");
+	const followMarkdown = async () => {
+		await page.getByTestId("markdown-preview").getByRole("link", { name: "Ouvrir la section liée" }).click();
+		await expect(page.getByTestId("code-viewer")).toContainText("docs/linked.md");
+		await expect(page.getByRole("tab", { name: "linked.md", exact: true })).toBeVisible();
+		await expect
+			.poll(() => page.locator(".markdown-scroll").evaluate((node) => node.scrollTop))
+			.toBeGreaterThan(300);
+		await expect
+			.poll(() =>
+				page.locator("#section").evaluate((node) => {
+					const container = node.closest(".markdown-scroll")!;
+					return Math.round(node.getBoundingClientRect().top - container.getBoundingClientRect().top);
+				}),
+			)
+			.toBe(24);
+		await page.getByTestId("markdown-preview").getByRole("link", { name: "Retour au document" }).click();
+		await expect(
+			page.getByTestId("markdown-preview").getByRole("heading", { name: "Mon document" }),
+		).toBeVisible();
+	};
+	await followMarkdown();
+	await page.getByTestId("close-tab-docs/linked.md").click();
+	await page.getByTestId("close-tab-README.md").click();
+	await page.getByTestId("file-README.md").click();
+
 	await page.getByTestId("create-context").click();
 	await expect(page.getByTestId("context-popover")).toBeVisible();
 	await expect(page.getByTestId("context-file")).toHaveAttribute("aria-pressed", "true");
@@ -806,6 +863,15 @@ try {
 	await expect(speedSearch).toHaveValue("sample");
 	await page.locator(".tree-speed-search .search-results button").first().click();
 	await speedSearch.press("Escape");
+	await expect(speedSearch).toHaveValue("");
+	await expect(speedSearch).toBeFocused();
+	await expect(page.locator(".tree-speed-search")).toBeVisible();
+	await speedSearch.fill("sample");
+	await page.locator(".tree-speed-search .search-clear").click();
+	await expect(speedSearch).toHaveValue("");
+	await expect(speedSearch).toBeFocused();
+	await speedSearch.press("Escape");
+	await expect(page.locator(".tree-speed-search")).toHaveCount(0);
 	await page.getByTestId("toggle-file-tree").click();
 	await expect(page.getByTestId("file-sample.ts")).toBeHidden();
 	await expect(page.getByTestId("toggle-file-tree")).toBeVisible();
@@ -971,6 +1037,20 @@ try {
 	await expect.poll(() => summaryCalls).toBe(beforeRestore + 1);
 	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("archive-project-Auto QA").click();
+	await page.evaluate(
+		(project) =>
+			window.dispatchEvent(
+				new CustomEvent("boa:open-file", {
+					detail: { project, path: "sample.ts", anchor: "", navigationId: crypto.randomUUID() },
+				}),
+			),
+		`${directory}/auto`,
+	);
+	await expect(page.getByTestId("project-view")).toBeVisible();
+	await expect(page.locator(".project-header")).toContainText("Auto QA");
+	expect(registeredProjects.find((item) => item.name === "Auto QA")?.archived).toBe(false);
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("archive-project-Auto QA").click();
 	await page.getByTestId("settings-nav").click();
 	await page.getByTestId("interface-language").selectOption("en");
 	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
@@ -1036,13 +1116,39 @@ try {
 	await page.keyboard.press("Enter");
 	await expect(page.getByTestId("file-search-panel")).toContainText("sample.ts");
 	await page.keyboard.press("Escape");
+	await expect(page.getByRole("textbox", { name: "Rechercher", exact: true })).toHaveValue("");
+	await expect(page.getByTestId("file-search-panel")).toBeVisible();
+	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("file-search-panel")).toHaveCount(0);
 	await page.keyboard.press("Control+Shift+f");
-	await expect(page.getByRole("dialog", { name: "Recherche globale" })).toBeVisible();
+	const globalSearch = page.getByRole("dialog", { name: "Recherche globale" });
+	await expect(globalSearch).toBeVisible();
+	await globalSearch.getByRole("textbox").fill("sample");
+	await globalSearch.locator(".search-clear").click();
+	await expect(globalSearch.getByRole("textbox")).toHaveValue("");
+	await globalSearch.getByRole("textbox").fill("sample");
 	await page.keyboard.press("Escape");
+	await expect(globalSearch).toBeVisible();
+	await expect(globalSearch.getByRole("textbox")).toBeFocused();
+	await expect(globalSearch.getByRole("textbox")).toHaveValue("");
+	await page.keyboard.press("Escape");
+	await expect(globalSearch).toHaveCount(0);
 	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
 	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
-	await expect.poll(() => filePreferences[directory]?.filtered).toBe(true);
+	await expect(page.getByRole("checkbox", { name: "Choisir sample.ts", exact: true })).toBeVisible();
+	expect(filePreferences[directory]?.filtered ?? false).toBe(false);
+	await page.locator(".file-browser-options").getByRole("button", { name: "Fermer", exact: true }).click();
+	await expect(page.getByTestId("file-config.json")).toBeVisible();
+	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
+	await page.getByRole("combobox", { name: "Visibilité et tri", exact: true }).selectOption("modified-asc");
+	await expect.poll(() => filePreferences[directory]?.sort).toBe("modified-asc");
+	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
+	await page.getByRole("button", { name: "Désépingler sample.ts", exact: true }).click();
+	await expect.poll(() => filePreferences[directory]?.pins).toEqual([]);
+	expect(filePreferences[directory]?.filtered).toBe(false);
+	await page.getByRole("button", { name: "Épingler sample.ts", exact: true }).click();
+	await expect.poll(() => filePreferences[directory]?.pins).toEqual(["sample.ts"]);
+	expect(filePreferences[directory]?.filtered).toBe(false);
 	const selectedItem = page.getByRole("checkbox", { name: "Choisir sample.ts", exact: true });
 	await expect(selectedItem).not.toBeChecked();
 	await expect(selectedItem).toBeEnabled();
@@ -1053,6 +1159,34 @@ try {
 	await page.reload();
 	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
 	await expect(page.locator(".tree-pins")).toContainText("sample.ts");
+	await page.getByRole("button", { name: "Visibilité et tri", exact: true }).click();
+	await expect(page.getByRole("combobox", { name: "Visibilité et tri", exact: true })).toHaveValue(
+		"modified-asc",
+	);
+	await page.getByRole("checkbox", { name: "Sélection visible", exact: true }).uncheck();
+	await expect.poll(() => filePreferences[directory]?.filtered).toBe(false);
+	await page.getByRole("button", { name: "Choisir les éléments visibles", exact: true }).click();
+	await expect(page.getByRole("checkbox", { name: "Choisir sample.ts", exact: true })).toBeChecked();
+	await page.locator(".file-browser-options").getByRole("button", { name: "Fermer", exact: true }).click();
+	filePreferences[directory] = { filtered: true, included: [], pins: ["sample.ts"], sort: "modified-asc" };
+	await page.reload();
+	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
+	await page.getByRole("button", { name: "Tout afficher", exact: true }).click();
+	await expect.poll(() => filePreferences[directory]?.filtered).toBe(false);
+	await expect(page.getByTestId("file-README.md")).toBeVisible();
+	await page.getByTestId("file-sample.ts").click();
+	await page.getByTestId("read-only-toggle").click();
+	const spaceEditor = page.getByTestId("code-viewer").getByRole("textbox");
+	await spaceEditor.press("ControlOrMeta+End");
+	await page.keyboard.insertText("// preserved space draft");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	await page.getByTestId("file-README.md").click();
+	await followMarkdown();
+	await page.getByRole("tab", { name: "sample.ts •", exact: true }).click();
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	await expect(page.locator(".view-lines")).toContainText("// preserved space draft");
+	await page.getByTestId("edit-cancel").click();
+	await page.getByTestId("edit-discard").click();
 
 	await page.getByTestId("settings-nav").click();
 	await page.getByRole("textbox", { name: "Recherche contextuelle", exact: true }).press("Control+g");
@@ -1084,7 +1218,31 @@ try {
 	await page.getByLabel("Format d’image", { exact: true }).selectOption("png");
 	await page.getByRole("searchbox", { name: "Filtrer les images…", exact: true }).fill("preview + png");
 	await expect(page.locator(".library-card")).toHaveCount(2);
-	await page.locator(".library-image").first().click();
+	const libraryFilter = page.getByRole("searchbox", { name: "Filtrer les images…", exact: true });
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-library.png") });
+	await page.locator(".image-library .search-clear").click();
+	await expect(libraryFilter).toHaveValue("");
+	await expect(libraryFilter).toBeFocused();
+	await libraryFilter.fill("absent");
+	await libraryFilter.press("Escape");
+	await expect(libraryFilter).toHaveValue("");
+	await expect(libraryFilter).toBeFocused();
+	await libraryFilter.fill("preview + png");
+	const libraryTile = page.locator(".library-image").first();
+	const libraryPath = await libraryTile.getAttribute("aria-label");
+	await libraryTile.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Afficher dans Finder", exact: true }).click();
+	await expect
+		.poll(() => finderRequests.at(-1))
+		.toEqual({ project: `${directory}/second`, path: libraryPath });
+	await expect(page.locator(".image-library")).toBeVisible();
+	await expect(libraryTile).toBeFocused();
+	await libraryTile.press("Shift+F10");
+	await expect(page.getByRole("menu", { name: "Actions du fichier", exact: true })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(libraryTile).toBeFocused();
+	await libraryTile.click();
 	const lightbox = page.getByRole("dialog", { name: "Prévisualisation des images", exact: true });
 	await expect(lightbox).toBeVisible();
 	await expect(page.locator(".workspace-reader")).toBeHidden();
@@ -1099,14 +1257,54 @@ try {
 	await lightbox.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
 	await lightbox.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await lightbox.evaluate((dialog) => {
+		const first = dialog.querySelector("img")!;
+		const ratio = first.getBoundingClientRect().width / first.naturalWidth;
+		const violations: string[] = [];
+		const sources = new Set<string>();
+		let frame = 0;
+		const sample = () => {
+			const image = dialog.querySelector("img");
+			if (image && getComputedStyle(image).visibility === "visible" && image.naturalWidth) {
+				sources.add(image.src);
+				if (Math.abs(image.getBoundingClientRect().width - image.naturalWidth * ratio) > 0.5)
+					violations.push(image.style.width);
+			}
+			frame = requestAnimationFrame(sample);
+		};
+		sample();
+		Reflect.set(window, "boaScaleFrames", { violations, sources, stop: () => cancelAnimationFrame(frame) });
+	});
 	await page.keyboard.press("ArrowRight");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview-second.png");
 	await expect(lightbox).toHaveClass(/fullscreen/);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	await page.evaluate(
+		() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+	);
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", "preview.png");
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
+	const frames = await page.evaluate(async () => {
+		await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+		const frames = Reflect.get(window, "boaScaleFrames");
+		frames.stop();
+		return { violations: frames.violations, sources: frames.sources.size };
+	});
+	expect(frames.violations).toEqual([]);
+	expect(frames.sources).toBeGreaterThan(1);
+	await lightbox.locator(".image-viewport").click({ button: "right" });
+	await expect(lightbox.getByRole("menuitem", { name: "Afficher dans Finder", exact: true })).toBeVisible();
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "library-finder-menu.png") });
+	await lightbox.getByRole("menuitem", { name: "Afficher dans Finder", exact: true }).click();
+	await expect
+		.poll(() => finderRequests.at(-1))
+		.toEqual({ project: `${directory}/second`, path: "preview.png" });
+	await expect(lightbox).toBeVisible();
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-scale.png") });
 	await lightbox.getByLabel("Fond de l’image", { exact: true }).selectOption("checkerboard");
 	await expect(lightbox.locator(".image-canvas")).toHaveCSS("background-image", /conic-gradient/);
 	await lightbox.getByRole("slider", { name: "Niveau de zoom", exact: true }).evaluate((node) => {

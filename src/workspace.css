@@ -2415,3 +2415,33 @@ span.markdown-expandable {
 .file-space-add::backdrop {
 	background: #0009;
 }
+
+.clearable-search {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+}
+.clearable-search input {
+	width: 100%;
+	padding-right: 28px;
+}
+.clearable-search .search-clear {
+	position: absolute;
+	right: 2px;
+	top: 50%;
+	transform: translateY(-50%);
+	padding: 4px;
+}
+
+.clearable-search input[type="search"]::-webkit-search-cancel-button {
+	-webkit-appearance: none;
+}
+
+.library-toolbar .clearable-search {
+	min-width: 140px;
+	max-width: 320px;
+}
+.library-toolbar .clearable-search input {
+	min-width: 0;
+	max-width: none;
+}

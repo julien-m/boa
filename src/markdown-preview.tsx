@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "./api";
 import { ImageViewer } from "./image-viewer";
 import { MarkdownExpandable, MarkdownExpandButton, MarkdownExpansion } from "./markdown-expand";
+import { headingAnchors, localMarkdownLink } from "./markdown-links";
 
 function pixelDimension(value?: string | number): number | undefined {
 	const number = Number(value);
@@ -205,20 +206,35 @@ function navigationTargets(container: HTMLElement, line: number, endLine: number
 	return nearest ? [nearest] : [];
 }
 
+function revealAnchor(container: HTMLElement, id: string) {
+	if (!id) {
+		container.scrollTop = 0;
+		return;
+	}
+	const target = [...container.querySelectorAll<HTMLElement>("[id], a[name]")].find(
+		(element) =>
+			element.id === id || element.id === `user-content-${id}` || element.getAttribute("name") === id,
+	);
+	if (target)
+		container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 24;
+}
+
 export function MarkdownPreview({
 	content,
 	project,
 	path,
 	onCopyLink,
+	onOpenLink,
 	restorePosition,
 	navigation,
 }: {
-	navigation?: { line?: number; endLine?: number; navigationId?: string };
+	navigation?: { line?: number; endLine?: number; navigationId?: string; anchor?: string };
 	restorePosition?: MarkdownBookmark;
 	content: string;
 	project: string;
 	path: string;
 	onCopyLink: (href: string) => void;
+	onOpenLink?: (href: string) => void;
 }) {
 	const { t } = useTranslation("workspace");
 	const scroll = useRef<HTMLDivElement>(null);
@@ -279,6 +295,20 @@ export function MarkdownPreview({
 			for (const target of targets) target.removeAttribute("data-navigation-target");
 		};
 	}, [line, endLine, navigationId, content, restorePosition]);
+	const destinationAnchor = navigation?.anchor;
+	const lastAnchorNavigation = useRef<string | null>(null);
+	useLayoutEffect(() => {
+		if (destinationAnchor === undefined) {
+			lastAnchorNavigation.current = null;
+			return;
+		}
+		const request = JSON.stringify([destinationAnchor, navigationId]);
+		if (scroll.current && lastAnchorNavigation.current !== request) {
+			revealAnchor(scroll.current, destinationAnchor);
+			capturePosition();
+		}
+		lastAnchorNavigation.current = request;
+	}, [destinationAnchor, navigationId, content]);
 	const renderImage = useCallback(
 		({
 			alt,
@@ -305,7 +335,7 @@ export function MarkdownPreview({
 	const rendered = (
 		<Markdown
 			remarkPlugins={[remarkGfm]}
-			rehypePlugins={[rehypeRaw, rehypeSanitize]}
+			rehypePlugins={[rehypeRaw, rehypeSanitize, headingAnchors]}
 			components={{
 				...sourceBlocks,
 				table: MarkdownTable,
@@ -313,13 +343,24 @@ export function MarkdownPreview({
 				a: ({ href, children }) => (
 					<a
 						href={href}
-						title={t("markdown.copyLink")}
+						title={t(href && localMarkdownLink(href, path) ? "markdown.openLink" : "markdown.copyLink")}
 						onClick={(event) => {
 							event.preventDefault();
-							if (href?.startsWith("#")) {
+							if (!href) return;
+							if (href.startsWith("#")) {
+								let id: string;
+								try {
+									id = decodeURIComponent(href.slice(1));
+								} catch {
+									return;
+								}
+								const container = event.currentTarget.closest<HTMLElement>(
+									".markdown-expanded-scroll, .markdown-scroll",
+								);
+								if (container) revealAnchor(container, id);
 								return;
 							}
-							if (href) onCopyLink(href);
+							(onOpenLink ?? onCopyLink)(href);
 						}}
 					>
 						{children}

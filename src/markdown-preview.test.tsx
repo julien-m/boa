@@ -280,3 +280,76 @@ describe("file image and unsupported previews", () => {
 		expect(host.querySelector('[data-testid="read-only-toggle"]')).not.toBeNull();
 	});
 });
+
+it("assigns stable heading anchors to rich text, accents and duplicate headings", async () => {
+	await render(
+		<MarkdownPreview
+			content={"## Une **étape**\n\n## Une étape"}
+			project="/fixture"
+			path="demo.md"
+			onCopyLink={() => {}}
+		/>,
+	);
+	expect([...host.querySelectorAll("h2")].map((heading) => heading.id)).toEqual(["une-étape", "une-étape-1"]);
+});
+
+it("follows same-document anchors and routes relative links without copying them", async () => {
+	const open = vi.fn(),
+		copy = vi.fn();
+	await render(
+		<MarkdownPreview
+			content={`${content}\n\n[Go](#purchase)\n\n[File](nested/next.md#section)`}
+			project="/fixture"
+			path="demo.md"
+			onCopyLink={copy}
+			onOpenLink={open}
+		/>,
+	);
+	const container = host.querySelector<HTMLElement>(".markdown-scroll")!;
+	await act(async () => host.querySelector<HTMLAnchorElement>('a[href="#purchase"]')!.click());
+	expect(container.scrollTop).toBeGreaterThan(0);
+	expect(open).not.toHaveBeenCalled();
+	expect(copy).not.toHaveBeenCalled();
+	await act(async () => host.querySelector<HTMLAnchorElement>('a[href="nested/next.md#section"]')!.click());
+	expect(open).toHaveBeenCalledWith("nested/next.md#section");
+	expect(copy).not.toHaveBeenCalled();
+});
+it("repeats anchor requests even after manually scrolling away", async () => {
+	const view = (navigationId: string) => (
+		<MarkdownPreview
+			content={content}
+			project="/fixture"
+			path="demo.md"
+			navigation={{ anchor: "purchase", navigationId }}
+			onCopyLink={() => {}}
+		/>
+	);
+	await render(view("first"));
+	const container = host.querySelector<HTMLElement>(".markdown-scroll")!;
+	const destination = container.scrollTop;
+	expect(destination).toBeGreaterThan(0);
+	container.scrollTop = 0;
+	await render(view("second"));
+	expect(container.scrollTop).toBe(destination);
+});
+
+it("preserves manual reading position on content refresh after anchor navigation", async () => {
+	const view = (source: string) => (
+		<MarkdownPreview
+			content={source}
+			project="/fixture"
+			path="demo.md"
+			navigation={{ anchor: "purchase", navigationId: "same-request" }}
+			onCopyLink={() => {}}
+		/>
+	);
+	await render(view(content));
+	const container = host.querySelector<HTMLElement>(".markdown-scroll")!;
+	const manualPosition = container.scrollTop + 40;
+	await act(async () => {
+		container.scrollTop = manualPosition;
+		container.dispatchEvent(new Event("scroll", { bubbles: true }));
+	});
+	await render(view(`${content}\n\nUpdated footer.`));
+	expect(container.scrollTop).toBe(manualPosition);
+});

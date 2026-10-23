@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { requestImageAction } from "./image-actions";
-import { ImageViewer, imageByteSize } from "./image-viewer";
+import { ImageViewer, ImageZoom, imageByteSize, useImageZoomSession } from "./image-viewer";
 import "./i18n";
 
 const clipboard = vi.hoisted(() => vi.fn());
@@ -232,4 +232,37 @@ it("consumes only the selected image action after image load and handles subsequ
 	expect(fullscreen).toHaveBeenCalledTimes(1);
 	await act(async () => window.dispatchEvent(new CustomEvent("boa:image-action")));
 	expect(fullscreen).toHaveBeenCalledTimes(1);
+});
+
+function BrowsingImage({ src }: { src: string }) {
+	const zoom = useImageZoomSession();
+	return (
+		<ImageZoom session={zoom.state}>
+			<button type="button" aria-label="Retain scale" onClick={zoom.retain}>
+				Next
+			</button>
+			<ImageViewer src={src} alt="Browsing" onError={() => {}} />
+		</ImageZoom>
+	);
+}
+it("never exposes a new image at intrinsic size before applying the retained scale", async () => {
+	const first = "data:image/png;base64,first";
+	const next = "data:image/png;base64,next";
+	await act(async () => root.render(<BrowsingImage src={first} />));
+	const original = await loadImage();
+	const scale = Number.parseFloat(original.style.width) / original.naturalWidth;
+	await act(async () => button("Retain scale").click());
+	await act(async () => root.render(<BrowsingImage src={next} />));
+	const pending = host.querySelector("img")!;
+	expect(pending.style.visibility).toBe("hidden");
+	expect(pending.style.width).toBe("0px");
+	const dimensions = { width: original.naturalWidth * 2, height: original.naturalHeight * 3 };
+	Object.defineProperties(pending, {
+		naturalWidth: { value: dimensions.width },
+		naturalHeight: { value: dimensions.height },
+	});
+	await act(async () => pending.dispatchEvent(new Event("load")));
+	expect(pending.style.visibility).toBe("visible");
+	expect(Number.parseFloat(pending.style.width)).toBe(dimensions.width * scale);
+	expect(Number.parseFloat(pending.style.height)).toBe(dimensions.height * scale);
 });

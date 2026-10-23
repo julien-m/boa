@@ -24,7 +24,7 @@ Lis [le contrat CLI](../../../README.md#cli-and-coding-agents) si la version ou 
 | `boa spaces save <id> --name <nom> --root <dossier> [--root <autre-dossier>] [--json] [--dry-run]` | Crée ou remplace un espace ; racines répétables, canonisées et dédupliquées |
 | `boa spaces remove <id> [--json] [--dry-run]` | Retire uniquement l’entrée BOA, jamais les fichiers |
 | `boa files preferences <dossier> [--json]` | Lit les préférences du dossier enregistré |
-| `boa files configure <dossier> [--include <relatif>] [--pin <relatif>] [--sort name\|modified] [--all] [--json] [--dry-run]` | Remplace toute la sélection, l’ordre des pins et le tri ; include/pin répétables ; all désactive le filtre |
+| `boa files configure <dossier> [--include <relatif>] [--pin <relatif>] [--sort name\|modified\|modified-asc] [--all] [--json] [--dry-run]` | Remplace toute la sélection, l’ordre des pins et le tri ; include/pin répétables ; all désactive le filtre |
 | `boa open <fichier> [--line 42] [--end-line 50] [--source Codex\|Claude\|Cursor\|CLI] [--dry-run]` | Ouvre un fichier et cible une plage de lignes inclusives |
 
 - Chemins relatifs résolus depuis le répertoire courant ; protège espaces et caractères shell avec des guillemets.
@@ -36,6 +36,8 @@ Lis [le contrat CLI](../../../README.md#cli-and-coding-agents) si la version ou 
 
 ## Passages Markdown
 
+- Le tri `modified` place les modifications récentes en premier ; `modified-asc`, les anciennes.
+- Les liens Markdown locaux suivent les chemins relatifs et les ancres dans BOA, dans les dossiers enregistrés ; les URL externes conservent la copie de lien.
 - Les fichiers `.md` et `.markdown`, insensibles à la casse, s’ouvrent en aperçu par défaut. Les lignes ciblées révèlent le premier bloc correspondant et surlignent les blocs rendus les plus précis, dont les lignes de tableaux. Une nouvelle demande remplace le surlignage et révèle à nouveau la cible.
 - Une ligne sans élément rendu vise le bloc contenant ou le plus proche ; après la fin du fichier, le dernier bloc visible. Le surlignage porte sur les blocs, pas sur une sélection native de caractères. Un passage trop long peut dépasser la fenêtre.
 - Source et édition explicites restent disponibles ; un brouillon actif reste en édition. Find bascule vers Source ; les diffs Git gardent leur lecteur de diff.

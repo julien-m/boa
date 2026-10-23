@@ -20,11 +20,16 @@ describe("file space visibility and pins", () => {
 	});
 	it("sorts modified entries while preserving deterministic ties", () => {
 		const entries = [
-			{ name: "b", path: "b", directory: true, modified: 1, symlink: false, repository: false },
+			{ name: "b", path: "b", directory: true, modified: 3, symlink: false, repository: false },
 			{ name: "a", path: "a", directory: false, modified: 5, symlink: false, repository: false },
+			{ name: "c", path: "c", directory: false, modified: 1, symlink: false, repository: false },
 		];
 		expect(orderedEntries(entries, defaultPreferences)[0].name).toBe("b");
 		expect(orderedEntries(entries, { ...defaultPreferences, sort: "modified" })[0].name).toBe("a");
+		const ascending = [...entries].sort((a, b) => a.modified - b.modified).map((entry) => entry.path);
+		expect(
+			orderedEntries(entries, { ...defaultPreferences, sort: "modified-asc" }).map((entry) => entry.path),
+		).toEqual(ascending);
 	});
 });
 describe("search shortcut routing", () => {

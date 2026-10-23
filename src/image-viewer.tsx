@@ -400,15 +400,13 @@ function ImageContent({
 							onPointerDown={(event) => {
 								void pick(event);
 							}}
-							style={
-								natural
-									? {
-											width: natural.width * scale,
-											height: natural.height * scale,
-											imageRendering: grid && scale >= 4 ? "pixelated" : undefined,
-										}
-									: undefined
-							}
+							style={{
+								// Keep the browser's intrinsic-size paint hidden until sizing and scale commit together.
+								width: natural ? natural.width * scale : 0,
+								height: natural ? natural.height * scale : 0,
+								visibility: natural && bounds.width > 0 && bounds.height > 0 ? "visible" : "hidden",
+								imageRendering: grid && scale >= 4 ? "pixelated" : undefined,
+							}}
 							onLoad={(event) => {
 								const { naturalWidth, naturalHeight } = event.currentTarget;
 								if (naturalWidth && naturalHeight) setNatural({ width: naturalWidth, height: naturalHeight });
