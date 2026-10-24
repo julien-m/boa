@@ -1,5 +1,6 @@
 import { FileCode2, Folder, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
@@ -9,7 +10,17 @@ import { useFileLabels } from "./file-workspace-labels";
 import type { Selection } from "./models";
 
 const key = (s: Selection) => JSON.stringify([s.project, s.path]);
-export function FileSpaceView({ space, navigation }: { space: FileSpace; navigation: Selection | null }) {
+export function FileSpaceView({
+	space,
+	navigation,
+	onVisit,
+	restoration,
+}: {
+	space: FileSpace;
+	navigation: Selection | null;
+	onVisit?: RecordVisit;
+	restoration?: HistoryRestoration | null;
+}) {
 	const l = useFileLabels();
 	const entries = spaceEntries(space);
 	const editing = useFileEditing();
@@ -28,10 +39,11 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 		});
 	}, [state.tabs]);
 	const [folders, setFolders] = useState<Record<string, { path: string; requestId: string }>>({});
-	const open = (selection: Selection, keep = false) => {
+	const open = (selection: Selection, keep = false, record = true) => {
 		const value = space.files?.includes(selection.project)
 			? { ...selection, absolutePath: selection.project }
 			: selection;
+		if (record) onVisit?.({ selection: value, library: null });
 		setState((current) => {
 			const id = key(value);
 			const exists = current.tabs.some((t) => key(t) === id);
@@ -48,7 +60,7 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 		});
 	};
 	useEffect(() => {
-		if (navigation) {
+		if (navigation && !restoration) {
 			if (navigation.path.endsWith("/")) {
 				setFolders((p) => ({
 					...p,
@@ -57,9 +69,26 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 						requestId: navigation.navigationId ?? crypto.randomUUID(),
 					},
 				}));
-			} else open(navigation);
+			} else open(navigation, false, false);
 		}
 	}, [navigation]);
+	useEffect(() => {
+		if (!restoration) return;
+		const visit = restoration.workspace;
+		if (visit.selection) open(visit.selection, true, false);
+		else setState((current) => ({ ...current, selected: null }));
+		setFolders(
+			Object.fromEntries(
+				entries.map((root) => [
+					root,
+					{
+						path: visit.folder?.root === root ? visit.folder.folder : "",
+						requestId: String(restoration.id),
+					},
+				]),
+			),
+		);
+	}, [restoration]);
 	useEffect(
 		() => () => {
 			for (const tab of opened.current) disposeReaderModel(tab.project, tab.path);
@@ -71,6 +100,8 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 		if (draft && draft.content !== draft.original && !window.confirm(l.discardChanges)) return;
 		editing.cancel(value.project, value.path);
 		const id = key(value);
+		if (state.selected && key(state.selected) === id)
+			onVisit?.({ selection: state.tabs.filter((tab) => key(tab) !== id).at(-1) ?? null, library: null });
 		setState((current) => {
 			const tabs = current.tabs.filter((t) => key(t) !== id);
 			return {
@@ -94,6 +125,8 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 			</header>
 			<FileWorkspace
 				libraryRoot={entries[0]}
+				onVisit={onVisit}
+				restoration={restoration}
 				onOpen={(value) => open(value)}
 				navigationKey={navigation?.navigationId}
 				tree={
@@ -127,7 +160,10 @@ export function FileSpaceView({ space, navigation }: { space: FileSpace; navigat
 										aria-selected={!!state.selected && key(state.selected) === key(tab)}
 										data-hint={`${tab.project}/${tab.path}`}
 										className={state.preview === key(tab) ? "preview-tab" : ""}
-										onClick={() => setState((s) => ({ ...s, selected: tab }))}
+										onClick={() => {
+											setState((s) => ({ ...s, selected: tab }));
+											onVisit?.({ selection: tab, library: null });
+										}}
 										onDoubleClick={() => open(tab, true)}
 									>
 										<FileCode2 size={13} />

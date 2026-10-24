@@ -7,6 +7,7 @@ mod files;
 mod git;
 #[path = "image-comparison.rs"]
 mod image_comparison;
+mod navigation;
 mod projects;
 mod search;
 #[cfg(test)]
@@ -534,6 +535,8 @@ pub fn run() {
                 }
             }
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                navigation::install(window.clone())?;
                 let _ = window.set_title(
                     if state.settings().map_err(std::io::Error::other)?.language == "en" {
                         "BOA — Projects & Git"

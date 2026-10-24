@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
+import { type AppLocation, navigationVisit, useAppHistory } from "./app-history";
 import { DraftIndicator } from "./file-editing";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileSpaceView } from "./file-space-view";
@@ -54,10 +55,41 @@ export default function App() {
 		queryKey: ["projects"],
 		queryFn: api.projects,
 	});
-	const [settingsOpen, setSettingsOpen] = useState(false);
+	const history = useAppHistory();
+	const settingsOpen = history.location.view === "settings";
+	const visitView = (location: AppLocation) => {
+		if (
+			location.view === history.location.view &&
+			(location.view === "project"
+				? location.root === history.location.root
+				: location.view === "space"
+					? location.space === history.location.space
+					: true)
+		)
+			return;
+		history.visit({
+			...location,
+			...(location.view === "project"
+				? {
+						workspace: {
+							selection: null,
+							library: null,
+							layout:
+								localStorage.getItem("boa-layout") === "git"
+									? "git"
+									: localStorage.getItem("boa-layout") === "files"
+										? "files"
+										: "split",
+						},
+					}
+				: location.view === "space"
+					? { workspace: { selection: null, library: null } }
+					: {}),
+		});
+	};
 	const fl = useFileLabels();
 	const workspace = useQuery({ queryKey: ["file-workspace"], queryFn: fileWorkspace.state, retry: false });
-	const [selectedSpace, setSelectedSpace] = useState<string | null>(null);
+	const selectedSpace = history.location.view === "space" ? history.location.space : null;
 	const activeSpace = workspace.data?.spaces.find((s) => s.id === selectedSpace);
 	const [globalSearch, setGlobalSearch] = useState(false);
 	useEffect(
@@ -78,7 +110,7 @@ export default function App() {
 			if (changed) void client.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "settings" });
 		});
 	}, [language, client]);
-	const [archivesOpen, setArchivesOpen] = useState(false);
+	const archivesOpen = history.location.view === "archives";
 	const archived = (projects.data ?? []).filter((project) => project.archived);
 	const ordered = [...(projects.data ?? [])]
 		.filter((project) => !project.archived)
@@ -90,7 +122,8 @@ export default function App() {
 	const [guidancePaused, setGuidancePaused] = useState(false);
 	const pausedRef = useRef(false);
 	pausedRef.current = guidancePaused;
-	const [selectedPath, setSelectedPath] = useState<string | null>(null);
+	const selectedPath = history.location.view === "project" ? history.location.root : null;
+	const projectSearch = useRef<HTMLInputElement>(null);
 	const [search, setSearch] = useState("");
 	const [onlyChanges, setOnlyChanges] = useState(false);
 	const [sort, setSort] = useState(() => localStorage.getItem("boa-project-sort") ?? "name");
@@ -108,13 +141,21 @@ export default function App() {
 				const target = await api.navigate(request.file);
 				const spaces = await fileWorkspace.state();
 				const containing = spaces.spaces.find((s) => spaceEntries(s).includes(target.project));
-				setSelectedSpace(containing?.id ?? null);
 				if (!containing) await api.add(target.project);
 				await client.invalidateQueries({ queryKey: ["projects"] });
 				if (disposed || pausedRef.current) return;
-				setSelectedPath(target.project);
-				setSettingsOpen(false);
-				setArchivesOpen(false);
+				history.visit({
+					view: containing ? "space" : "project",
+					root: target.project,
+					space: containing?.id,
+					workspace: navigationVisit({ ...target, line: request.line, endLine: request.endLine }),
+					request: {
+						...target,
+						line: request.line,
+						endLine: request.endLine,
+						navigationId: crypto.randomUUID(),
+					},
+				});
 				setNavigation({
 					...target,
 					line: request.line,
@@ -222,10 +263,7 @@ export default function App() {
 			if (typeof path !== "string") return;
 			const project = await api.add(path);
 			await client.invalidateQueries({ queryKey: ["projects"] });
-			setSelectedSpace(null);
-			setSelectedPath(project.path);
-			setSettingsOpen(false);
-			setArchivesOpen(false);
+			visitView({ view: "project", root: project.path });
 		} catch (error) {
 			setNotice(localizeNativeText(String(error)));
 		}
@@ -235,10 +273,13 @@ export default function App() {
 			const target = (event as CustomEvent<Selection>).detail;
 			const containing = workspace.data?.spaces.find((s) => spaceEntries(s).includes(target.project));
 			const navigate = () => {
-				setSelectedSpace(containing?.id ?? null);
-				setSelectedPath(target.project);
-				setSettingsOpen(false);
-				setArchivesOpen(false);
+				history.visit({
+					view: containing ? "space" : "project",
+					root: target.project,
+					space: containing?.id,
+					workspace: navigationVisit(target),
+					request: { ...target, navigationId: crypto.randomUUID() },
+				});
 				setNavigation({ ...target, source: "BOA", navigationId: crypto.randomUUID() });
 			};
 			if (
@@ -270,6 +311,87 @@ export default function App() {
 			void client.invalidateQueries({ queryKey: ["comparison"] });
 		}
 	};
+	useEffect(() => {
+		let disposed = false;
+		let cleanup: (() => void) | undefined;
+		void listen<unknown>("boa:history-navigation", ({ payload }) => {
+			if (!disposed && (payload === -1 || payload === 1)) history.go(payload);
+		})
+			.then((unlisten) => {
+				if (disposed) unlisten();
+				else cleanup = unlisten;
+			})
+			.catch((error: unknown) => console.error("Native history navigation unavailable", error));
+		return () => {
+			disposed = true;
+			cleanup?.();
+		};
+	}, [history.go]);
+
+	useEffect(() => {
+		const keydown = (event: KeyboardEvent) => {
+			const target = event.target instanceof Element ? event.target : null;
+			if (
+				event.defaultPrevented ||
+				event.isComposing ||
+				target?.closest(
+					'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],dialog,[role="dialog"],[role="menu"],[role="combobox"]',
+				)
+			)
+				return;
+			if (
+				event.key === "BrowserBack" ||
+				(event.altKey && event.key === "ArrowLeft") ||
+				(event.metaKey && event.key === "[")
+			) {
+				event.preventDefault();
+				history.go(-1);
+				return;
+			}
+			if (
+				event.key === "BrowserForward" ||
+				(event.altKey && event.key === "ArrowRight") ||
+				(event.metaKey && event.key === "]")
+			) {
+				event.preventDefault();
+				history.go(1);
+				return;
+			}
+			if (
+				history.location.view !== "overview" ||
+				!projectSearch.current ||
+				globalSearch ||
+				document.querySelector('dialog[open],[role="dialog"],[role="menu"]') ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				event.key.length !== 1 ||
+				!event.key.trim()
+			)
+				return;
+			event.preventDefault();
+			setSearch((value) => value + event.key);
+			projectSearch.current?.focus();
+		};
+		const mouse = (event: MouseEvent) => {
+			if (event.button !== 3 && event.button !== 4) return;
+			event.preventDefault();
+			if (event.type === "mouseup") history.go(event.button === 3 ? -1 : 1);
+		};
+		window.addEventListener("keydown", keydown);
+		window.addEventListener("mousedown", mouse);
+		window.addEventListener("mouseup", mouse);
+		window.addEventListener("auxclick", mouse);
+		return () => {
+			window.removeEventListener("keydown", keydown);
+			window.removeEventListener("mousedown", mouse);
+			window.removeEventListener("mouseup", mouse);
+			window.removeEventListener("auxclick", mouse);
+		};
+	}, [history.location.view, history.go, globalSearch]);
+	useEffect(() => {
+		if (history.restoration) setGlobalSearch(false);
+	}, [history.restoration]);
 	const filtered = ordered
 		.filter(
 			(project, index) =>
@@ -341,10 +463,7 @@ export default function App() {
 						data-testid="dashboard-nav"
 						className={`nav-button ${!selected && !activeSpace && !settingsOpen && !archivesOpen ? "selected" : ""}`}
 						onClick={() => {
-							setSelectedSpace(null);
-							setSelectedPath(null);
-							setSettingsOpen(false);
-							setArchivesOpen(false);
+							visitView({ view: "overview" });
 						}}
 					>
 						<LayoutDashboard size={16} />
@@ -357,9 +476,7 @@ export default function App() {
 							key={space.id}
 							className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen ? "selected" : ""}`}
 							onClick={() => {
-								setSelectedSpace(space.id);
-								setSettingsOpen(false);
-								setArchivesOpen(false);
+								visitView({ view: "space", space: space.id });
 							}}
 						>
 							{space.name}
@@ -369,8 +486,7 @@ export default function App() {
 						type="button"
 						className="nav-button"
 						onClick={() => {
-							setSettingsOpen(true);
-							setArchivesOpen(false);
+							visitView({ view: "settings" });
 						}}
 					>
 						+ {fl.create}
@@ -390,10 +506,7 @@ export default function App() {
 										data-testid={`nav-project-${project.name}`}
 										className={`nav-project ${!activeSpace && !settingsOpen && !archivesOpen && selected?.path === project.path ? "selected" : ""}`}
 										onClick={() => {
-											setSelectedSpace(null);
-											setSelectedPath(project.path);
-											setSettingsOpen(false);
-											setArchivesOpen(false);
+											visitView({ view: "project", root: project.path });
 										}}
 										data-hint={project.path}
 									>
@@ -433,8 +546,7 @@ export default function App() {
 							className={`nav-button ${archivesOpen ? "selected" : ""}`}
 							data-testid="archives-nav"
 							onClick={() => {
-								setArchivesOpen(true);
-								setSettingsOpen(false);
+								visitView({ view: "archives" });
 							}}
 						>
 							<Archive size={16} />
@@ -445,8 +557,7 @@ export default function App() {
 							className={`nav-button ${settingsOpen ? "selected" : ""}`}
 							data-testid="settings-nav"
 							onClick={() => {
-								setSettingsOpen(true);
-								setArchivesOpen(false);
+								visitView({ view: "settings" });
 							}}
 						>
 							<Settings size={16} />
@@ -498,10 +609,19 @@ export default function App() {
 										const containing = workspace.data?.spaces.find((s) =>
 											spaceEntries(s).includes(hit.project),
 										);
-										setSelectedSpace(containing?.id ?? null);
-										setSelectedPath(hit.project);
-										setSettingsOpen(false);
-										setArchivesOpen(false);
+										const target = {
+											project: hit.project,
+											path: hit.directory ? `${hit.path}/` : hit.path,
+											line: hit.line || undefined,
+											navigationId: crypto.randomUUID(),
+										};
+										history.visit({
+											view: containing ? "space" : "project",
+											root: hit.project,
+											space: containing?.id,
+											workspace: navigationVisit(target),
+											request: target,
+										});
 										setNavigation({
 											project: hit.project,
 											path: hit.directory ? `${hit.path}/` : hit.path,
@@ -533,8 +653,13 @@ export default function App() {
 						<FileSpaceView
 							key={activeSpace.id}
 							space={activeSpace}
+							onVisit={history.record}
+							restoration={history.restoration}
 							navigation={
-								navigation && spaceEntries(activeSpace).includes(navigation.project) ? navigation : null
+								history.location.request &&
+								spaceEntries(activeSpace).includes(history.location.request.project)
+									? history.location.request
+									: null
 							}
 						/>
 					) : archivesOpen ? (
@@ -581,8 +706,12 @@ export default function App() {
 						>
 							<ProjectView
 								key={selected.path}
-								navigation={navigation?.project === selected.path ? navigation : null}
+								navigation={
+									history.location.request?.project === selected.path ? history.location.request : null
+								}
 								project={selected}
+								onVisit={history.record}
+								restoration={history.restoration}
 								summary={selectedSummary?.data}
 								pending={selectedSummary?.isFetching ?? false}
 								error={selectedSummary?.error ? String(selectedSummary.error) : undefined}
@@ -649,6 +778,7 @@ export default function App() {
 										<Search size={14} />
 										<SearchInput
 											data-testid="project-search"
+											inputRef={projectSearch}
 											placeholder={t("searchProjects")}
 											value={search}
 											onClear={() => setSearch("")}
@@ -680,8 +810,7 @@ export default function App() {
 											pending={summary.isPending}
 											error={summary.error ? String(summary.error) : undefined}
 											onOpen={() => {
-												setSelectedSpace(null);
-												setSelectedPath(project.path);
+												visitView({ view: "project", root: project.path });
 											}}
 											onPin={() => {
 												void handlePin(project);

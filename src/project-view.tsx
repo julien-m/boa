@@ -3,6 +3,7 @@ import { Columns2, FileCode2, FolderOpen, GitBranch, GitFork, RefreshCw, X } fro
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
+import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
@@ -18,7 +19,11 @@ export function ProjectView({
 	pending,
 	onRefresh,
 	navigation,
+	onVisit,
+	restoration,
 }: {
+	onVisit?: RecordVisit;
+	restoration?: HistoryRestoration | null;
 	navigation: Selection | null;
 	project: Project;
 	summary?: Summary;
@@ -32,6 +37,8 @@ export function ProjectView({
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
 	});
+	const layoutRef = useRef(layout);
+	layoutRef.current = layout;
 	const [treeFolder, setTreeFolder] = useState({ path: "", requestId: "" });
 	const [folderError, setFolderError] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -63,29 +70,58 @@ export function ProjectView({
 		if (preview && editing.drafts[JSON.stringify([project.path, preview])])
 			setFiles((current) => ({ ...current, preview: null }));
 	}, [editing.drafts, preview, project.path]);
-	const setSelection = useCallback((value: Selection | null): void => {
-		setFiles((current) => ({ ...current, selection: value }));
-	}, []);
-	const openFile = useCallback((value: Selection, keep = false): void => {
-		setFiles((current) => {
-			const existing = current.tabs.some((tab) => tab.path === value.path);
-			const next = existing
-				? current.tabs.map((tab) => (tab.path === value.path ? value : tab))
-				: [...current.tabs.filter((tab) => tab.path !== current.preview), value];
-			return {
-				tabs: next,
-				selection: value,
-				preview: keep
-					? current.preview === value.path || !existing
-						? null
-						: current.preview
-					: existing
-						? current.preview
-						: value.path,
-			};
-		});
-	}, []);
+	const setSelection = useCallback(
+		(value: Selection | null): void => {
+			setFiles((current) => ({ ...current, selection: value }));
+			onVisit?.({ selection: value, library: null, layout: layoutRef.current });
+		},
+		[onVisit],
+	);
+	const autoSelection = useCallback(
+		(value: Selection) => {
+			setFiles((current) => ({ ...current, selection: value }));
+			onVisit?.({ selection: value, library: null, layout: layoutRef.current }, true);
+		},
+		[onVisit],
+	);
+	const openFile = useCallback(
+		(value: Selection, keep = false, record = true): void => {
+			if (record) onVisit?.({ selection: value, library: null, layout: layoutRef.current });
+			setFiles((current) => {
+				const existing = current.tabs.some((tab) => tab.path === value.path);
+				const next = existing
+					? current.tabs.map((tab) => (tab.path === value.path ? value : tab))
+					: [...current.tabs.filter((tab) => tab.path !== current.preview), value];
+				return {
+					tabs: next,
+					selection: value,
+					preview: keep
+						? current.preview === value.path || !existing
+							? null
+							: current.preview
+						: existing
+							? current.preview
+							: value.path,
+				};
+			});
+		},
+		[onVisit],
+	);
 	const closeFile = (path: string): void => {
+		if (!selection?.repo && selection?.path === path) {
+			const next = tabs.filter((tab) => tab.path !== path);
+			onVisit?.({
+				selection:
+					next[
+						Math.min(
+							tabs.findIndex((tab) => tab.path === path),
+							next.length - 1,
+						)
+					] ?? null,
+				library: null,
+				layout,
+			});
+		}
 		setFiles((current) => {
 			const index = current.tabs.findIndex((tab) => tab.path === path);
 			const next = current.tabs.filter((tab) => tab.path !== path);
@@ -101,20 +137,29 @@ export function ProjectView({
 	};
 
 	useEffect(() => {
-		if (navigation) {
+		if (navigation && !restoration) {
 			if (navigation.path.endsWith("/"))
 				setTreeFolder({
 					path: navigation.path.slice(0, -1),
 					requestId: navigation.navigationId ?? crypto.randomUUID(),
 				});
-			else openFile(navigation);
+			else openFile(navigation, false, false);
 			setLayout("files");
 		}
 	}, [navigation, openFile]);
+	useEffect(() => {
+		if (!restoration) return;
+		const visit = restoration.workspace;
+		if (visit.selection && !visit.selection.repo) openFile(visit.selection, true, false);
+		else setFiles((current) => ({ ...current, selection: visit.selection ?? null }));
+		setLayout(visit.layout ?? (visit.selection?.repo ? "split" : "files"));
+		setTreeFolder({ path: visit.folder?.folder ?? "", requestId: String(restoration.id) });
+	}, [restoration, openFile]);
 	const repos = summary?.repos ?? [];
 	const root = repos.find((repo) => repo.path === project.path) ?? repos[0];
 	const handleLayout = (value: Layout): void => {
 		setLayout(value);
+		onVisit?.({ layout: value });
 		localStorage.setItem("boa-layout", value);
 	};
 	return (
@@ -203,6 +248,8 @@ export function ProjectView({
 			{layout !== "git" && (
 				<FileWorkspace
 					libraryRoot={project.path}
+					onVisit={onVisit}
+					restoration={restoration}
 					onOpen={openFile}
 					navigationKey={navigation?.navigationId}
 					tree={
@@ -274,6 +321,8 @@ export function ProjectView({
 					expanded={layout === "git"}
 					selection={selection}
 					onSelect={setSelection}
+					onAutoSelect={autoSelection}
+					autoSelect={!restoration}
 				/>
 			)}
 		</div>
