@@ -5,6 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 
+async function navigateHistory(direction: "back" | "forward") {
+	await page.evaluate(
+		(button) => {
+			window.dispatchEvent(new MouseEvent("mousedown", { button, bubbles: true, cancelable: true }));
+			window.dispatchEvent(new MouseEvent("mouseup", { button, bubbles: true, cancelable: true }));
+			window.dispatchEvent(new MouseEvent("auxclick", { button, bubbles: true, cancelable: true }));
+		},
+		direction === "back" ? 3 : 4,
+	);
+}
+
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
 const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
 let fileSpaces: { id: string; name: string; roots: string[]; files?: string[] }[] = [];
@@ -377,6 +388,9 @@ await page.addInitScript(() => {
 		if (id) callbacks.get(id)?.({ event, id, payload });
 	};
 	Reflect.set(window, "boaTestNavigate", (urls: string[]) => emit("deep-link://new-url", urls));
+	Reflect.set(window, "boaTestHistoryNavigate", (direction: number) =>
+		emit("boa:history-navigation", direction),
+	);
 	Reflect.set(window, "boaTestProjectsChanged", () => emit("boa:projects-changed", null));
 	Reflect.set(window, "boaTestFilesystemChanged", (payload: unknown) =>
 		emit("boa:filesystem-changed", payload),
@@ -431,9 +445,90 @@ try {
 	await expect(page.getByTestId("open-repository")).toBeEnabled();
 	await page.getByTestId("dashboard-nav").click();
 	await expect(page.getByTestId("project-card-BOA QA")).toBeVisible();
+	const layoutBeforeNavigation = await page.evaluate(() => localStorage.getItem("boa-layout") ?? "split");
+	await expect(page.getByTestId("navigate-back")).toHaveCount(0);
+	await expect(page.getByTestId("navigate-forward")).toHaveCount(0);
+	// Overview typing starts the search from a focused navigation button, including the first key.
+	await page.keyboard.type("BOA");
+	await expect(page.getByTestId("project-search")).toBeFocused();
+	await expect(page.getByTestId("project-search")).toHaveValue("BOA");
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("project-search")).toHaveValue("");
+	await page.getByTestId("project-sort").focus();
+	await page.keyboard.press("n");
+	await expect(page.getByTestId("project-search")).toHaveValue("");
+	await page.getByTestId("project-card-BOA QA").click();
+	await page.getByTestId("layout-files").click();
+	await page.getByTestId("file-sample.ts").click();
+	await page.getByTestId("file-README.md").click();
+	// Logitech macOS gestures arrive through AppKit/Tauri, not DOM mouse buttons.
+	await page.evaluate(() => Reflect.get(window, "boaTestHistoryNavigate")(-1));
+	await expect(page.getByTestId("tab-sample.ts")).toHaveAttribute("aria-selected", "true");
+	await page.evaluate(() => Reflect.get(window, "boaTestHistoryNavigate")(1));
+	await expect(page.getByTestId("tab-README.md")).toHaveAttribute("aria-selected", "true");
+	await page.evaluate(() => Reflect.get(window, "boaTestHistoryNavigate")(0));
+	await expect(page.getByTestId("tab-README.md")).toHaveAttribute("aria-selected", "true");
+	await navigateHistory("back");
+	await expect(page.getByTestId("tab-sample.ts")).toHaveAttribute("aria-selected", "true");
+	await navigateHistory("forward");
+	await expect(page.getByTestId("tab-README.md")).toHaveAttribute("aria-selected", "true");
+
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "navigation-history.png") });
+	await page.getByRole("button", { name: "Bibliothèque", exact: true }).click();
+	await expect(page.locator(".image-library")).toBeVisible();
+	await navigateHistory("back");
+	await expect(page.locator(".workspace-reader")).toBeVisible();
+	await navigateHistory("forward");
+	await expect(page.locator(".image-library")).toBeVisible();
+	await page.getByTestId("dashboard-nav").click();
+	await navigateHistory("back");
+	await expect(page.getByTestId("project-view")).toBeVisible();
+	await expect(page.locator(".image-library")).toBeVisible();
+	await navigateHistory("forward");
+	await expect(page.getByTestId("dashboard")).toBeVisible();
+	await page.getByTestId("settings-nav").click();
+	await page.keyboard.press("Alt+ArrowLeft");
+	await expect(page.getByTestId("dashboard")).toBeVisible();
+	await navigateHistory("forward");
+	await expect(page.getByTestId("discovery-mode")).toBeVisible();
+	await navigateHistory("back");
+	await page.getByTestId("project-card-BOA QA").click();
+	// Restored directory requests must browse a folder, never create a file tab.
+	await page.evaluate(
+		(project) =>
+			window.dispatchEvent(
+				new CustomEvent("boa:open-file", {
+					detail: { project, path: "docs/", navigationId: crypto.randomUUID() },
+				}),
+			),
+		directory,
+	);
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toBeVisible();
+	await page.getByTestId("dashboard-nav").click();
+	await navigateHistory("back");
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toBeVisible();
+	await expect(page.getByTestId("tab-docs/")).toHaveCount(0);
+	await page.getByTestId("layout-git").click();
+	await expect(page.getByTestId("git-panel")).toBeVisible();
+	await navigateHistory("back");
+	await expect(page.getByTestId("project-view")).toHaveClass(/layout-files/);
+	await navigateHistory("forward");
+	await expect(page.getByTestId("project-view")).toHaveClass(/layout-git/);
+	await page.getByTestId(`layout-${layoutBeforeNavigation}`).click();
+	await page.getByTestId("dashboard-nav").click();
 	await expect(page.getByTestId("pin-project-BOA QA")).toHaveAttribute("aria-pressed", "false");
 	await page.getByTestId("pin-project-BOA QA").click();
 	await expect(page.getByTestId("nav-project-BOA QA")).toBeVisible();
+	await page.getByTestId("nav-project-BOA QA").click();
+	await page.getByTestId("layout-files").click();
+	await page.getByTestId("file-sample.ts").click();
+	await page.getByTestId("nav-project-BOA QA").click();
+	await page.getByTestId("settings-nav").click();
+	await navigateHistory("back");
+	await expect(page.getByTestId("tab-sample.ts")).toHaveAttribute("aria-selected", "true");
+	await page.getByTestId(`layout-${layoutBeforeNavigation}`).click();
+	await page.getByTestId("dashboard-nav").click();
 	await page.getByTestId("archive-project-BOA QA").click();
 	await expect(page.getByTestId("project-card-BOA QA")).toHaveCount(0);
 	await expect(page.getByTestId("nav-project-BOA QA")).toHaveCount(0);
@@ -1173,6 +1268,25 @@ try {
 	await page.getByRole("button", { name: "Tout afficher", exact: true }).click();
 	await expect.poll(() => filePreferences[directory]?.filtered).toBe(false);
 	await expect(page.getByTestId("file-README.md")).toBeVisible();
+	await page.evaluate(
+		(project) =>
+			window.dispatchEvent(
+				new CustomEvent("boa:open-file", {
+					detail: { project, path: "docs/", navigationId: crypto.randomUUID() },
+				}),
+			),
+		directory,
+	);
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toBeVisible();
+	await navigateHistory("back");
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toHaveCount(0);
+	await navigateHistory("forward");
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toBeVisible();
+	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
+	await page.getByTestId("settings-nav").click();
+	await navigateHistory("back");
+	await expect(page.locator('.file-browser button[data-hint="docs"]')).toBeVisible();
+	await page.locator(".file-browser-root").click();
 	await page.getByTestId("file-sample.ts").click();
 	await page.getByTestId("read-only-toggle").click();
 	const spaceEditor = page.getByTestId("code-viewer").getByRole("textbox");

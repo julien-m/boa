@@ -195,7 +195,7 @@ export function FileBrowser({
 	}, [revealTarget]);
 	useEffect(() => {
 		setPath(folder);
-		if (folderRequestId) chooseFolder?.(root, folder);
+		if (folderRequestId) chooseFolder?.(root, folder, false);
 	}, [folder, folderRequestId, root, chooseFolder]);
 	useEffect(() => {
 		const listener = (e: Event) => {

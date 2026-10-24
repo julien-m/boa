@@ -26,8 +26,18 @@ interface GitPanelProps {
 	expanded: boolean;
 	selection: Selection | null;
 	onSelect: (selection: Selection | null) => void;
+	onAutoSelect?: (selection: Selection) => void;
+	autoSelect?: boolean;
 }
-export function GitPanel({ project, repos, expanded, selection, onSelect }: GitPanelProps) {
+export function GitPanel({
+	project,
+	repos,
+	expanded,
+	selection,
+	onSelect,
+	onAutoSelect,
+	autoSelect = true,
+}: GitPanelProps) {
 	const { t } = useTranslation("git");
 	const [tab, setTab] = useState<"changes" | "history" | "compare">("changes");
 	const [repoPath, setRepoPath] = useState("");
@@ -49,7 +59,17 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 		setTab(next);
 	};
 	useEffect(() => {
-		if (!expanded || tab !== "changes" || !repo || repo.error) return;
+		if (
+			!autoSelect ||
+			!expanded ||
+			tab !== "changes" ||
+			!repo ||
+			repo.error ||
+			selection?.hash ||
+			selection?.base ||
+			selection?.head
+		)
+			return;
 		if (
 			selection?.repo === repo.path &&
 			!selection.hash &&
@@ -61,14 +81,14 @@ export function GitPanel({ project, repos, expanded, selection, onSelect }: GitP
 		const staged = repo.changes.find((change) => change.index !== "." && change.index !== "?");
 		const first = staged ?? repo.changes.find((change) => change.worktree !== "." || change.conflict);
 		if (first)
-			onSelect({
+			(onAutoSelect ?? onSelect)({
 				project: project.path,
 				repo: repo.path,
 				path: first.path,
 				oldPath: first.oldPath,
 				side: staged ? "staged" : "working",
 			});
-	}, [expanded, tab, repo, selection, project.path, onSelect]);
+	}, [expanded, tab, repo, selection, project.path, onSelect, onAutoSelect, autoSelect]);
 	const handleRepository = (path: string): void => {
 		setOpenError("");
 		setRepoPath(path);

@@ -11,6 +11,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { useFileLabels } from "./file-workspace-labels";
 import { ImageLibrary } from "./image-library";
 import type { Selection } from "./models";
@@ -18,7 +19,7 @@ import { PanelResizer } from "./panel-resizer";
 
 const ImageLibraryContext = createContext<{
 	open: (root: string, folder: string) => void;
-	folder: (root: string, folder: string) => void;
+	folder: (root: string, folder: string, record?: boolean) => void;
 	close: () => void;
 } | null>(null);
 export const useImageLibrary = () => useContext(ImageLibraryContext)?.open;
@@ -31,7 +32,11 @@ export function FileWorkspace({
 	libraryRoot,
 	onOpen,
 	navigationKey,
+	onVisit,
+	restoration,
 }: {
+	onVisit?: RecordVisit;
+	restoration?: HistoryRestoration | null;
 	tree: ReactNode;
 	children: ReactNode;
 	libraryRoot?: string;
@@ -43,18 +48,33 @@ export function FileWorkspace({
 	const [showTree, setShowTree] = useState(true);
 	const [library, setLibrary] = useState(false);
 	const closeLibrary = useCallback(() => setLibrary(false), []);
+	const restoring = useRef(Boolean(restoration));
+	restoring.current = Boolean(restoration);
+	const libraryRef = useRef(library);
+	libraryRef.current = library;
 	const [scope, setScope] = useState({ root: libraryRoot ?? "", folder: "" });
 	const previousRoot = useRef(libraryRoot);
-	const openLibrary = useCallback((root: string, folder: string) => {
-		setScope({ root, folder });
-		setLibrary(true);
-	}, []);
+	const openLibrary = useCallback(
+		(root: string, folder: string) => {
+			setScope({ root, folder });
+			setLibrary(true);
+			onVisit?.({ library: { root, folder } });
+		},
+		[onVisit],
+	);
 	const chooseFolder = useCallback(
-		(root: string, folder: string) =>
+		(root: string, folder: string, record = true) => {
+			// Restoring each tree must not overwrite the shared scope restored by this workspace.
+			// A ref keeps this callback stable when a later user action ends restoration.
+			if (!record && restoring.current) return;
 			setScope((current) =>
 				current.root === root && current.folder === folder ? current : { root, folder },
-			),
-		[],
+			);
+			// Requests used to restore a folder are already represented in history.
+			if (record)
+				onVisit?.({ folder: { root, folder }, ...(libraryRef.current ? { library: { root, folder } } : {}) });
+		},
+		[onVisit],
 	);
 	const libraryActions = useMemo(
 		() => ({ open: openLibrary, folder: chooseFolder, close: closeLibrary }),
@@ -67,8 +87,14 @@ export function FileWorkspace({
 		setLibrary(false);
 	}, [libraryRoot]);
 	useEffect(() => {
-		setLibrary(false);
+		if (!restoration) setLibrary(false);
 	}, [navigationKey]);
+	useEffect(() => {
+		if (!restoration) return;
+		setLibrary(Boolean(restoration.workspace.library));
+		const scope = restoration.workspace.library ?? restoration.workspace.folder;
+		setScope(scope ?? { root: libraryRoot ?? "", folder: "" });
+	}, [restoration]);
 	const showImage = (path: string, reveal = false) => {
 		onOpen?.({ project: scope.root, path });
 		setLibrary(false);
@@ -110,7 +136,10 @@ export function FileWorkspace({
 								type="button"
 								className={library ? "" : "active"}
 								aria-pressed={!library}
-								onClick={() => setLibrary(false)}
+								onClick={() => {
+									closeLibrary();
+									onVisit?.({ library: null });
+								}}
 							>
 								{l.files}
 							</button>
@@ -118,7 +147,7 @@ export function FileWorkspace({
 								type="button"
 								className={library ? "active" : ""}
 								aria-pressed={library}
-								onClick={() => setLibrary(true)}
+								onClick={() => openLibrary(scope.root, scope.folder)}
 							>
 								{l.library}
 							</button>

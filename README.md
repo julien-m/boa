@@ -234,3 +234,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes and [SECURITY.
 ## License
 
 BOA is available under the [MIT License](LICENSE).
+
+## Navigation history and direct dashboard search
+
+Use mouse back/forward buttons, Alt+Left/Right and Cmd+[ / Cmd+] outside editing controls to revisit the previous view, file, folder or Files/Library view. On macOS, native horizontal swipe navigation (including Logitech Back/Forward actions) also feeds this history, even when the file viewer has focus. The listener is local to BOA and leaves vertical gestures and other windows alone. No navigation buttons are added to the title bar. Navigation history is kept for the current app session, capped at 100 visits; returning and then opening something else replaces forward history. Drafts remain available. Filters and zoom changes do not add history entries.
+
+On Overview, start typing outside a text field or other input control to focus **Search projects** and filter immediately, including the first character. Escape and the clear button retain their normal search behavior; typing inside editors, settings, dialogs or menus is preserved.
+
+For `boa open` (including `--source Codex`), BOA resolves the longest registered root containing the file. If that root is both a project and a file-space entry, the first matching file space in saved order wins. An individually registered file is more specific than a containing folder. A parent space does not override a more specific registered project root. Source labels identify the caller and do not alter that routing.

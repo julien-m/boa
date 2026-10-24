@@ -318,9 +318,12 @@ name = "boa"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "block2",
  "image",
  "libc",
  "notify",
+ "objc2",
+ "objc2-app-kit",
  "serde",
  "serde_json",
  "tauri",

@@ -560,3 +560,46 @@ it("prevents tree and library preferences from overwriting each other during sav
 	expect(librarySort.value).toBe("size");
 	expect(client.getQueryData(["file-preferences", "/fixture"])).toMatchObject({ sort: "size" });
 });
+
+it("keeps the restored library root when multiple folder browsers reset", async () => {
+	const roots = ["/first", "/second"];
+	const open = vi.fn();
+	const restoration = { id: 1, workspace: { library: { root: roots[0], folder: "assets" } } };
+	const renderRestored = async (foldersReady: boolean, restoring = true) => {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<FileWorkspace
+						libraryRoot={roots[0]}
+						restoration={restoring ? restoration : null}
+						onOpen={open}
+						tree={roots.map((path) => (
+							<FileBrowser
+								key={path}
+								root={path}
+								onOpen={open}
+								folderRequestId={foldersReady ? String(restoration.id) : undefined}
+							/>
+						))}
+					>
+						<textarea defaultValue="draft" />
+					</FileWorkspace>
+				</QueryClientProvider>,
+			),
+		);
+		await flush();
+	};
+	await renderRestored(false);
+	await renderRestored(true);
+	await renderRestored(true, false);
+	expect(images).toHaveBeenLastCalledWith(
+		restoration.workspace.library.root,
+		restoration.workspace.library.folder,
+	);
+	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
+	await flush();
+	await act(async () =>
+		document.querySelector<HTMLButtonElement>('dialog button[aria-label="Ouvrir dans Fichiers"]')!.click(),
+	);
+	expect(open.mock.lastCall?.[0].project).toBe(restoration.workspace.library.root);
+});
