@@ -48,6 +48,8 @@ export function FileWorkspace({
 	const [showTree, setShowTree] = useState(true);
 	const [library, setLibrary] = useState(false);
 	const closeLibrary = useCallback(() => setLibrary(false), []);
+	const restoring = useRef(Boolean(restoration));
+	restoring.current = Boolean(restoration);
 	const libraryRef = useRef(library);
 	libraryRef.current = library;
 	const [scope, setScope] = useState({ root: libraryRoot ?? "", folder: "" });
@@ -62,6 +64,9 @@ export function FileWorkspace({
 	);
 	const chooseFolder = useCallback(
 		(root: string, folder: string, record = true) => {
+			// Restoring each tree must not overwrite the shared scope restored by this workspace.
+			// A ref keeps this callback stable when a later user action ends restoration.
+			if (!record && restoring.current) return;
 			setScope((current) =>
 				current.root === root && current.folder === folder ? current : { root, folder },
 			);
