@@ -27,6 +27,9 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import { type AppLocation, navigationVisit, useAppHistory } from "./app-history";
+import { captureCurrentReaderSelection } from "./code-viewer";
+import { resolveContextPassage } from "./context-anchors";
+import { contextApi, type ReaderOpenRequest } from "./context-api";
 import { DraftIndicator } from "./file-editing";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileSpaceView } from "./file-space-view";
@@ -39,6 +42,7 @@ import { countRepos, type Project, type Summary } from "./models";
 import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
+import { rememberReadingReturn } from "./reading-return";
 import { SearchInput } from "./search-input";
 import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
@@ -129,6 +133,144 @@ export default function App() {
 	const [sort, setSort] = useState(() => localStorage.getItem("boa-project-sort") ?? "name");
 	const [display, setDisplay] = useState(() => localStorage.getItem("boa-project-display") ?? "grid");
 	const [notice, setNotice] = useState("");
+	useEffect(() => {
+		const restore = (event: Event) => {
+			const selection = (event as CustomEvent<Selection>).detail;
+			void fileWorkspace.state().then((spaces) => {
+				const containing = spaces.spaces.find((space) => spaceEntries(space).includes(selection.project));
+				history.visit({
+					view: containing ? "space" : "project",
+					root: selection.project,
+					space: containing?.id,
+					workspace: navigationVisit(selection),
+					request: { ...selection, navigationId: crypto.randomUUID() },
+				});
+				setNavigation({ ...selection, source: "BOA", navigationId: crypto.randomUUID() });
+			});
+		};
+		window.addEventListener("boa:restore-reading", restore);
+		return () => window.removeEventListener("boa:restore-reading", restore);
+	}, []);
+	useEffect(() => {
+		let disposed = false;
+		let stop: (() => void) | undefined;
+		let latest = "";
+		const handled = new Set<string>();
+		const handle = async (request: ReaderOpenRequest) => {
+			if (disposed || handled.has(request.requestId)) return;
+			handled.add(request.requestId);
+			if (handled.size > 256) handled.delete(handled.values().next().value as string);
+			latest = request.requestId;
+			const acknowledge = (status: "paused" | "missing" | "failed", message?: string) =>
+				contextApi.acknowledge(request.requestId, status, message).catch(() => {});
+			if (pausedRef.current || document.querySelector('[data-testid="edit-save"]')) {
+				await acknowledge("paused");
+				return;
+			}
+			try {
+				const target = await api.navigate(request.file);
+				const preview = await api.preview(target);
+				let line: number | undefined = request.line;
+				let endLine: number | undefined = request.endLine;
+				let contextRef: Selection["contextRef"];
+				let anchorStatus: Selection["anchorStatus"] = "exact";
+				if (request.context) {
+					const ref = request.context;
+					const view = await contextApi.get(ref.project, ref.viewId);
+					const passage = view.steps
+						.find((step) => step.id === ref.stepId)
+						?.passages.find((p) => p.id === ref.passageId);
+					if (!passage) {
+						await acknowledge("missing", "Context step or passage was removed");
+						return;
+					}
+					const expectedFile =
+						view.project === request.file && passage.path === view.project.split("/").at(-1)
+							? view.project
+							: `${view.project}/${passage.path}`;
+					if (expectedFile !== request.file) {
+						await acknowledge("failed", "Context passage changed during navigation; open it again");
+						return;
+					}
+					const resolved = resolveContextPassage(preview.modified, passage);
+					anchorStatus = resolved.status;
+					line = resolved.line;
+					endLine = resolved.endLine;
+					contextRef = { ...ref, revision: view.revision };
+				} else if (endLine > preview.modified.split("\n").length) anchorStatus = "needs-review";
+				if (anchorStatus === "needs-review") {
+					line = undefined;
+					endLine = undefined;
+				}
+				const spaces = await fileWorkspace.state();
+				if (disposed || latest !== request.requestId) {
+					await acknowledge("failed", "Superseded by another navigation request");
+					return;
+				}
+				if (pausedRef.current || document.querySelector('[data-testid="edit-save"]')) {
+					await acknowledge("paused");
+					return;
+				}
+				const containing = spaces.spaces.find((space) => spaceEntries(space).includes(target.project));
+				if (request.context) rememberReadingReturn(captureCurrentReaderSelection());
+				if (!containing) {
+					await api.add(target.project);
+					await client.invalidateQueries({ queryKey: ["projects"] });
+				}
+				if (disposed || latest !== request.requestId || pausedRef.current) {
+					await acknowledge("failed", "Navigation superseded");
+					return;
+				}
+				const next: Selection = {
+					...target,
+					line,
+					endLine,
+					contextRef,
+					anchorStatus,
+					receiptId: request.requestId,
+					navigationId: request.requestId,
+				};
+				history.visit({
+					view: containing ? "space" : "project",
+					root: target.project,
+					space: containing?.id,
+					workspace: navigationVisit(next),
+					request: next,
+				});
+				setNavigation({
+					...target,
+					line,
+					endLine,
+					contextRef,
+					anchorStatus,
+					source: request.source,
+					receiptId: request.requestId,
+					navigationId: request.requestId,
+				});
+			} catch (error) {
+				await acknowledge("missing", String(error));
+			}
+		};
+		void listen<ReaderOpenRequest>("boa:reader-open", (event) => void handle(event.payload))
+			.then(async (unlisten) => {
+				if (disposed) {
+					unlisten();
+					return;
+				}
+				stop = unlisten;
+				try {
+					const pending = await contextApi.pending();
+					for (const request of pending) await handle(request);
+				} catch {
+					/* Older app versions have no receipt queue. */
+				}
+			})
+			.catch(() => {});
+		return () => {
+			disposed = true;
+			stop?.();
+		};
+	}, []);
 	useEffect(() => {
 		let disposed = false;
 		let cleanup: (() => void) | undefined;

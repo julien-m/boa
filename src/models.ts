@@ -74,6 +74,11 @@ export interface Selection {
 	line?: number;
 	endLine?: number;
 	navigationId?: string;
+	receiptId?: string;
+	contextRef?: { project: string; viewId: string; stepId: string; passageId: string; revision: number };
+	anchorStatus?: "exact" | "relocated" | "needs-review";
+	restorePosition?: { line: number; column: number; scrollTop: number; scrollLeft: number };
+	markdownRestore?: { text: string; tag: string; offset: number; scrollTop: number };
 	anchor?: string;
 }
 export interface Comparison {

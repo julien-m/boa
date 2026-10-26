@@ -122,6 +122,8 @@ type RepoCache = HashMap<PathBuf, RepositorySnapshot>;
 pub(crate) struct AppState {
     pub config: Mutex<Config>,
     pub config_path: PathBuf,
+    pub context_views: Mutex<Vec<crate::context_views::View>>,
+    pub reader_receipts: Mutex<crate::context_views::Receipts>,
     pub repo_cache: Mutex<RepoCache>,
     repo_generations: Mutex<HashMap<PathBuf, u64>>,
     pub workers: std::sync::Arc<tokio::sync::Semaphore>,
@@ -141,6 +143,10 @@ impl AppState {
         config.projects.sort_by_key(|p| p.name.to_lowercase());
         let state = Self {
             config: Mutex::new(config),
+            context_views: Mutex::new(crate::context_views::load(
+                &config_path.with_file_name("context-views.json"),
+            )?),
+            reader_receipts: Mutex::new(Default::default()),
             config_path,
             repo_cache: Mutex::new(HashMap::new()),
             repo_generations: Mutex::new(HashMap::new()),

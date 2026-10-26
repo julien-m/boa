@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
+import type { ContextView, ReaderOpenRequest } from "../src/context-api";
 
 async function navigateHistory(direction: "back" | "forward") {
 	await page.evaluate(
@@ -61,11 +62,14 @@ let saveConflict = false;
 let summaryGate: Promise<void> | null = null;
 let releaseSummary = (): void => {};
 let exportsCreated = 0;
+let contextViews: ContextView[] = [];
+const readerReceipts = new Map<string, { request: ReaderOpenRequest; status: string }>();
 const browser = await chromium.launch({
 	channel: process.env.BOA_TEST_BROWSER === "chromium" ? undefined : "chrome",
 	headless: true,
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 } });
+page.setDefaultTimeout(10_000);
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
 
@@ -94,6 +98,63 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
 	switch (command) {
+		case "reader_pending":
+			return [];
+		case "reader_status":
+			return readerReceipts.get(String(args.requestId));
+		case "reader_acknowledge": {
+			const receipt = readerReceipts.get(String(args.requestId));
+			if (receipt) receipt.status = String(args.status);
+			return receipt;
+		}
+		case "context_views": {
+			const request = args.request as Record<string, unknown>;
+			if (request.action === "list") return contextViews.filter((v) => v.project === request.project);
+			if (request.action === "get")
+				return contextViews.find((v) => v.project === request.project && v.id === request.id);
+			if (request.action === "save") {
+				const view = request.view as ContextView;
+				const existing = contextViews.find((v) => v.project === view.project && v.id === view.id);
+				const updated = { ...view, revision: (existing?.revision ?? 0) + 1, updatedAt: Date.now() };
+				contextViews = [
+					...contextViews.filter((v) => v.project !== view.project || v.id !== view.id),
+					updated,
+				];
+				queueMicrotask(
+					() => void page.evaluate(() => Reflect.get(window, "boaTestEmit")("boa:contexts-changed", null)),
+				);
+				return updated;
+			}
+			if (request.action === "remove") {
+				contextViews = contextViews.filter((v) => v.project !== request.project || v.id !== request.id);
+				return null;
+			}
+			if (request.action === "open") {
+				const view = contextViews.find((v) => v.project === request.project && v.id === request.id);
+				const step = view?.steps.find((s) => s.id === request.stepId) ?? view?.steps[0];
+				const passage = step?.passages.find((p) => p.id === request.passageId) ?? step?.passages[0];
+				if (!view || !step || !passage) throw new Error("Missing test passage");
+				const reader: ReaderOpenRequest = {
+					requestId: crypto.randomUUID(),
+					file: join(view.project, passage.path),
+					line: passage.startLine,
+					endLine: passage.endLine,
+					source: "CLI",
+					context: { project: view.project, viewId: view.id, stepId: step.id, passageId: passage.id },
+				};
+				const receipt = { request: reader, status: "pending" };
+				readerReceipts.set(reader.requestId, receipt);
+				queueMicrotask(
+					() =>
+						void page.evaluate(
+							(payload) => Reflect.get(window, "boaTestEmit")("boa:reader-open", payload),
+							reader,
+						),
+				);
+				return { ...receipt, requestId: reader.requestId };
+			}
+			throw new Error("Unknown context mock request");
+		}
 		case "reveal_file":
 			finderRequests.push(args);
 			return null;
@@ -387,6 +448,7 @@ await page.addInitScript(() => {
 		const id = listeners.get(event);
 		if (id) callbacks.get(id)?.({ event, id, payload });
 	};
+	Reflect.set(window, "boaTestEmit", emit);
 	Reflect.set(window, "boaTestNavigate", (urls: string[]) => emit("deep-link://new-url", urls));
 	Reflect.set(window, "boaTestHistoryNavigate", (direction: number) =>
 		emit("boa:history-navigation", direction),
@@ -739,16 +801,52 @@ try {
 			}, monacoPath),
 		)
 		.toBeGreaterThan(200);
+	const viewportLines = await page.evaluate(async (path) => {
+		const module = await import(path);
+		const reader = module.editor
+			.getEditors()
+			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		return Math.ceil(reader.getLayoutInfo().height / reader.getOption(module.editor.EditorOption.lineHeight));
+	}, monacoPath);
+	// Make the fixture scrollable at the actual viewport size before testing relocation.
+	const scrollSource =
+		after + Array.from({ length: viewportLines * 2 }, (_, i) => `// trailing context ${i}`).join("\n");
+	savedContent = scrollSource;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect
+		.poll(() =>
+			page.evaluate(async (path) => {
+				const module = await import(path);
+				return module.editor
+					.getEditors()
+					.find((e: { getDomNode: () => HTMLElement }) =>
+						e.getDomNode()?.closest('[data-testid="code-viewer"]'),
+					)
+					?.getModel()
+					.getValue();
+			}, monacoPath),
+		)
+		.toBe(scrollSource);
 	const visibleBefore = await page.evaluate(async (path) => {
 		const module = await import(path);
 		const reader = module.editor
 			.getEditors()
 			.find((e: { getDomNode: () => HTMLElement }) => e.getDomNode()?.closest('[data-testid="code-viewer"]'));
-		reader.setScrollTop(reader.getTopForLineNumber(16), 1);
+		reader.setScrollTop(reader.getTopForLineNumber(Math.floor(reader.getModel().getLineCount() / 2)), 1);
 		const line = reader.getVisibleRanges()[0].startLineNumber;
 		return reader.getModel().getLineContent(line);
 	}, monacoPath);
-	savedContent = Array.from({ length: 8 }, (_, i) => `// inserted ${i}`).join("\n") + "\n" + after;
+	savedContent =
+		Array.from({ length: Math.ceil(viewportLines / 3) }, (_, i) => `// inserted ${i}`).join("\n") +
+		"\n" +
+		scrollSource;
 	await page.evaluate(
 		(project) =>
 			Reflect.get(
@@ -1095,18 +1193,6 @@ try {
 	await expect(page.getByTestId("discovery-mode")).toHaveText("Automatique");
 	automaticallyDiscovered = true;
 	await page.getByTestId("dashboard-nav").click();
-	const idleSummaries = summaryCalls;
-	const idleLists = projectListCalls;
-	// Install the clock only for the no-polling assertion: its Performance mock
-	// does not implement the User Timing entries Monaco measures during typing.
-	await page.clock.install();
-	await page.clock.fastForward(120_000);
-	expect(summaryCalls).toBe(idleSummaries);
-	expect(projectListCalls).toBe(idleLists);
-	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-	await page.clock.fastForward(1_000);
-	expect(summaryCalls).toBe(idleSummaries);
-	expect(projectListCalls).toBe(idleLists);
 	await expect(page.getByTestId("project-card-Auto QA")).toHaveCount(0);
 	await page.evaluate(() =>
 		Reflect.get(window, "boaTestFilesystemChanged")({ discovery: true, settings: false, projects: [] }),
@@ -1214,14 +1300,21 @@ try {
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("textbox", { name: "Rechercher", exact: true })).toHaveValue("");
 	await expect(page.getByTestId("file-search-panel")).toBeVisible();
+	await expect(page.getByTestId("file-search-panel").locator(".search-results")).toHaveCount(0);
 	await page.keyboard.press("Escape");
 	await expect(page.getByTestId("file-search-panel")).toHaveCount(0);
 	await page.keyboard.press("Control+Shift+f");
 	const globalSearch = page.getByRole("dialog", { name: "Recherche globale" });
 	await expect(globalSearch).toBeVisible();
 	await globalSearch.getByRole("textbox").fill("sample");
+	await page.keyboard.press("Enter");
+	await expect(globalSearch).toContainText("sample.ts");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "search-clear.png") });
 	await globalSearch.locator(".search-clear").click();
 	await expect(globalSearch.getByRole("textbox")).toHaveValue("");
+	await expect(globalSearch.getByRole("textbox")).toBeFocused();
+	await expect(globalSearch.locator(".search-results")).toHaveCount(0);
 	await globalSearch.getByRole("textbox").fill("sample");
 	await page.keyboard.press("Escape");
 	await expect(globalSearch).toBeVisible();
@@ -1533,6 +1626,167 @@ try {
 	await isolated.getByTestId("file-preview.png").click();
 	await expect(isolated.locator(".file-asset-preview img")).toBeVisible();
 
+	// Exercise real Monaco keyboard navigation and guided display receipts, with only IPC mocked.
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("open-project-BOA QA").click();
+	await page.getByTestId("layout-files").click();
+	await page.getByTestId("file-sample.ts").dblclick();
+	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "false");
+	const readerInput = page.locator('.code-viewer .monaco-editor [role="textbox"]').first();
+	const source = savedContent ?? after;
+	await readerInput.focus();
+	await page.keyboard.type("AMOUNT");
+	await expect(page.getByTestId("reader-query")).toHaveValue("AMOUNT");
+	await expect(page.locator(".reader-navigation")).toContainText(
+		`/ ${source.match(/amount/gi)?.length ?? 0}`,
+	);
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("reader-query")).toHaveCount(0);
+	const line = source.split("\n").findIndex((value) => value.includes("newFunction")) + 1;
+	const lastLine = source.split("\n").length;
+	await readerInput.focus();
+	await page.keyboard.type(String(line));
+	await expect(page.getByTestId("reader-query")).toHaveValue(String(line));
+	await expect(page.getByTestId("reader-position")).toHaveText(`Ln ${line}`);
+	await page.getByTestId("reader-query").fill(String(lastLine + 50));
+	await expect(page.getByTestId("reader-query")).toHaveAttribute("aria-invalid", "true");
+	await expect(page.getByTestId("reader-position")).toHaveText(`Ln ${line}`);
+	await page.keyboard.press("Escape");
+	await page.keyboard.type(` ${line}`);
+	await expect(page.getByTestId("reader-query")).toHaveValue(String(line));
+	await expect(page.locator(".reader-navigation button").filter({ hasText: "Texte" })).toHaveAttribute(
+		"aria-pressed",
+		"true",
+	);
+	await page.keyboard.press("Escape");
+	await readerInput.press("Control+l");
+	await page.getByTestId("reader-query").fill(String(lastLine));
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("reader-position")).toHaveText(`Ln ${lastLine}`);
+	const view: ContextView = {
+		id: crypto.randomUUID(),
+		project: directory,
+		title: "Follow the calculation",
+		description: "A test walkthrough",
+		kind: "walkthrough",
+		revision: 1,
+		updatedAt: Date.now(),
+		steps: [
+			{
+				id: "input",
+				title: "Input value",
+				description: "The input to the calculation.",
+				passages: [
+					{
+						id: "value",
+						path: "sample.ts",
+						startLine: line,
+						endLine: line,
+						text: source.split("\n")[line - 1],
+					},
+				],
+			},
+			{
+				id: "result",
+				title: "Returned result",
+				description: "The returned expression.",
+				passages: [
+					{
+						id: "return",
+						path: "sample.ts",
+						startLine: line + 1,
+						endLine: line + 1,
+						text: source.split("\n")[line],
+					},
+				],
+			},
+		],
+	};
+	contextViews = [view];
+	await page.evaluate(() => Reflect.get(window, "boaTestEmit")("boa:contexts-changed", null));
+	await page.getByTestId("toggle-context-views").click();
+	await page
+		.getByTestId("context-sidebar")
+		.getByRole("button", { name: /Follow the calculation/ })
+		.click();
+	await page.getByTestId("context-step").first().click();
+	await expect(page.getByTestId("context-explanation")).toContainText("Input value");
+	await expect.poll(() => [...readerReceipts.values()].at(-1)?.status).toBe("displayed");
+	await page.getByTestId("context-explanation").getByRole("button", { name: "Suivant", exact: true }).click();
+	await expect(page.getByTestId("context-explanation")).toContainText("Returned result");
+	await expect.poll(() => [...readerReceipts.values()].at(-1)?.status).toBe("displayed");
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "guided-reading.png") });
+	await page
+		.getByTestId("context-explanation")
+		.getByRole("button", { name: "Revenir à ma lecture", exact: true })
+		.click();
+	await expect(page.getByTestId("context-explanation")).toHaveCount(0);
+	await expect(page.getByTestId("reader-position")).toHaveText(`Ln ${lastLine}`);
+	await page.getByTestId("read-only-toggle").click();
+	await expect(readerInput).toBeEditable();
+	await readerInput.focus();
+	await page.keyboard.type("x");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
+	await readerInput.press("Control+f");
+	await expect(page.getByTestId("reader-query")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await page.getByTestId("context-step").first().click();
+	await expect.poll(() => [...readerReceipts.values()].at(-1)?.status).toBe("paused");
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	await page.getByTestId("edit-cancel").click();
+	await page.getByTestId("edit-discard").click();
+	view.steps[0].passages[0].text = "A passage removed from this source";
+	view.revision++;
+	await page.evaluate(() => Reflect.get(window, "boaTestEmit")("boa:contexts-changed", null));
+	await page.getByTestId("context-step").first().click();
+	await expect.poll(() => [...readerReceipts.values()].at(-1)?.status).toBe("needs-review");
+	await page
+		.getByTestId("context-explanation")
+		.getByRole("button", { name: "Revenir à ma lecture", exact: true })
+		.click();
+	page.once("dialog", (dialog) => void dialog.accept("A retained passage"));
+	await page.getByTestId("create-bookmark").click();
+	await expect.poll(() => contextViews.find((v) => v.id === "bookmarks")?.steps.length).toBe(1);
+	await expect(page.getByTestId("context-sidebar")).toContainText("A retained passage");
+	// A guided passage must also return to the scrolled rendered document, not just Monaco.
+	await page.locator(".context-sidebar-tabs").getByRole("button", { name: "Fichiers", exact: true }).click();
+	await page.getByTestId("file-README.md").first().click();
+	await expect(page.getByTestId("markdown-preview")).toBeVisible();
+	const markdownScroll = await page.getByTestId("markdown-preview").evaluate((element) => {
+		element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+		return element.scrollTop;
+	});
+	view.steps[0].passages[0].text = source.split("\n")[line - 1];
+	await page.evaluate(
+		async ({ project, id, stepId }) => {
+			const module = await import("/src/context-api.ts");
+			await module.contextApi.open(project, id, stepId);
+		},
+		{ project: directory, id: view.id, stepId: view.steps[0].id },
+	);
+	await expect(page.getByTestId("context-explanation")).toBeVisible();
+	await page
+		.getByTestId("context-explanation")
+		.getByRole("button", { name: "Revenir à ma lecture", exact: true })
+		.click();
+	await expect(page.getByTestId("markdown-preview")).toBeVisible();
+	await expect
+		.poll(() => page.getByTestId("markdown-preview").evaluate((element) => element.scrollTop))
+		.toBeCloseTo(markdownScroll, 0);
+	// Run fake time last: Playwright's Performance mock lacks User Timing entries used by Monaco.
+	await page.getByTestId("dashboard-nav").click();
+	const idleSummaries = summaryCalls;
+	const idleLists = projectListCalls;
+	await page.clock.install();
+	await page.clock.fastForward(120_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
+	await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+	await page.clock.fastForward(1_000);
+	expect(summaryCalls).toBe(idleSummaries);
+	expect(projectListCalls).toBe(idleLists);
 	expect(errors).toEqual([]);
 	console.log(
 		"PASS: fichiers, Git, contexte, navigation, réglages, événements natifs, aucun polling, archives/restauration, FR/EN et langue persistée au rechargement. Transport Tauri mocké.",

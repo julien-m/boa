@@ -1,61 +1,77 @@
 ---
 name: boa
-description: Utiliser le CLI BOA pour lister, ajouter ou épingler des projets et montrer un fichier ou un passage pendant une discussion ou une démo vocale. Référence des échanges avec BOA, sans contrôle UI, installation ni MCP.
+description: Use the BOA CLI to manage registered projects and file spaces, prepare persistent context views, and reveal code passages with optional display receipts. CLI only; no UI control, installation or MCP server.
 ---
 
 # BOA CLI
 
-Invocation après génération cc-hub : `$boa` dans Codex, `/boa` dans Claude Code. Résous le chemin réel du skill avant de suivre ses liens relatifs à travers un lien généré.
+Use `$boa` in Codex or `/boa` in Claude Code after cc-hub generation. Resolve the real skill path before following relative links through a generated symlink. Read [the user guide and CLI contract](../../../README.md#cli-and-coding-agents) when transport or version is uncertain.
 
-Lis [le contrat CLI](../../../README.md#cli-and-coding-agents) si la version ou le transport est incertain. La source de ce skill est versionnée dans le dossier AgentSync local de BOA ; cc-hub produit les liens Claude/Codex depuis un checkout stable avec la racine canonique personnalisée décrite dans le README.
+- Run `boa --help` for the linked version; from the checkout, `bun scripts/boa.ts` is equivalent. Bun is required for the CLI. Updating the checkout does not update the installed BOA.app.
+- Relative CLI paths resolve from cwd. Quote paths and shell arguments. `--source Codex|Claude|Cursor|CLI` is a declared label, not authenticated identity or Markdown Source mode.
+- Registered projects, file-space folders and individual files bound navigation. Use the longest matching registered root; on an exact project/space-root tie, the first matching space in saved order wins. An individually registered file is more specific than a folder; source labels do not alter routing. Visibility filters are browsing preferences, not access controls. No cookie, secret, repository or application configuration is edited outside its owning API.
 
-## Référence des commandes
+## Registered folders
 
-`boa --help` donne l’aide de la version liée. Depuis le checkout BOA, `bun scripts/boa.ts` remplace `boa` sans installation globale. Le CLI exige Bun ; BOA.app installée fournit le traitement natif. Un nouveau checkout ne met pas l’app à jour.
-
-| Commande | Effet et options |
+| Command | Contract |
 | --- | --- |
-| `boa projects list --json` | Liste actuelle détenue par l’app ; lecture seule |
-| `boa projects add <dossier> [--pin] [--json] [--dry-run]` | Ajout explicite, restaure aussi un projet archivé |
-| `boa projects pin\|unpin <dossier> [--json] [--dry-run]` | Modifie la préférence épinglée |
-| `boa projects favorite\|unfavorite <dossier> [--json] [--dry-run]` | Alias de pin/unpin, même préférence |
-| `boa add\|pin\|unpin\|favorite\|unfavorite <dossier>` | Formes courtes, mêmes options |
-| `boa spaces list [--json]` | Liste les espaces de fichiers, distincts des projets Git |
-| `boa spaces save <id> --name <nom> --root <dossier> [--root <autre-dossier>] [--json] [--dry-run]` | Crée ou remplace un espace ; racines répétables, canonisées et dédupliquées |
-| `boa spaces remove <id> [--json] [--dry-run]` | Retire uniquement l’entrée BOA, jamais les fichiers |
-| `boa files preferences <dossier> [--json]` | Lit les préférences du dossier enregistré |
-| `boa files configure <dossier> [--include <relatif>] [--pin <relatif>] [--sort name\|modified\|modified-asc] [--all] [--json] [--dry-run]` | Remplace toute la sélection, l’ordre des pins et le tri ; include/pin répétables ; all désactive le filtre |
-| `boa open <fichier> [--line 42] [--end-line 50] [--source Codex\|Claude\|Cursor\|CLI] [--dry-run]` | Ouvre un fichier et cible une plage de lignes inclusives |
+| `boa projects list --json` | Read app-owned projects |
+| `boa projects add ROOT [--pin] [--json] [--dry-run]` | Register explicitly; restore if archived |
+| `boa projects pin\|unpin ROOT [--json] [--dry-run]` | Change the pin preference |
+| `boa projects favorite\|unfavorite ROOT` | Aliases for pin/unpin; one preference |
+| `boa add\|pin\|unpin\|favorite\|unfavorite ROOT` | Short forms |
+| `boa spaces list [--json]` | List spaces, separate from Git projects |
+| `boa spaces save ID --name NAME [--root ROOT] [--file FILE] [--json] [--dry-run]` | Create/replace; at least one root/file; canonicalize/deduplicate paths |
+| `boa spaces remove ID [--json] [--dry-run]` | Remove the entry, never files |
+| `boa files preferences ROOT [--json]` | Read folder preferences |
+| `boa files configure ROOT [--include RELATIVE] [--pin RELATIVE] [--sort SORT] [--all] [--json] [--dry-run]` | Replace complete visibility/pin order/sort; repeat include/pin; all disables filtering |
 
-- Chemins relatifs résolus depuis le répertoire courant ; protège espaces et caractères shell avec des guillemets.
-- `open` exige un fichier existant appartenant à un projet enregistré ou à une racine d’espace de fichiers. Ligne par défaut : 1 ; fin par défaut : ligne de départ ; plage entière croissante entre 1 et 1 000 000. Émetteur par défaut : CLI.
-- `--source` est une étiquette déclarée d’émetteur, sans authentification, et ne demande pas le mode Source du Markdown.
-- `--dry-run` ne lance pas l’app. `open` imprime une URL ; les commandes de projets impriment du JSON. `open --json` n’est pas pris en charge.
-- Les commandes de projets, espaces et préférences répondent via un socket Unix privé à l’utilisateur : JSON `{ok:true,result:...}` ou `{ok:false,error:...}` avec `--json`. Échec : code non nul. Délai RPC : 4,5 s ; lancement à froid : attente de connexion jusqu’à 10 s après lancement. Le CLI n’édite pas directement la configuration.
-- `open` envoie une URL `boa://open` à macOS avec fichier, lignes, émetteur et identifiant de requête. Code 0 : demande envoyée ; aucun accusé de traitement, d’affichage ou de position visible. Les erreurs ultérieures de BOA ne reviennent pas au CLI.
+Spaces accept folders and individual files and do not run Git scans. Sort values: `name`, `name-desc`, `added`, `added-asc`, `modified`, `modified-asc`, `created`, `created-asc`, `type`, `type-desc`, `size`, `size-asc`; shared with the Library toolbar. Dates/size default descending; name/type default ascending; unavailable dates remain last. Pins retain manual order. Includes/pins are relative, without `.` or `..` segments. Opening the visible-item chooser does not change selection until an item is chosen.
 
-## Passages Markdown
+## Open a passage
 
-- Le tri `modified` place les modifications récentes en premier ; `modified-asc`, les anciennes.
-- Les liens Markdown locaux suivent les chemins relatifs et les ancres dans BOA, dans les dossiers enregistrés ; les URL externes conservent la copie de lien.
-- Les fichiers `.md` et `.markdown`, insensibles à la casse, s’ouvrent en aperçu par défaut. Les lignes ciblées révèlent le premier bloc correspondant et surlignent les blocs rendus les plus précis, dont les lignes de tableaux. Une nouvelle demande remplace le surlignage et révèle à nouveau la cible.
-- Une ligne sans élément rendu vise le bloc contenant ou le plus proche ; après la fin du fichier, le dernier bloc visible. Le surlignage porte sur les blocs, pas sur une sélection native de caractères. Un passage trop long peut dépasser la fenêtre.
-- Source et édition explicites restent disponibles ; un brouillon actif reste en édition. Find bascule vers Source ; les diffs Git gardent leur lecteur de diff.
-- **Reprendre la main** suspend le guidage entrant dans l’app ; aucune commande CLI ne change cet état. Aucune lecture de l’écran ni confirmation d’affichage n’est disponible par ce CLI. Une confirmation humaine constitue une observation distincte de l’envoi.
+`boa open FILE [--line N] [--end-line N] [--source Codex|Claude|Cursor|CLI] [--wait] [--json] [--wait-ms 10000] [--dry-run]`
 
-## Coordonnées utiles pendant une démo
+- The file must exist in a registered root. Lines default to 1 and to the start line respectively; inclusive increasing integers, 1–1,000,000.
+- Plain open sends a `boa://open` deep link through macOS. Exit 0 means sent, not displayed. Its dry run prints the URL without launching BOA.
+- `--wait` or `--json` uses socket navigation and waits for a reader acknowledgement. `--json` waits by default; `--wait-ms` accepts 100–15,000 ms. Use this path when the task requires evidence of loaded/revealed/highlighted code.
+- Acknowledged open exits 0 only for `displayed`, 2 for an unconfirmed/non-displayed result, 1 for command/RPC failure. Do not turn timeout or `pending` into success or blindly replay a mutation.
+- `boa receipt REQUEST_ID --json` reads a receipt; `boa contexts status REQUEST_ID --json` is equivalent. Receipts are session-local, bounded to 128; pending requests fail after 30 seconds. Restart/eviction loses receipts.
+- Receipt states: `pending`, `displayed`, `paused`, `missing`, `needs-review`, `failed`. Displayed means the app confirmed file load, reveal and highlight; it does not prove the person read it.
+- **Take control** pauses incoming navigation; the CLI cannot resume it. A visible editing draft also pauses guidance. Parked drafts remain preserved.
 
-Le contexte réutilisable est : chemin absolu du fichier, section ou symbole, début/fin de ligne, émetteur, dernière commande et résultat observé. Ces informations restent dans la conversation, sans mémoire persistante ni écriture dans le document. Un fichier modifié nécessite de retrouver les lignes ; les anciennes coordonnées peuvent être périmées.
+### Markdown
 
-```bash
-rg --files "$project" -g '*.md' -g '*.MD' -g '*.markdown'
-rg -n -F 'Purchase' "$file"
-sed -n '120,140p' "$file"
-boa open "$file" --line 120 --end-line 132 --source Codex
-```
+- Local Markdown links resolve relative paths and heading anchors in BOA within registered folders/files; external URLs retain the copy-link behavior.
+- Legacy deep links open `.md`/`.markdown` in Preview; source lines reveal/highlight rendered blocks, including table rows. A line without a rendered element uses the containing/nearest block, or the final block past EOF. This is block highlighting, not native character selection.
+- Acknowledged exact line/context navigation uses Source. Find also switches to Source. Explicit editing and Git diffs retain their own behavior.
 
-Les variables représentent les chemins déjà identifiés dans la conversation. Une recherche bornée dans le fichier connu réduit la redécouverte ; une navigation suivante peut réutiliser ses coordonnées si le contenu est inchangé. L’ajout et l’épinglage sont des mutations de la liste BOA, distinctes de l’ouverture. Les espaces ne déclenchent pas de scan Git ; leurs préférences de visibilité ne sont pas une frontière de sécurité. Les chemins include/pin sont relatifs, sans segments `.` ou `..`.
+## Persistent context views
 
-## Latence et limites
+Read [the context schema and examples](../../../README.md#persistent-contexts-from-the-cli) before preparing JSON. Use source-derived coordinates and distinctive anchor text, never a fixed example as production evidence.
 
-Le trajet est : demande vocale → identification du passage → CLI/Bun → macOS/deep link → résolution native du dossier → lecture des espaces → rafraîchissement des projets → chargement et rendu → défilement. Un temps de commande ne mesure pas le rendu. Aucun MCP BOA n’est fourni ici ; un gain de transport nécessite un benchmark comparable. CLI uniquement : aucun navigateur, Computer Use, clic ou capture ; aucune signature, installation ou modification du Keychain.
+| Command | Contract |
+| --- | --- |
+| `boa contexts list --project ROOT --json` | List views for one registered root |
+| `boa contexts get ID --project ROOT --json` | Read full view and revision |
+| `boa contexts save [ID] --project ROOT --file view.json [--revision N] --json` | Create/replace full view; revision 0 requires new |
+| `boa contexts update ID --project ROOT --file patch.json --revision N --json` | Patch title/description/kind/full steps array |
+| `boa contexts reorder ID --project ROOT --steps FIRST,NEXT --revision N --json` | Every existing step ID exactly once |
+| `boa contexts remove ID --project ROOT --json` | Remove metadata, never source files |
+| `boa contexts open ID --project ROOT [--step ID] [--passage ID] [--wait] [--json] [--wait-ms 10000]` | Open specified/first step and passage; acknowledged with wait/json |
+
+- JSON view: stable `id`, `project`, `title`, `description`, `kind` (`walkthrough` or `findings`), `steps`. Steps have stable `id`, `title`, `description`, optional `group`, and `passages`. Passages have stable `id`, relative `path`, `startLine`, `endLine`, optional `label`, `role`, `symbol`, `text`.
+- IDs are unique within their owning view/step. Paths exclude absolute paths, `.`/`..` and Git metadata. Saved views live in app-owned local `context-views.json`, never source files.
+- Save without revision explicitly replaces. Prefer get → reconcile → save/update with returned revision. A conflict requires reload, not an unconditional overwrite. A full steps update can add/remove/edit/reorder steps and passages.
+- Preparing/updating a view never moves the reader. Open is separate. Preserve the user's active view, reading position and drafts.
+- Unique exact text can relocate a passage. Missing/repeated anchors are uncertain and must not claim `displayed`; the file can open unhighlighted with `needs-review`. Coordinates without text can be stale; use anchors for durable references.
+- Bounds: 256 views/1 MiB store, 48 KiB/view, 256 steps/view, 32 passages/step; text/description lengths are also bounded. Input is rejected, never silently truncated.
+
+## Transport and evidence
+
+Read [the dated CLI latency study](../../../docs/cli-latency.md) for preparation-only measurements; it predates reader receipts and does not establish current display latency or an MCP speedup.
+
+- Projects/spaces/preferences/contexts and acknowledged navigation use a private per-user Unix socket. JSON replies are `{ok:true,result:...}` or `{ok:false,error:...}`. The app owns persistence; the CLI never edits preferences behind its back.
+- RPC deadline: 4.5 seconds; cold-start connection wait: up to 10 seconds after launch. `--dry-run` does not launch the app or apply a mutation.
+- A CLI duration does not measure rendered UI latency. Keep request IDs, actual receipts and observed source coordinates in the conversation. Do not claim screenshot verification from a receipt.
+- No BOA MCP server is provided. This skill performs no browser/Computer Use actions, captures, signing, installation or Keychain changes.

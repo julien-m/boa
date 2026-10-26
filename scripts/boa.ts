@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 /** Agent-friendly BOA CLI: navigation and private app-owned project management. */
 import { spawnSync } from "node:child_process";
-import { lstatSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type ProjectRequest =
+	| { command: "contexts"; request: Record<string, unknown> }
+	| { command: "reader-open"; file: string; line: number; endLine: number; source: string }
+	| { command: "reader-status"; requestId: string }
 	| { command: "workspace"; request: Record<string, unknown> }
 	| { command: "list" }
 	| { command: "add"; path: string; pin: boolean }
@@ -14,7 +17,24 @@ export type ProjectRequest =
 type Reply = { ok: true; result: unknown } | { ok: false; error: string };
 const HELP = `BOA — navigation et projets locaux
 
-boa open <fichier> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI] [--dry-run]
+boa open <file> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI] [--wait] [--json] [--wait-ms 10000] [--dry-run]
+boa contexts list --project <root> [--json]
+boa contexts get <id> --project <root> [--json]
+boa contexts save [id] --project <root> --file <view.json> [--revision N] [--json] [--dry-run]
+boa contexts update <id> --project <root> --file <patch.json> --revision N [--json] [--dry-run]
+boa contexts reorder <id> --project <root> --steps <id,id,...> --revision N [--json] [--dry-run]
+boa contexts remove <id> --project <root> [--json] [--dry-run]
+boa contexts open <id> --project <root> [--step <id>] [--passage <id>] [--wait] [--json] [--wait-ms 10000]
+boa receipt <request-id> [--json]
+
+Context JSON: id, project, title, description, kind (walkthrough|findings), steps.
+Step: id, title, description, optional group, passages. Passage: id, path (relative),
+startLine, endLine, optional label, role, symbol and text anchor.
+Save creates/replaces the complete view; update merges only supplied top-level fields.
+--revision guards against concurrent changes. Reorder includes every step exactly once.
+--wait or --json on open waits for the reader, not merely the request transport.
+Exit 0: displayed (or queued without --wait), 1: error, 2: not confirmed displayed.
+Receipts expire on app restart; query immediately. --wait-ms: 100..15000 ms.
 boa spaces list [--json]
 boa spaces save <id> --name <nom> [--root <dossier>] [--file <fichier>] [--json] [--dry-run]
 boa spaces remove <id> [--json] [--dry-run]
@@ -28,9 +48,6 @@ boa projects favorite|unfavorite <dossier> [--json] [--dry-run]
 Raccourcis : boa add|pin|unpin|favorite|unfavorite <dossier>.
 Favori et épinglé désignent la même préférence. Le CLI ouvre BOA si nécessaire.
 Les dossiers sont ajoutés explicitement ; aucune découverte automatique.
-Markdown : aperçu par défaut ; les lignes ciblées sont révélées et mises en évidence.
---source désigne l’émetteur, pas le mode source du Markdown.
-open confirme l’envoi à macOS, sans accusé d’affichage ; Reprendre la main suspend le guidage.
 --json renvoie {ok,result} ou {ok:false,error} ; une erreur retourne un code non nul.`;
 
 export function parseProjects(args: string[]): ProjectRequest {
@@ -140,6 +157,118 @@ export function parseWorkspace(args: string[]): ProjectRequest {
 	return { command: "workspace", request };
 }
 
+/** Context mutations are sent to BOA, never written to its data files by the CLI. */
+export function parseContexts(args: string[]): ProjectRequest {
+	const [action, ...rest] = args;
+	const values: Record<string, string> = {};
+	const positional: string[] = [];
+	for (let i = 0; i < rest.length; i++) {
+		const token = rest[i];
+		if (["--json", "--dry-run", "--wait"].includes(token)) continue;
+		if (token.startsWith("--")) {
+			if (
+				!["--project", "--file", "--revision", "--steps", "--step", "--passage", "--wait-ms"].includes(
+					token,
+				) ||
+				!rest[i + 1] ||
+				rest[i + 1].startsWith("--") ||
+				values[token] !== undefined
+			)
+				throw new Error(`Invalid option: ${token}`);
+			values[token] = rest[++i];
+		} else positional.push(token);
+	}
+	const allowed: Record<string, string[]> = {
+		list: ["--project"],
+		get: ["--project"],
+		save: ["--project", "--file", "--revision"],
+		update: ["--project", "--file", "--revision"],
+		reorder: ["--project", "--steps", "--revision"],
+		remove: ["--project"],
+		open: ["--project", "--step", "--passage", "--wait-ms"],
+		status: [],
+	};
+	if (
+		!allowed[action] ||
+		Object.keys(values).some((k) => !allowed[action].includes(k)) ||
+		(rest.includes("--wait") && action !== "open")
+	)
+		throw new Error("Invalid context command options");
+	if (action === "status" && positional.length === 1)
+		return { command: "reader-status", requestId: positional[0] };
+	if (!values["--project"]) throw new Error("--project is required");
+	const project = resolve(values["--project"]);
+	const revision = values["--revision"] === undefined ? undefined : Number(values["--revision"]);
+	if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0))
+		throw new Error("Invalid revision");
+	let request: Record<string, unknown>;
+	if (action === "list" && positional.length === 0) request = { action, project };
+	else if (action === "save" && positional.length <= 1 && values["--file"]) {
+		const path = resolve(values["--file"]);
+		if (statSync(path).size > 48 * 1024) throw new Error("Context input exceeds 48 KiB");
+		const view = JSON.parse(readFileSync(path, "utf8"));
+		if (!view || typeof view !== "object" || Array.isArray(view))
+			throw new Error("Context view must be a JSON object");
+		request = {
+			action,
+			view: { ...view, project, ...(positional[0] ? { id: positional[0] } : {}) },
+			expectedRevision: revision,
+		};
+	} else if (positional.length === 1) {
+		const id = positional[0];
+		if (action === "get" || action === "remove") request = { action, project, id };
+		else if (action === "open")
+			request = { action, project, id, stepId: values["--step"], passageId: values["--passage"] };
+		else if (action === "update" && values["--file"] && revision !== undefined) {
+			const path = resolve(values["--file"]);
+			if (statSync(path).size > 48 * 1024) throw new Error("Context patch exceeds 48 KiB");
+			request = {
+				action,
+				project,
+				id,
+				patch: JSON.parse(readFileSync(path, "utf8")),
+				expectedRevision: revision,
+			};
+		} else if (action === "reorder" && values["--steps"] && revision !== undefined)
+			request = { action, project, id, stepIds: values["--steps"].split(","), expectedRevision: revision };
+		else throw new Error("Invalid context command; see boa --help");
+	} else throw new Error("Invalid context command; see boa --help");
+	return { command: "contexts", request };
+}
+
+function waitDuration(args: string[]): number {
+	const index = args.indexOf("--wait-ms");
+	const value = index < 0 ? 10000 : Number(args[index + 1]);
+	if (!Number.isSafeInteger(value) || value < 100 || value > 15000)
+		throw new Error("--wait-ms must be between 100 and 15000");
+	return value;
+}
+async function waitForReader(reply: Reply, args: string[]): Promise<Reply> {
+	if (!reply.ok || !(args.includes("--wait") || args.includes("--json"))) return reply;
+	const deadline = Date.now() + waitDuration(args);
+	let current = reply;
+	while (
+		current.ok &&
+		(current.result as { status?: string }).status === "pending" &&
+		Date.now() < deadline
+	) {
+		await new Promise((done) => setTimeout(done, 100));
+		current = await sendRequest({
+			command: "reader-status",
+			requestId: (current.result as { requestId: string }).requestId,
+		});
+	}
+	return current;
+}
+function readerExit(reply: Reply, args: string[]): number {
+	if (!reply.ok) return 1;
+	return args.includes("--wait") || args.includes("--json")
+		? (reply.result as { status?: string }).status === "displayed"
+			? 0
+			: 2
+		: 0;
+}
+
 export function cliSocketPath(): string {
 	if (!process.geteuid) throw new Error("Le CLI BOA requiert macOS ou Unix.");
 	return `/tmp/boa-cli-${process.geteuid()}/rpc.sock`;
@@ -169,7 +298,11 @@ export async function sendRequest(request: ProjectRequest, socketPath = cliSocke
 		};
 		const deadline = setTimeout(() => finish(new Error("Délai RPC BOA dépassé.")), 4500);
 		client.on("error", (error) => finish(error));
-		client.on("connect", () => client.write(`${JSON.stringify(request)}\n`));
+		client.on("connect", () => {
+			const encoded = `${JSON.stringify(request)}\n`;
+			if (Buffer.byteLength(encoded) > 65536) return finish(new Error("BOA request exceeds 64 KiB"));
+			client.write(encoded);
+		});
 		client.on("end", () => finish(new Error("Réponse RPC BOA incomplète.")));
 		client.on("data", (chunk: Buffer) => {
 			length += chunk.length;
@@ -257,7 +390,30 @@ export async function main(args: string[]): Promise<number> {
 			return 0;
 		}
 		if (args[0] === "open") {
-			const url = openUrl(args.slice(1));
+			const transportOptions = ["--json", "--wait"];
+			const clean = args
+				.slice(1)
+				.filter(
+					(v, i, all) => !transportOptions.includes(v) && v !== "--wait-ms" && all[i - 1] !== "--wait-ms",
+				);
+			const url = openUrl(clean);
+			if (args.includes("--wait") || json) {
+				waitDuration(args);
+				const parsed = new URL(url);
+				const request: ProjectRequest = {
+					command: "reader-open",
+					file: parsed.searchParams.get("file") as string,
+					line: Number(parsed.searchParams.get("line")),
+					endLine: Number(parsed.searchParams.get("endLine")),
+					source: parsed.searchParams.get("source") as string,
+				};
+				const initial: Reply = args.includes("--dry-run")
+					? { ok: true, result: request }
+					: await connectApp(request);
+				const reply = args.includes("--dry-run") ? initial : await waitForReader(initial, args);
+				console.log(JSON.stringify(reply));
+				return args.includes("--dry-run") ? (reply.ok ? 0 : 1) : readerExit(reply, args);
+			}
 			if (args.includes("--dry-run")) console.log(url);
 			else {
 				const result = spawnSync("/usr/bin/open", [url], { encoding: "utf8" });
@@ -267,19 +423,30 @@ export async function main(args: string[]): Promise<number> {
 			}
 			return 0;
 		}
-		const request = ["spaces", "files"].includes(args[0])
-			? parseWorkspace(args)
-			: parseProjects(args[0] === "projects" ? args.slice(1) : args);
-		const reply: Reply = args.includes("--dry-run")
-			? { ok: true, result: request }
-			: await connectApp(request);
+		const request =
+			args[0] === "contexts"
+				? parseContexts(args.slice(1))
+				: args[0] === "receipt"
+					? (() => {
+							const rest = args.slice(1).filter((v) => v !== "--json");
+							if (rest.length !== 1 || rest[0].startsWith("--"))
+								throw new Error("Usage: boa receipt <request-id> [--json]");
+							return { command: "reader-status", requestId: rest[0] } as ProjectRequest;
+						})()
+					: ["spaces", "files"].includes(args[0])
+						? parseWorkspace(args)
+						: parseProjects(args[0] === "projects" ? args.slice(1) : args);
+		const opening = request.command === "contexts" && request.request.action === "open";
+		if (opening) waitDuration(args);
+		let reply: Reply = args.includes("--dry-run") ? { ok: true, result: request } : await connectApp(request);
+		if (opening && !args.includes("--dry-run")) reply = await waitForReader(reply, args);
 		if (json || args.includes("--dry-run")) console.log(JSON.stringify(reply));
 		else if (!reply.ok) console.error(reply.error);
 		else if (request.command === "list") {
 			for (const item of reply.result as { pinned: boolean; path: string }[])
 				console.log(`${item.pinned ? "★" : "·"} ${item.path}`);
 		} else console.log(JSON.stringify(reply.result, null, 2));
-		return reply.ok ? 0 : 1;
+		return opening && !args.includes("--dry-run") ? readerExit(reply, args) : reply.ok ? 0 : 1;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (json) console.log(JSON.stringify({ ok: false, error: message }));

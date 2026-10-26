@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
+import { useContextLabels } from "./context-labels";
 import { useFileLabels } from "./file-workspace-labels";
 import { ImageLibrary } from "./image-library";
 import type { Selection } from "./models";
@@ -34,6 +35,9 @@ export function FileWorkspace({
 	navigationKey,
 	onVisit,
 	restoration,
+	context,
+	contextVisible = false,
+	onContextVisibleChange,
 }: {
 	onVisit?: RecordVisit;
 	restoration?: HistoryRestoration | null;
@@ -42,9 +46,13 @@ export function FileWorkspace({
 	libraryRoot?: string;
 	onOpen?: (selection: Selection) => void;
 	navigationKey?: string;
+	context?: ReactNode;
+	contextVisible?: boolean;
+	onContextVisibleChange?: (visible: boolean) => void;
 }) {
 	const { t } = useTranslation("workspace");
 	const l = useFileLabels();
+	const contextLabels = useContextLabels();
 	const [showTree, setShowTree] = useState(true);
 	const [library, setLibrary] = useState(false);
 	const closeLibrary = useCallback(() => setLibrary(false), []);
@@ -95,6 +103,15 @@ export function FileWorkspace({
 		const scope = restoration.workspace.library ?? restoration.workspace.folder;
 		setScope(scope ?? { root: libraryRoot ?? "", folder: "" });
 	}, [restoration]);
+	useEffect(() => {
+		const reveal = () => {
+			setShowTree(true);
+			onContextVisibleChange?.(false);
+			setLibrary(false);
+		};
+		window.addEventListener("boa:reveal-file", reveal);
+		return () => window.removeEventListener("boa:reveal-file", reveal);
+	}, [onContextVisibleChange]);
 	const showImage = (path: string, reveal = false) => {
 		onOpen?.({ project: scope.root, path });
 		setLibrary(false);
@@ -109,7 +126,30 @@ export function FileWorkspace({
 			<div ref={container} className={`file-workspace collapsible-files ${showTree ? "" : "no-tree"}`}>
 				<aside className={`file-sidebar ${showTree ? "" : "collapsed"}`}>
 					<div className="pane-heading">
-						{showTree && <span>{t("project.filesHeading")}</span>}
+						{showTree &&
+							(context ? (
+								<div className="context-sidebar-tabs" role="group" aria-label={contextLabels.views}>
+									<button
+										type="button"
+										className={contextVisible ? "" : "active"}
+										aria-pressed={!contextVisible}
+										onClick={() => onContextVisibleChange?.(false)}
+									>
+										{contextLabels.files}
+									</button>
+									<button
+										type="button"
+										className={contextVisible ? "active" : ""}
+										aria-pressed={contextVisible}
+										onClick={() => onContextVisibleChange?.(true)}
+										data-testid="toggle-context-views"
+									>
+										{contextLabels.context}
+									</button>
+								</div>
+							) : (
+								<span>{t("project.filesHeading")}</span>
+							))}
 						<button
 							type="button"
 							className="icon-button"
@@ -122,9 +162,14 @@ export function FileWorkspace({
 							{showTree ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
 						</button>
 					</div>
-					<div className="tree-scroll" hidden={!showTree}>
+					<div className="tree-scroll" hidden={!showTree || contextVisible}>
 						{tree}
 					</div>
+					{context && (
+						<div className="context-sidebar-slot" hidden={!showTree || !contextVisible}>
+							{context}
+						</div>
+					)}
 				</aside>
 				<div className="file-tree-resizer-slot" inert={!showTree} aria-hidden={!showTree}>
 					<PanelResizer container={container} vertical fileTree />
