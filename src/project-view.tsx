@@ -1,14 +1,27 @@
 /** WebStorm-inspired workspace with persisted Files/Git/combined layouts. */
-import { Columns2, FileCode2, FolderOpen, GitBranch, GitFork, RefreshCw, X } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronUp,
+	Columns2,
+	FileCode2,
+	FolderOpen,
+	GitBranch,
+	GitFork,
+	RefreshCw,
+	X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
+import { useContextLabels } from "./context-labels";
+import { ContextExplanation, ContextSidebar } from "./context-views";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
 import { FileWorkspace } from "./file-workspace";
 import { GitPanel } from "./git-panel";
+import { useGuidedReading } from "./guided-reading";
 import type { Layout, Project, Selection, Summary } from "./models";
 import { PanelResizer } from "./panel-resizer";
 
@@ -32,6 +45,7 @@ export function ProjectView({
 	onRefresh: () => void;
 }) {
 	const { t } = useTranslation("workspace");
+	const contextLabels = useContextLabels();
 	const editing = useFileEditing();
 	const [layout, setLayout] = useState<Layout>(() => {
 		const stored = localStorage.getItem("boa-layout");
@@ -41,6 +55,8 @@ export function ProjectView({
 	layoutRef.current = layout;
 	const [treeFolder, setTreeFolder] = useState({ path: "", requestId: "" });
 	const [folderError, setFolderError] = useState("");
+	const [expandGuidedGit, setExpandGuidedGit] = useState(false);
+	const [forceContextFiles, setForceContextFiles] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [files, setFiles] = useState<{
 		tabs: Selection[];
@@ -91,7 +107,7 @@ export function ProjectView({
 				const existing = current.tabs.some((tab) => tab.path === value.path);
 				const next = existing
 					? current.tabs.map((tab) => (tab.path === value.path ? value : tab))
-					: [...current.tabs.filter((tab) => tab.path !== current.preview), value];
+					: [...current.tabs.filter((tab) => keep || tab.path !== current.preview), value];
 				return {
 					tabs: next,
 					selection: value,
@@ -107,6 +123,15 @@ export function ProjectView({
 		},
 		[onVisit],
 	);
+	const guided = useGuidedReading({
+		project: project.path,
+		selection,
+		navigation: restoration ? null : navigation,
+		onRestore: (value, keep) => openFile(value, keep, false),
+	});
+	const guiding = Boolean(guided.active);
+	const effectiveLayout = forceContextFiles && guiding && layout === "git" ? "split" : layout;
+	const dockGit = guiding && effectiveLayout === "split" && !expandGuidedGit;
 	const closeFile = (path: string): void => {
 		if (!selection?.repo && selection?.path === path) {
 			const next = tabs.filter((tab) => tab.path !== path);
@@ -143,12 +168,14 @@ export function ProjectView({
 					path: navigation.path.slice(0, -1),
 					requestId: navigation.navigationId ?? crypto.randomUUID(),
 				});
-			else openFile(navigation, false, false);
-			setLayout("files");
+			else openFile(navigation, Boolean(navigation.contextRef), false);
+			setForceContextFiles(Boolean(navigation.contextRef));
+			if (!navigation.contextRef) setLayout("files");
 		}
 	}, [navigation, openFile]);
 	useEffect(() => {
 		if (!restoration) return;
+		setForceContextFiles(false);
 		const visit = restoration.workspace;
 		if (visit.selection && !visit.selection.repo) openFile(visit.selection, true, false);
 		else setFiles((current) => ({ ...current, selection: visit.selection ?? null }));
@@ -158,12 +185,17 @@ export function ProjectView({
 	const repos = summary?.repos ?? [];
 	const root = repos.find((repo) => repo.path === project.path) ?? repos[0];
 	const handleLayout = (value: Layout): void => {
+		setForceContextFiles(false);
 		setLayout(value);
 		onVisit?.({ layout: value });
 		localStorage.setItem("boa-layout", value);
 	};
 	return (
-		<div ref={containerRef} className={`project-view layout-${layout}`} data-testid="project-view">
+		<div
+			ref={containerRef}
+			className={`project-view layout-${effectiveLayout} ${dockGit ? "context-git-docked" : ""}`}
+			data-testid="project-view"
+		>
 			<header className="project-header">
 				<div className="project-identity">
 					<strong>{project.name}</strong>
@@ -245,13 +277,28 @@ export function ProjectView({
 				</div>
 			)}
 			{summary?.scanLimited && <div className="scan-note">{t("project.scanLimited")}</div>}
-			{layout !== "git" && (
+			{guided.error && (
+				<div className="operation-banner error" role="alert">
+					{guided.error}
+				</div>
+			)}
+			{effectiveLayout !== "git" && (
 				<FileWorkspace
 					libraryRoot={project.path}
 					onVisit={onVisit}
 					restoration={restoration}
 					onOpen={openFile}
 					navigationKey={navigation?.navigationId}
+					context={
+						<ContextSidebar
+							project={project.path}
+							active={guided.active}
+							onOpen={guided.open}
+							selectedViewId={guided.preparedViewId}
+						/>
+					}
+					contextVisible={guided.contextPanel}
+					onContextVisibleChange={guided.setContextPanel}
 					tree={
 						<FileBrowser
 							root={project.path}
@@ -303,22 +350,61 @@ export function ProjectView({
 								))}
 							</div>
 						)}
+						{guided.view && guided.step && (
+							<ContextExplanation
+								view={guided.view}
+								step={guided.step}
+								passageId={guided.active?.passageId}
+								onOpen={guided.open}
+								onPrevious={guided.previous}
+								onNext={guided.next}
+								onReturn={guided.returnToReading}
+								status={selection?.anchorStatus}
+								onRevealFiles={() =>
+									window.dispatchEvent(
+										new CustomEvent("boa:reveal-file", {
+											detail: { root: project.path, path: selection?.path },
+										}),
+									)
+								}
+							/>
+						)}
+						{guided.active && (!guided.view || !guided.step) && (
+							<div className="context-unavailable">
+								<span>{contextLabels.needsReview}</span>
+								<button type="button" className="quiet-button" onClick={guided.returnToReading}>
+									{contextLabels.return}
+								</button>
+							</div>
+						)}
 						<CodeViewer
 							selection={selection}
 							onOpen={(value) => {
-								if (value.project === project.path) openFile(value, true);
-								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
+								if (value.project === project.path) {
+									setLayout("files");
+									setForceContextFiles(false);
+									openFile(value, true);
+								} else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
 							}}
 						/>
 					</div>
 				</FileWorkspace>
 			)}
-			{layout === "split" && <PanelResizer container={containerRef} />}
-			{layout !== "files" && (
+			{effectiveLayout === "split" && !dockGit && <PanelResizer container={containerRef} />}
+			{guiding && effectiveLayout === "split" && (
+				<button
+					type="button"
+					className="context-git-toggle"
+					onClick={() => setExpandGuidedGit(!expandGuidedGit)}
+				>
+					{dockGit ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Git
+				</button>
+			)}
+			{effectiveLayout !== "files" && !dockGit && (
 				<GitPanel
 					project={project}
 					repos={repos}
-					expanded={layout === "git"}
+					expanded={effectiveLayout === "git"}
 					selection={selection}
 					onSelect={setSelection}
 					onAutoSelect={autoSelection}

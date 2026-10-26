@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { Selection } from "./models";
+import { SearchInput } from "./search-input";
 
 export function ProjectSearch({
 	project,
@@ -40,13 +41,20 @@ export function ProjectSearch({
 			>
 				<label htmlFor="project-search-input">{t("search.label")}</label>
 				<div className="search-input-row">
-					<input
-						ref={inputRef}
+					<SearchInput
+						inputRef={inputRef}
 						id="project-search-input"
 						data-testid="project-search-input"
 						placeholder={t("search.placeholder")}
 						value={input}
-						onChange={(event) => setInput(event.target.value)}
+						onClear={() => {
+							setInput("");
+							setQuery("");
+						}}
+						onChange={(event) => {
+							setInput(event.target.value);
+							if (!event.target.value) setQuery("");
+						}}
 					/>
 					<button
 						type="submit"

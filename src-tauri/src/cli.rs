@@ -21,6 +21,22 @@ const IO_TIMEOUT: Duration = Duration::from_secs(3);
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "lowercase", deny_unknown_fields)]
 enum Request {
+    Contexts {
+        request: crate::context_views::Request,
+    },
+    #[serde(rename = "reader-open")]
+    ReaderOpen {
+        file: String,
+        line: u32,
+        #[serde(rename = "endLine")]
+        end_line: u32,
+        source: String,
+    },
+    #[serde(rename = "reader-status")]
+    ReaderStatus {
+        #[serde(rename = "requestId")]
+        request_id: String,
+    },
     Workspace {
         request: crate::file_workspace::Request,
     },
@@ -73,8 +89,32 @@ fn bind(path: &Path) -> Result<UnixListener, String> {
     Ok(listener)
 }
 
-fn execute(state: &AppState, request: Request) -> Result<(Value, bool), String> {
+fn execute(state: &AppState, request: Request) -> Result<(Value, bool, bool), String> {
+    let context = matches!(
+        &request,
+        Request::Contexts { .. } | Request::ReaderOpen { .. } | Request::ReaderStatus { .. }
+    );
     match request {
+        Request::Contexts { request } => {
+            let changed =
+                request.mutates() || matches!(&request, crate::context_views::Request::Open { .. });
+            Ok((crate::context_views::execute(state, request)?, changed))
+        }
+        Request::ReaderOpen {
+            file,
+            line,
+            end_line,
+            source,
+        } => Ok((
+            json!(crate::context_views::open(
+                state, file, line, end_line, source, None
+            )?),
+            true,
+        )),
+        Request::ReaderStatus { request_id } => Ok((
+            json!(crate::context_views::status(state, &request_id)?),
+            false,
+        )),
         Request::Workspace { request } => {
             Ok((crate::file_workspace::execute(state, request)?, true))
         }
@@ -101,9 +141,14 @@ fn execute(state: &AppState, request: Request) -> Result<(Value, bool), String> 
         Request::Pin { path } => Ok((json!(state.pin_project(&path, true)?), true)),
         Request::Unpin { path } => Ok((json!(state.pin_project(&path, false)?), true)),
     }
+    .map(|(value, changed)| (value, changed, context))
 }
 
-fn serve(mut stream: UnixStream, state: &AppState, changed: impl FnOnce()) -> Result<(), String> {
+fn serve(
+    mut stream: UnixStream,
+    state: &AppState,
+    changed: impl FnOnce(&Value, bool),
+) -> Result<(), String> {
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|e| e.to_string())?;
@@ -121,9 +166,9 @@ fn serve(mut stream: UnixStream, state: &AppState, changed: impl FnOnce()) -> Re
         Err(error) => Err(format!("Lecture RPC : {error}")),
     };
     let response = match result {
-        Ok((value, did_change)) => {
+        Ok((value, did_change, context)) => {
             if did_change {
-                changed();
+                changed(&value, context);
             }
             json!({"ok": true, "result": value})
         }
@@ -140,8 +185,17 @@ pub(crate) fn start(app: tauri::AppHandle, state: Arc<AppState>) -> Result<(), S
         .name("boa-cli".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
-                let _ = serve(stream, &state, || {
-                    let _ = app.emit("boa:projects-changed", ());
+                let _ = serve(stream, &state, |value, context| {
+                    if context {
+                        let _ = app.emit("boa:contexts-changed", ());
+                    } else {
+                        let _ = app.emit("boa:projects-changed", ());
+                    }
+                    if let Ok(receipt) =
+                        serde_json::from_value::<crate::context_views::Receipt>(value.clone())
+                    {
+                        let _ = app.emit("boa:reader-open", receipt.request);
+                    }
                 });
             }
         })
@@ -161,7 +215,7 @@ mod tests {
             .unwrap();
         client.write_all(text).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        serve(server, state, || ()).unwrap();
+        serve(server, state, |_, _| ()).unwrap();
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response).unwrap();
         serde_json::from_str(&response).unwrap()
@@ -209,7 +263,7 @@ mod tests {
             let (mut client, server) = UnixStream::pair().unwrap();
             client.write_all(b"{\"command\":\"list\"}\n").unwrap();
             let changed = AtomicBool::new(false);
-            serve(server, &state, || changed.store(true, Ordering::SeqCst)).unwrap();
+            serve(server, &state, |_, _| changed.store(true, Ordering::SeqCst)).unwrap();
             assert_eq!(changed.load(Ordering::SeqCst), expected);
             let restored = AppState::new(temp.path().join("config.json")).unwrap();
             assert_eq!(
@@ -227,7 +281,7 @@ mod tests {
         let changed = AtomicBool::new(false);
         let request = json!({"command":"add", "path":temp.path()});
         client.write_all(format!("{request}\n").as_bytes()).unwrap();
-        serve(server, &state, || {
+        serve(server, &state, |_, _| {
             changed.store(true, Ordering::SeqCst);
         })
         .unwrap();
@@ -236,6 +290,23 @@ mod tests {
         assert_eq!(restored.config.lock().unwrap().projects.len(), 1);
     }
 
+    #[test]
+    fn context_rpc_routes_changes_without_project_notifications_and_receipts_start_pending() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = AppState::new(temp.path().join("projects.json")).unwrap();
+        state.add_project(temp.path()).unwrap();
+        let request = json!({"command":"contexts","request":{"action":"save","view":{"id":"walk","project":temp.path(),"title":"Walk","description":"","kind":"walkthrough","steps":[{"id":"entry","title":"Entry","description":"","passages":[{"id":"code","path":"source.ts","startLine":1,"endLine":3}]}]},"expectedRevision":0}});
+        let parsed: Request = serde_json::from_value(request.clone()).unwrap();
+        let (saved, changed, context) = execute(&state, parsed).unwrap();
+        assert!(changed && context);
+        assert_eq!(saved["revision"], 1);
+        let open = json!({"command":"contexts","request":{"action":"open","project":temp.path(),"id":"walk"}});
+        let receipt = rpc(&state, format!("{open}\n").as_bytes());
+        assert_eq!(receipt["result"]["status"], "pending");
+        assert_eq!(receipt["result"]["request"]["context"]["passageId"], "code");
+        let invalid = json!({"command":"contexts","request":{"action":"list","project":temp.path(),"extra":"no"}});
+        assert_eq!(rpc(&state, format!("{invalid}\n").as_bytes())["ok"], false);
+    }
     #[test]
     fn socket_is_private_rejects_symlinks_and_serves_real_connections() {
         let temp = tempfile::tempdir().unwrap();
@@ -249,7 +320,7 @@ mod tests {
         let state = AppState::new(temp.path().join("config.json")).unwrap();
         let thread = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            serve(stream, &state, || ()).unwrap();
+            serve(stream, &state, |_, _| ()).unwrap();
         });
         let mut client = UnixStream::connect(&path).unwrap();
         client.write_all(b"{\"command\":\"list\"}\n").unwrap();
@@ -270,7 +341,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         let (mut client, server) = UnixStream::pair().unwrap();
-        let thread = std::thread::spawn(move || serve(server, &state, || ()).unwrap());
+        let thread = std::thread::spawn(move || serve(server, &state, |_, _| ()).unwrap());
         client
             .write_all(&vec![b'x'; MAX_REQUEST as usize + 1])
             .unwrap();

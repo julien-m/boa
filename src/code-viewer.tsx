@@ -2,19 +2,29 @@
 import { DiffEditor, Editor, loader } from "@monaco-editor/react";
 import { useQuery } from "@tanstack/react-query";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { ArrowDown, ArrowUp, Copy, FileCode2, PanelLeftClose, SplitSquareHorizontal } from "lucide-react";
+import {
+	ArrowDown,
+	ArrowUp,
+	BookmarkPlus,
+	Copy,
+	FileCode2,
+	PanelLeftClose,
+	SplitSquareHorizontal,
+} from "lucide-react";
 import * as monaco from "monaco-editor/editor/editor.api.js";
 import { useTranslation } from "react-i18next";
 import "monaco-editor/basic-languages/monaco.contribution.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { contextApi } from "./context-api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { FileAssetPreview } from "./file-asset-preview";
 import { useFileEditing } from "./file-editing";
 import { localMarkdownLink } from "./markdown-links";
 import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
+import { ReaderNavigation } from "./reader-navigation";
 import { relocateLine } from "./reading-position";
 import "./syntax-highlighting";
 import "monaco-editor/editor/contrib/find/browser/findController.js";
@@ -24,6 +34,64 @@ self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
 const navigationRequests = new WeakMap<monaco.editor.ITextModel, string>();
 const readerViewStates = new WeakMap<monaco.editor.ITextModel, monaco.editor.ICodeEditorViewState>();
+const readerCaptures = new Map<HTMLElement, () => Selection | null>();
+export function captureCurrentReaderSelection(): Selection | null {
+	const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".code-viewer");
+	const root =
+		focused ?? [...readerCaptures.keys()].find((element) => element.getBoundingClientRect().height > 0);
+	return root ? (readerCaptures.get(root)?.() ?? null) : null;
+}
+export function captureReaderSelection(selection: Selection): Selection {
+	const root = [...document.querySelectorAll<HTMLElement>(".code-viewer")].find(
+		(element) =>
+			element.dataset.readerProject === selection.project && element.dataset.readerPath === selection.path,
+	);
+	const container = root?.querySelector<HTMLElement>('[data-testid="markdown-preview"]');
+	if (container) {
+		const top = container.getBoundingClientRect().top;
+		const block = [...container.querySelectorAll<HTMLElement>("[data-source-line]")].find(
+			(element) => element.getBoundingClientRect().bottom > top,
+		);
+		if (block)
+			return {
+				...selection,
+				receiptId: undefined,
+				contextRef: undefined,
+				line: undefined,
+				endLine: undefined,
+				anchor: undefined,
+				restorePosition: undefined,
+				navigationId: crypto.randomUUID(),
+				markdownRestore: {
+					text: block.textContent ?? "",
+					tag: block.tagName,
+					offset: block.getBoundingClientRect().top - top,
+					scrollTop: container.scrollTop,
+				},
+			};
+	}
+	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(selection.project, selection.path)));
+	const editor = monaco.editor.getEditors().find((item) => item.getModel() === model);
+	const position = editor?.getPosition();
+	return {
+		...selection,
+		receiptId: undefined,
+		contextRef: undefined,
+		line: undefined,
+		endLine: undefined,
+		anchor: undefined,
+		navigationId: crypto.randomUUID(),
+		restorePosition:
+			editor && position
+				? {
+						line: position.lineNumber,
+						column: position.column,
+						scrollTop: editor.getScrollTop(),
+						scrollLeft: editor.getScrollLeft(),
+					}
+				: undefined,
+	};
+}
 export const readerModelPath = (project: string, path: string): string =>
 	monaco.Uri.from({ scheme: "boa-file", path: `${project}/${path}` }).toString();
 export function disposeReaderModel(project: string, path: string): void {
@@ -84,7 +152,7 @@ interface CodeViewerProps {
 	onOpen?: (selection: Selection) => void;
 }
 export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerProps) {
-	const { t } = useTranslation("workspace");
+	const { t, i18n } = useTranslation("workspace");
 	const editing = useFileEditing();
 	const draft = selection && !selection.repo ? editing.draft(selection.project, selection.path) : undefined;
 	const [discard, setDiscard] = useState(false);
@@ -119,11 +187,22 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			};
 	};
 	const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+	const [readerEditor, setReaderEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+	const completedReceipt = useRef<string | null>(null);
+	const fr = i18n.language.startsWith("fr");
 	const sideRef = useRef("file");
 	const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 	const findOnMount = useRef(false);
 	const viewerElement = useRef<HTMLElement>(null);
 	const [selectionVersion, setSelectionVersion] = useState(0);
+	useLayoutEffect(() => {
+		const root = viewerElement.current;
+		if (!root || !selection) return;
+		readerCaptures.set(root, () => captureReaderSelection(selection));
+		return () => {
+			readerCaptures.delete(root);
+		};
+	}, [selection]);
 	void selectionVersion;
 	const query = useQuery({
 		queryKey: ["preview", selection],
@@ -135,7 +214,8 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 		staleTime: 0,
 		refetchOnWindowFocus: false,
 	});
-	const sourceRequested = markdownMode?.key === fileKey && markdownMode.source;
+	const sourceRequested =
+		markdownMode?.key === fileKey ? markdownMode.source : Boolean(selection?.receiptId && selection.line);
 	const svgSource =
 		query.data?.kind === "image" && /\.svg$/i.test(selection?.path ?? "") && Boolean(query.data.modified);
 	const nonText =
@@ -171,6 +251,60 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 		document.addEventListener("selectionchange", update);
 		return () => document.removeEventListener("selectionchange", update);
 	}, [showMarkdown]);
+	useEffect(() => {
+		if (!selection?.receiptId || completedReceipt.current === selection.receiptId) return;
+		const id = selection.receiptId;
+		if (query.error || draft || nonText || selection.anchorStatus === "needs-review") {
+			completedReceipt.current = id;
+			void contextApi
+				.acknowledge(id, query.error ? "missing" : draft ? "paused" : "needs-review")
+				.catch(() => {});
+		}
+	}, [selection, query.error, draft, nonText]);
+	const bookmark = async () => {
+		if (!selection || selection.repo || !query.data) return;
+		const range = editorRef.current?.getSelection();
+		const first = range?.startLineNumber ?? 1;
+		const last = range?.endLineNumber ?? first;
+		const text = query.data.modified
+			.split("\n")
+			.slice(first - 1, last)
+			.join("\n");
+		const title = window.prompt(fr ? "Nom du repère" : "Bookmark name", `${selection.path}:${first}`);
+		if (!title?.trim()) return;
+		try {
+			const views = await contextApi.list(selection.project);
+			const id = "bookmarks";
+			const existing = views.find((view) => view.id === id);
+			const stepId = crypto.randomUUID();
+			const view = await contextApi.save(
+				{
+					id,
+					project: selection.project,
+					title: existing?.title ?? (fr ? "Repères" : "Bookmarks"),
+					description: existing?.description ?? "",
+					kind: existing?.kind ?? "walkthrough",
+					steps: [
+						...(existing?.steps ?? []),
+						{
+							id: stepId,
+							title: title.trim(),
+							description: "",
+							passages: [
+								{ id: crypto.randomUUID(), path: selection.path, startLine: first, endLine: last, text },
+							],
+						},
+					],
+				},
+				existing?.revision ?? 0,
+			);
+			window.dispatchEvent(
+				new CustomEvent("boa:bookmark-saved", { detail: { project: selection.project, viewId: view.id } }),
+			);
+		} catch (error) {
+			setNotice({ key: "viewer.rawError", error: String(error) });
+		}
+	};
 
 	const hasSelection = Boolean(
 		!showMarkdown &&
@@ -209,21 +343,6 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			setNotice({ key: "viewer.copyFailed", error: String(error) });
 		}
 	};
-	useEffect(() => {
-		const find = (event: Event): void => {
-			const target = (event as CustomEvent).detail?.target as HTMLElement | undefined;
-			const chosen =
-				target?.closest(".code-viewer") ?? document.querySelector(".code-viewer:not(.empty-view)");
-			if (chosen && chosen !== viewerElement.current) return;
-			if (nonText) return;
-			if (showMarkdown) {
-				findOnMount.current = true;
-				setMarkdownMode({ key: fileKey, source: true });
-			} else editorRef.current?.trigger("boa", "actions.find", null);
-		};
-		window.addEventListener("boa:find", find);
-		return () => window.removeEventListener("boa:find", find);
-	}, [showMarkdown, fileKey, nonText]);
 	if (!selection)
 		return (
 			<section ref={viewerElement} className="code-viewer empty-view" data-testid="preview-empty">
@@ -236,15 +355,44 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 	return (
 		<section
 			ref={viewerElement}
+			tabIndex={0}
+			data-reader-project={selection.project}
+			data-reader-path={selection.path}
 			className={`code-viewer ${compact ? "compact" : ""}`}
 			data-testid="code-viewer"
 		>
+			{!nonText && (
+				<ReaderNavigation
+					key={`${selection.project}/${selection.path}`}
+					editor={showMarkdown ? null : readerEditor}
+					root={viewerElement}
+					readOnly={!draft}
+					onSource={() => {
+						if (showMarkdown) {
+							rememberMarkdown();
+							setMarkdownMode({ key: fileKey, source: true });
+						}
+					}}
+				/>
+			)}
 			<div className="editor-toolbar">
 				<span className="editor-tab">
 					<FileCode2 size={14} />
 					{selection.path.split("/").pop()}
 				</span>
 				<div className="toolbar-actions">
+					{!selection.repo && (
+						<button
+							type="button"
+							className="quiet-button"
+							data-testid="create-bookmark"
+							disabled={!query.data || Boolean(draft) || nonText}
+							onClick={() => void bookmark()}
+						>
+							<BookmarkPlus size={14} />
+							{fr ? "Repère" : "Bookmark"}
+						</button>
+					)}
 					{(isMarkdown || svgSource) && !draft && (
 						<button
 							type="button"
@@ -321,6 +469,9 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			</div>
 			<div className="breadcrumb" title={selection.path}>
 				<span className="breadcrumb-path">{selection.path}</span>
+				{!showMarkdown && !nonText && (
+					<span data-testid="reader-position">Ln {editorRef.current?.getPosition()?.lineNumber ?? 1}</span>
+				)}
 				{selection.repo || nonText ? (
 					<span>{query.data?.label}</span>
 				) : (
@@ -454,7 +605,8 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 						content={query.data.modified}
 						navigation={selection.line || selection.anchor !== undefined ? selection : undefined}
 						restorePosition={
-							markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined
+							selection.markdownRestore ??
+							(markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined)
 						}
 						onOpenLink={(href) => {
 							void (async () => {
@@ -504,16 +656,22 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 						sideBySide={sideBySide}
 						onEditor={(editor, side, navigate) => {
 							editorRef.current = editor;
+							setReaderEditor(editor);
 							if (findOnMount.current && navigate) {
 								findOnMount.current = false;
 								editor.trigger("boa", "actions.find", null);
 							}
 							sideRef.current = side;
 							setSelectionVersion((version) => version + 1);
-							if (navigate && draft && markdownBookmark.current?.key === fileKey) {
+							if (navigate && selection.restorePosition) {
+								const position = selection.restorePosition;
+								editor.setPosition({ lineNumber: position.line, column: position.column });
+								editor.setScrollPosition({ scrollTop: position.scrollTop, scrollLeft: position.scrollLeft });
+							} else if (navigate && draft && markdownBookmark.current?.key === fileKey) {
 								editor.revealLineNearTop(markdownBookmark.current.line);
 							} else if (
 								selection.line &&
+								selection.anchorStatus !== "needs-review" &&
 								navigate &&
 								editor.getModel() &&
 								navigationRequests.get(editor.getModel() as monaco.editor.ITextModel) !==
@@ -533,6 +691,29 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 									),
 								);
 								editor.revealLineInCenter(line);
+							}
+							if (navigate && selection.receiptId && !draft && selection.anchorStatus !== "needs-review") {
+								const id = selection.receiptId;
+								requestAnimationFrame(() => {
+									if (completedReceipt.current === id || !editor.getDomNode()?.isConnected) return;
+									const range = editor.getSelection();
+									const visible = editor
+										.getVisibleRanges()
+										.some(
+											(r) =>
+												r.startLineNumber <= (selection.line ?? 1) &&
+												r.endLineNumber >= (selection.line ?? 1),
+										);
+									const size = editor.getDomNode()?.getBoundingClientRect();
+									const exact =
+										range &&
+										range.startLineNumber === selection.line &&
+										range.endLineNumber === selection.endLine &&
+										Boolean(size?.width && size.height) &&
+										visible;
+									completedReceipt.current = id;
+									void contextApi.acknowledge(id, exact ? "displayed" : "needs-review").catch(() => {});
+								});
 							}
 						}}
 					/>

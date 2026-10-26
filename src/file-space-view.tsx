@@ -2,11 +2,14 @@ import { FileCode2, Folder, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
+import { useContextLabels } from "./context-labels";
+import { ContextExplanation, ContextSidebar } from "./context-views";
 import { FileBrowser } from "./file-browser";
 import { useFileEditing } from "./file-editing";
 import { FileWorkspace } from "./file-workspace";
 import { type FileSpace, spaceEntries } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
+import { useGuidedReading } from "./guided-reading";
 import type { Selection } from "./models";
 
 const key = (s: Selection) => JSON.stringify([s.project, s.path]);
@@ -22,6 +25,7 @@ export function FileSpaceView({
 	restoration?: HistoryRestoration | null;
 }) {
 	const l = useFileLabels();
+	const contextLabels = useContextLabels();
 	const entries = spaceEntries(space);
 	const editing = useFileEditing();
 	const [state, setState] = useState<{
@@ -39,6 +43,7 @@ export function FileSpaceView({
 		});
 	}, [state.tabs]);
 	const [folders, setFolders] = useState<Record<string, { path: string; requestId: string }>>({});
+	const [contextRoot, setContextRoot] = useState(space.roots[0] ?? entries[0] ?? "");
 	const open = (selection: Selection, keep = false, record = true) => {
 		const value = space.files?.includes(selection.project)
 			? { ...selection, absolutePath: selection.project }
@@ -51,7 +56,9 @@ export function FileSpaceView({
 				tabs: exists
 					? current.tabs.map((t) => (key(t) === id ? value : t))
 					: [
-							...current.tabs.filter((t) => key(t) !== current.preview || !!editing.draft(t.project, t.path)),
+							...current.tabs.filter(
+								(t) => keep || key(t) !== current.preview || !!editing.draft(t.project, t.path),
+							),
 							value,
 						],
 				preview: keep || editing.draft(value.project, value.path) ? null : exists ? current.preview : id,
@@ -59,6 +66,12 @@ export function FileSpaceView({
 			};
 		});
 	};
+	const guided = useGuidedReading({
+		project: state.selected?.project ?? contextRoot,
+		selection: state.selected,
+		navigation: restoration ? null : navigation,
+		onRestore: (value, keep) => open(value, keep, false),
+	});
 	useEffect(() => {
 		if (navigation && !restoration) {
 			if (navigation.path.endsWith("/")) {
@@ -69,9 +82,18 @@ export function FileSpaceView({
 						requestId: navigation.navigationId ?? crypto.randomUUID(),
 					},
 				}));
-			} else open(navigation, false, false);
+			} else open(navigation, Boolean(navigation.contextRef), false);
+			if (navigation.contextRef) setContextRoot(navigation.project);
 		}
 	}, [navigation]);
+	useEffect(() => {
+		const bookmark = (event: Event) => {
+			const detail = (event as CustomEvent<{ project: string }>).detail;
+			if (detail && entries.includes(detail.project)) setContextRoot(detail.project);
+		};
+		window.addEventListener("boa:bookmark-saved", bookmark);
+		return () => window.removeEventListener("boa:bookmark-saved", bookmark);
+	}, [space]);
 	useEffect(() => {
 		if (!restoration) return;
 		const visit = restoration.workspace;
@@ -123,12 +145,41 @@ export function FileSpaceView({
 					{entries.length} {l.entries.toLowerCase()}
 				</span>
 			</header>
+			{guided.error && (
+				<div className="operation-banner error" role="alert">
+					{guided.error}
+				</div>
+			)}
 			<FileWorkspace
 				libraryRoot={entries[0]}
 				onVisit={onVisit}
 				restoration={restoration}
 				onOpen={(value) => open(value)}
 				navigationKey={navigation?.navigationId}
+				context={
+					<>
+						{entries.length > 1 && (
+							<label className="context-root-selector">
+								{l.entries}
+								<select value={contextRoot} onChange={(event) => setContextRoot(event.target.value)}>
+									{entries.map((root) => (
+										<option key={root} value={root}>
+											{root}
+										</option>
+									))}
+								</select>
+							</label>
+						)}
+						<ContextSidebar
+							project={contextRoot}
+							active={guided.active?.project === contextRoot ? guided.active : null}
+							onOpen={guided.open}
+							selectedViewId={guided.preparedViewId}
+						/>
+					</>
+				}
+				contextVisible={guided.contextPanel}
+				onContextVisibleChange={guided.setContextPanel}
 				tree={
 					<>
 						{entries.map((root) => (
@@ -179,6 +230,33 @@ export function FileSpaceView({
 									</button>
 								</div>
 							))}
+						</div>
+					)}
+					{guided.view && guided.step && (
+						<ContextExplanation
+							view={guided.view}
+							step={guided.step}
+							passageId={guided.active?.passageId}
+							onOpen={guided.open}
+							onPrevious={guided.previous}
+							onNext={guided.next}
+							onReturn={guided.returnToReading}
+							status={state.selected?.anchorStatus}
+							onRevealFiles={() =>
+								window.dispatchEvent(
+									new CustomEvent("boa:reveal-file", {
+										detail: { root: state.selected?.project, path: state.selected?.path },
+									}),
+								)
+							}
+						/>
+					)}
+					{guided.active && (!guided.view || !guided.step) && (
+						<div className="context-unavailable">
+							<span>{contextLabels.needsReview}</span>
+							<button type="button" className="quiet-button" onClick={guided.returnToReading}>
+								{contextLabels.return}
+							</button>
 						</div>
 					)}
 					<CodeViewer

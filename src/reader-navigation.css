@@ -1,0 +1,48 @@
+.code-viewer {
+	position: relative;
+}
+.reader-navigation {
+	position: absolute;
+	z-index: 12;
+	right: 16px;
+	top: 76px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px;
+	max-width: calc(100% - 24px);
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	background: var(--panel);
+	box-shadow: 0 5px 16px #0004;
+}
+.reader-navigation input {
+	width: 160px;
+	min-width: 32px;
+	padding: 5px 7px;
+}
+.reader-navigation button {
+	padding: 5px;
+	display: inline-flex;
+	align-items: center;
+	border-radius: 4px;
+	font-size: 11px;
+}
+.reader-navigation button[aria-pressed="true"] {
+	background: var(--selected);
+	color: var(--blue);
+}
+.reader-navigation span {
+	min-width: 28px;
+	font-size: 11px;
+	color: var(--muted);
+	white-space: nowrap;
+}
+.reader-navigation.invalid input {
+	color: var(--amber);
+	border-color: var(--amber);
+}
+.boa-find-match {
+	background: #b59b4f55;
+	outline: 1px solid #d3b75455;
+}

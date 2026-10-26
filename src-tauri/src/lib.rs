@@ -1,6 +1,8 @@
 //! Native command boundary for the BOA project cockpit.
 mod cli;
 mod context;
+#[path = "context-views.rs"]
+mod context_views;
 #[path = "file-workspace.rs"]
 mod file_workspace;
 mod files;
@@ -501,6 +503,46 @@ async fn choose_comparison_image(
         .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn context_views(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    request: context_views::Request,
+) -> Result<serde_json::Value, String> {
+    let changed = request.mutates();
+    let result = work(state.inner().clone(), move |state| {
+        context_views::execute(state, request)
+    })
+    .await?;
+    if changed {
+        let _ = app.emit("boa:contexts-changed", ());
+    }
+    if let Ok(receipt) = serde_json::from_value::<context_views::Receipt>(result.clone()) {
+        let _ = app.emit("boa:reader-open", receipt.request);
+    }
+    Ok(result)
+}
+#[tauri::command]
+fn reader_pending(state: NativeState<'_>) -> Result<Vec<context_views::ReaderRequest>, String> {
+    context_views::pending(&state)
+}
+#[tauri::command]
+fn reader_status(
+    state: NativeState<'_>,
+    request_id: String,
+) -> Result<context_views::Receipt, String> {
+    context_views::status(&state, &request_id)
+}
+#[tauri::command]
+fn reader_acknowledge(
+    state: NativeState<'_>,
+    request_id: String,
+    status: String,
+    message: Option<String>,
+) -> Result<context_views::Receipt, String> {
+    context_views::acknowledge(&state, &request_id, &status, message)
+}
+
 /// Starts the desktop application and registers repository commands.
 pub fn run() {
     let app = tauri::Builder::default()
@@ -575,7 +617,11 @@ pub fn run() {
             export_context,
             resolve_navigation,
             search_project,
-            file_workspace
+            file_workspace,
+            context_views,
+            reader_pending,
+            reader_status,
+            reader_acknowledge
         ])
         .run(tauri::generate_context!());
     if let Err(error) = app {

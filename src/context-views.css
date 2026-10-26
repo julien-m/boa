@@ -1,0 +1,358 @@
+.context-sidebar {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	overflow: auto;
+	color: var(--text);
+}
+.context-sidebar-slot {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+.context-sidebar-slot[hidden] {
+	display: none;
+}
+.context-sidebar-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 12px;
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-view-list,
+.context-step-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0 8px 16px;
+}
+.context-view-card {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 12px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+}
+.context-view-select {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	width: 100%;
+	padding: 0;
+	text-align: left;
+}
+.context-view-select > svg {
+	margin-top: 2px;
+	color: var(--blue);
+}
+.context-view-select > span,
+.context-step > span:last-child {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+.context-view-select strong,
+.context-view-introduction > strong,
+.context-step strong {
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+.context-sidebar small,
+.context-view-meta {
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-sidebar p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.context-view-card > p {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+}
+.context-sidebar .context-empty {
+	padding: 12px;
+}
+.context-sidebar .inline-error {
+	padding: 8px 12px;
+	color: var(--red);
+}
+.context-view-introduction {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 0 16px 16px;
+	border-bottom: 1px solid var(--line);
+}
+.context-view-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.context-inline-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+.context-open-first {
+	flex-shrink: 0;
+	white-space: nowrap;
+	color: var(--blue);
+}
+.context-step {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	width: 100%;
+	padding: 8px;
+	border-radius: 5px;
+	text-align: left;
+}
+.context-step:hover,
+.context-view-select:hover {
+	color: var(--blue);
+}
+.context-step.active {
+	background: var(--selected);
+}
+.context-step small {
+	font-family: "SF Mono", Menlo, monospace;
+	overflow-wrap: anywhere;
+}
+.context-step-number {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	min-height: 20px;
+	border: 1px solid var(--line);
+	border-radius: 50%;
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-step.active .context-step-number {
+	background: var(--blue);
+	border-color: var(--blue);
+	color: var(--bg);
+}
+.context-step-group {
+	padding: 16px 8px 0;
+	color: var(--muted);
+	font-size: 10px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	overflow-wrap: anywhere;
+}
+.context-rename,
+.context-rename > label {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+}
+.context-rename input {
+	width: 100%;
+}
+.context-remove-confirm {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px;
+	border: 1px solid var(--line);
+	border-radius: 5px;
+}
+.context-explanation {
+	flex-shrink: 0;
+	min-width: 0;
+	max-height: min(40vh, 380px);
+	overflow: auto;
+	border-bottom: 1px solid var(--line);
+	background: var(--sidebar);
+}
+.context-explanation-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 12px 16px 8px;
+	background: var(--sidebar);
+}
+.context-step-position {
+	color: var(--blue);
+	font-size: 11px;
+}
+.context-step-position > span {
+	color: var(--muted);
+}
+.context-explanation .quiet-button {
+	white-space: nowrap;
+}
+.context-return {
+	margin-left: 8px;
+}
+.context-explanation-body {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 0 16px 16px;
+}
+.context-explanation-title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	overflow-wrap: anywhere;
+}
+.context-explanation-title > strong {
+	font-size: 14px;
+	font-weight: 500;
+}
+.context-explanation-body > p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.context-anchor-notice,
+.context-anchor-relocated {
+	font-size: 11px;
+}
+.context-anchor-notice {
+	color: var(--amber);
+}
+.context-anchor-relocated {
+	color: var(--muted);
+}
+.context-passages {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: stretch;
+	gap: 8px;
+	width: 100%;
+	min-width: 0;
+}
+.context-passage {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 4px;
+	max-width: 100%;
+	padding: 8px 12px;
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	text-align: left;
+	font-size: 12px;
+}
+.context-passage:hover {
+	background: var(--hover);
+}
+.context-passage.active {
+	border-color: var(--blue);
+	background: color-mix(in srgb, var(--selected) 50%, var(--sidebar));
+}
+.context-passage-file {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	max-width: 100%;
+	font-family: "SF Mono", Menlo, monospace;
+	overflow-wrap: anywhere;
+}
+.context-passage-file > svg {
+	margin-top: 2px;
+}
+.context-passage small {
+	color: var(--muted);
+	font-size: 11px;
+	overflow-wrap: anywhere;
+}
+.context-passage-role {
+	color: var(--blue);
+	font-size: 10px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+.finding-passages .context-passage {
+	flex: 1;
+	justify-content: flex-start;
+	min-width: min(180px, 100%);
+	padding: 12px;
+}
+.context-reveal {
+	align-self: flex-end;
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-sidebar-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.context-sidebar-tabs button {
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 11px;
+	letter-spacing: normal;
+}
+.context-sidebar-tabs button.active {
+	background: var(--selected);
+	color: var(--blue);
+}
+.context-git-toggle,
+.context-unavailable {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 16px;
+	border-top: 1px solid var(--line);
+	background: var(--sidebar);
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-unavailable {
+	justify-content: space-between;
+	color: var(--amber);
+}
+.context-root-selector {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 0 12px 8px;
+	color: var(--muted);
+	font-size: 11px;
+}
+.context-root-selector select {
+	width: 100%;
+}
