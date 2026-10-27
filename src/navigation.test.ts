@@ -18,6 +18,18 @@ describe("BOA navigation", () => {
 			source: "Codex",
 		});
 	});
+	it("accepts local Finder document URLs and rejects network file URLs", () => {
+		const file = "/tmp/été and spaces/page.html";
+		expect(parseNavigation(`file://${encodeURI(file)}`)).toEqual({
+			file,
+			line: 1,
+			endLine: 1,
+			source: "CLI",
+			document: true,
+		});
+		for (const raw of ["file://remote-host/share/page.html", "file:///tmp/bad%00.html"])
+			expect(() => parseNavigation(raw)).toThrow();
+	});
 	it("rejects unrelated protocols, commands and invalid ranges", () => {
 		for (const url of [
 			"https://open?file=/a",

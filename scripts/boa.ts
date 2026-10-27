@@ -5,6 +5,7 @@ import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchBoa } from "./mac-app";
 
 export type ProjectRequest =
 	| { command: "contexts"; request: Record<string, unknown> }
@@ -330,9 +331,7 @@ async function connectApp(request: ProjectRequest): Promise<Reply> {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code !== "ENOENT" && code !== "ECONNREFUSED") throw error;
 	}
-	const launch = spawnSync("/usr/bin/open", ["-a", "BOA"], { encoding: "utf8" });
-	if (launch.error || launch.status !== 0)
-		throw new Error("Installez BOA.app dans Applications et ouvrez-la une première fois.");
+	launchBoa();
 	for (let attempt = 0; attempt < 50; attempt++) {
 		await new Promise((done) => setTimeout(done, 200));
 		try {

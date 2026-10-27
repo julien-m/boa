@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "BOA — Projets & Git",
+        "title": "BOA \u2014 Projets & Git",
         "width": 1440,
         "height": 940,
         "minWidth": 880,
@@ -24,17 +24,148 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: asset: https: http:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
-  "plugins": { "deep-link": { "desktop": { "schemes": ["boa"] } } },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "boa"
+        ]
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "macOS": { "infoPlist": "info.plist" },
-    "targets": ["app"],
+    "macOS": {
+      "infoPlist": "info.plist"
+    },
+    "targets": [
+      "app"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "html",
+          "htm",
+          "xhtml",
+          "css",
+          "scss",
+          "sass",
+          "less",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs",
+          "ts",
+          "tsx",
+          "cts",
+          "mts",
+          "json",
+          "jsonc",
+          "json5",
+          "yaml",
+          "yml",
+          "toml",
+          "xml",
+          "md",
+          "markdown",
+          "mdx",
+          "vue",
+          "svelte",
+          "astro",
+          "py",
+          "pyi",
+          "rb",
+          "php",
+          "go",
+          "rs",
+          "swift",
+          "c",
+          "h",
+          "cc",
+          "cpp",
+          "cxx",
+          "hpp",
+          "cs",
+          "java",
+          "kt",
+          "kts",
+          "scala",
+          "m",
+          "mm",
+          "sh",
+          "bash",
+          "zsh",
+          "fish",
+          "sql",
+          "graphql",
+          "gql",
+          "lua",
+          "r",
+          "pl",
+          "pm",
+          "ex",
+          "exs",
+          "erl",
+          "hrl",
+          "clj",
+          "cljs",
+          "cljc",
+          "edn",
+          "dart",
+          "elm",
+          "hs",
+          "lhs",
+          "ml",
+          "mli",
+          "fs",
+          "fsx",
+          "fsi",
+          "vb",
+          "vbs",
+          "ps1",
+          "psm1",
+          "psd1",
+          "tex",
+          "sty",
+          "cls",
+          "bib",
+          "conf",
+          "ini",
+          "cfg",
+          "env",
+          "gitignore",
+          "dockerfile",
+          "makefile",
+          "cmake",
+          "zig",
+          "v",
+          "sv",
+          "vhd",
+          "vhdl"
+        ],
+        "name": "Source code and Markdown",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": [
+          "public.text"
+        ]
+      },
+      {
+        "ext": [],
+        "contentTypes": [
+          "public.source-code"
+        ],
+        "name": "Source code",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
     ]
   }
 }

@@ -101,6 +101,8 @@ export const api = {
 		invoke("compare_branch", { project, repo, base, head }),
 	exportContext: (prompt: string, image: string): Promise<{ markdownPath: string; imagePath: string }> =>
 		invoke("export_context", { prompt, image }),
+	openDocument: (file: string): Promise<{ project: string; path: string }> =>
+		invoke("open_document", { file }),
 	navigate: (file: string): Promise<{ project: string; path: string }> =>
 		invoke("resolve_navigation", { file }),
 	history: (project: string, repo: string, offset: number, branch: string): Promise<Commit[]> =>

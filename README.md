@@ -281,6 +281,30 @@ cc-hub skill status --agent-sync-root ./.agent-sync.local --scope global --targe
 
 The custom root keeps the skill canonical in this repository and lets cc-hub manage provider links. Do not link from a temporary worktree whose deletion would break them. The skill documents the CLI; it does not update BOA.app. Read [the dated CLI latency study](docs/cli-latency.md) for request-preparation measurements and a CLI/MCP comparison plan. That study predates acknowledged navigation: its historical no-acknowledgement limitation applies to plain deep links, while the current `--wait`/`--json` contract is described below. Its dry-run measurements do not measure current end-to-end display latency.
 
+### Codex Desktop: Open → BOA
+
+Install the signed application in `~/Applications` or `/Applications`, then open **Settings → Integrations → Configure Codex**. BOA saves its native executable as a custom file handler, embeds its logo, and sets BOA as the global and existing per-project editor preference. Other handlers and settings are preserved. Restart Codex to load the new handler, logo and preference. BOA reports configuration saved on disk; it does not restart Codex or claim that an already running instance has refreshed its menu.
+
+The installed handler runs directly from the application bundle (`Contents/MacOS/boa --codex-open '<handler-json>'`). It needs neither Bun nor this repository. It accepts a local absolute `path` and optional `location: { line, column }`; missing positions open line 1. Remote files are unsupported. The selected file is reused in its registered project or file space; otherwise only that file is added to **Opened files**.
+
+The handler explicitly launches its own installed bundle and sends the file through private, bounded, acknowledged navigation. Exit 0 means the reader confirmed display; a paused or unconfirmed request returns a nonzero status. Editing and **Take control** retain their normal protection. Read [the development adapter](scripts/codex-open.ts) only for checkout-based troubleshooting; it is not required by the installed integration.
+
+Some Codex reader header **Open** menus omit the original file-reference line. BOA cannot recover coordinates that were not sent. Use the original file reference's **right-click → Open with → BOA** menu to preserve the line, or `boa open --line … --wait --json`. Clicking the reference normally still opens Codex's internal reader.
+
+### macOS default editor
+
+BOA declares support for source code, HTML, Markdown and common text configuration formats. Double-clicking a supported file opens it read-only in BOA; Markdown uses Preview. If it belongs to a registered root, BOA reuses that project or file space. Otherwise only the selected file is added to **Opened files**, without registering or scanning its parent directory. That collection holds up to 64 entries; remove an entry or register its project when full. Existing drafts remain available when opening another document.
+
+After installing the signed app, open **Settings → Integrations**. The extensions list starts collapsed. Click **Extensions** to expand it. Use **Select all** to check every extension, or **Deselect all** when every extension is checked; a partial selection offers **Select all**. You can also check extensions individually. Check the extensions you want BOA to open by default, then click **Apply**. The list comes from file types supported by this installation of macOS. Extensions that macOS associates together share one checkbox (for example, `.html / .htm`). Opening the list or changing checkboxes does not change system defaults or trigger a refresh. Previously associated extensions are checked when Settings opens. Applying updates only the checked types; unchecking an extension does not reset its existing default. Previous defaults are backed up locally and changes are verified with macOS; partial failures appear inline. Installation alone does not change defaults.
+
+Finder's **Get Info → Open with → BOA → Change All** remains an alternative for an individual type. Keep development copies out of Launch Services when testing an installed update: copies with the same bundle identifier can otherwise receive openings intended for the installed app. Configuring the installed app again refreshes the Codex executable path after moving or reinstalling it.
+
+The integration's backups stay in BOA's local application-data directory. They contain only the Codex settings BOA replaces and previous application identifiers; unrelated configuration secrets are not copied. Setup preserves the first recorded defaults and refuses unsafe symlink configuration files or concurrent changes.
+
+### Claude Desktop
+
+The installed Claude Desktop editor picker offers a fixed list of editors and does not support custom handlers. BOA shows this limitation in Settings and does not write an unsupported editor value. System file associations can still handle ordinary macOS file openings; they do not add BOA to Claude's editor menu.
+
 ### Persistent contexts from the CLI
 
 Register the root first. Use a stable view ID so an assistant can update one explanation rather than adding duplicates. `--project` accepts either a registered project directory or an individual registered file-space root.

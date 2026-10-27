@@ -4,9 +4,16 @@ export interface NavigationRequest {
 	line: number;
 	endLine: number;
 	source: string;
+	document?: true;
 }
 export function parseNavigation(raw: string): NavigationRequest {
 	const url = new URL(raw);
+	if (url.protocol === "file:") {
+		const file = decodeURIComponent(url.pathname);
+		if ((url.hostname && url.hostname !== "localhost") || !file.startsWith("/") || file.includes("\0"))
+			throw new Error("Expected a local file URL");
+		return { file, line: 1, endLine: 1, source: "CLI", document: true };
+	}
 	if (url.protocol !== "boa:" || url.hostname !== "open") throw new Error("Lien BOA inconnu");
 	const file = url.searchParams.get("file");
 	const line = Number(url.searchParams.get("line") ?? "1");
