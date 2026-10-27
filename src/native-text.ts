@@ -103,8 +103,16 @@ const englishPrefixes: [string, string][] = [
 	["Lecture de ", "Reading "],
 ];
 
+const frenchText: Record<string, string> = {
+	"Expected a local file URL": "Une URL de fichier local est attendue",
+	"Expected an existing absolute local file": "Un fichier local existant avec un chemin absolu est attendu",
+	"Invalid file path": "Chemin de fichier invalide",
+	"Opened files is full; remove an entry or register its project first":
+		"Fichiers ouverts est plein ; retirez une entrée ou enregistrez son projet d’abord",
+};
+
 export function localizeNativeText(value: string): string {
-	if (!(i18n.resolvedLanguage || i18n.language || "fr").startsWith("en")) return value;
+	if (!(i18n.resolvedLanguage || i18n.language || "fr").startsWith("en")) return frenchText[value] ?? value;
 	if (Object.hasOwn(englishText, value)) return englishText[value];
 	const commit = /^Commit ([a-fA-F0-9]{7}) · premier parent$/.exec(value);
 	if (commit) return `Commit ${commit[1]} · first parent`;

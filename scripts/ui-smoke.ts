@@ -266,6 +266,22 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			return registeredProjects;
 		case "get_settings":
 			return { watchDirectory, watchError: null, language };
+		case "editor_integrations": {
+			const status = {
+				installed: true,
+				system: {
+					extensions: [
+						{ extensions: ["tsx"], configured: true },
+						{ extensions: ["ts"], configured: false },
+					],
+				},
+				codex: { available: true, configured: true },
+				claude: { available: true, supported: false },
+			};
+			return args.action === "status"
+				? status
+				: { status, restartRequired: args.action === "codex", changed: 0, failures: [] };
+		}
 		case "set_language":
 			language = String(args.language);
 			return { watchDirectory, watchError: null, language };
@@ -1238,6 +1254,28 @@ try {
 	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
 	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
 	await expect(page.locator("html")).toHaveAttribute("lang", "en");
+
+	await expect(page.locator(".integration-extension-grid")).toHaveCount(0);
+	await page.getByTestId("integration-extensions").click();
+	await expect(page.locator('[data-extension="tsx"]')).toBeChecked();
+	await page.getByTestId("integration-select-all").click();
+	await expect(page.locator('[data-extension="ts"]')).toBeChecked();
+	await expect(page.getByTestId("integration-select-all")).toHaveText("Deselect all");
+	await page.getByTestId("integration-select-all").click();
+	await expect(page.locator('[data-extension="tsx"]')).not.toBeChecked();
+	await expect(page.getByTestId("integration-select-all")).toHaveText("Select all");
+	await page.getByTestId("integration-select-all").click();
+	await expect(page.getByTestId("integration-status")).toBeEmpty();
+	await expect(page.getByTestId("integration-extensions")).toHaveAttribute("aria-expanded", "true");
+	if (process.env.BOA_QA_OUTPUT) {
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "extension-picker.png") });
+	}
+	await page.getByTestId("integration-system").click();
+	await expect(page.getByTestId("integration-status")).toContainText("macOS associations updated");
+	await page.getByTestId("integration-extensions").click();
+	await expect(page.getByTestId("integration-codex")).toBeEnabled();
+	await page.getByTestId("integration-codex").click();
+	await expect(page.getByTestId("integration-status")).toContainText("Restart Codex");
 	if (process.env.BOA_QA_OUTPUT)
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "settings-en.png") });
 	repo.path = `${directory}/nested-repo`;

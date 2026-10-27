@@ -31,6 +31,8 @@ enum Request {
         #[serde(rename = "endLine")]
         end_line: u32,
         source: String,
+        #[serde(default)]
+        register: bool,
     },
     #[serde(rename = "reader-status")]
     ReaderStatus {
@@ -105,12 +107,26 @@ fn execute(state: &AppState, request: Request) -> Result<(Value, bool, bool), St
             line,
             end_line,
             source,
-        } => Ok((
-            json!(crate::context_views::open(
-                state, file, line, end_line, source, None
-            )?),
-            true,
-        )),
+            register,
+        } => {
+            // Explicit external file opens authorize only that document, never its folder.
+            if register {
+                if line == 0
+                    || end_line < line
+                    || end_line > 1_000_000
+                    || !["Codex", "Claude", "Cursor", "CLI", "BOA"].contains(&source.as_str())
+                {
+                    return Err("Invalid reader navigation request".into());
+                }
+                crate::document_open::open(state, &file)?;
+            }
+            Ok((
+                json!(crate::context_views::open(
+                    state, file, line, end_line, source, None
+                )?),
+                true,
+            ))
+        }
         Request::ReaderStatus { request_id } => Ok((
             json!(crate::context_views::status(state, &request_id)?),
             false,
@@ -147,7 +163,7 @@ fn execute(state: &AppState, request: Request) -> Result<(Value, bool, bool), St
 fn serve(
     mut stream: UnixStream,
     state: &AppState,
-    changed: impl FnOnce(&Value, bool),
+    changed: impl FnOnce(&Value, bool, bool),
 ) -> Result<(), String> {
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
@@ -157,18 +173,22 @@ fn serve(
         .map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
     let read = BufReader::new((&stream).take(MAX_REQUEST + 1)).read_until(b'\n', &mut bytes);
+    let mut document = false;
     let result = match read {
         Ok(_) if bytes.len() as u64 > MAX_REQUEST => Err("Requête RPC trop grande".into()),
         Ok(_) if bytes.last() != Some(&b'\n') => Err("Requête RPC incomplète".into()),
         Ok(_) => serde_json::from_slice::<Request>(&bytes)
             .map_err(|e| format!("Requête RPC invalide : {e}"))
-            .and_then(|request| execute(state, request)),
+            .and_then(|request| {
+                document = matches!(&request, Request::ReaderOpen { register: true, .. });
+                execute(state, request)
+            }),
         Err(error) => Err(format!("Lecture RPC : {error}")),
     };
     let response = match result {
         Ok((value, did_change, context)) => {
             if did_change {
-                changed(&value, context);
+                changed(&value, context, document);
             }
             json!({"ok": true, "result": value})
         }
@@ -185,10 +205,11 @@ pub(crate) fn start(app: tauri::AppHandle, state: Arc<AppState>) -> Result<(), S
         .name("boa-cli".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
-                let _ = serve(stream, &state, |value, context| {
+                let _ = serve(stream, &state, |value, context, document| {
                     if context {
                         let _ = app.emit("boa:contexts-changed", ());
-                    } else {
+                    }
+                    if !context || document {
                         let _ = app.emit("boa:projects-changed", ());
                     }
                     if let Ok(receipt) =
@@ -215,7 +236,7 @@ mod tests {
             .unwrap();
         client.write_all(text).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
-        serve(server, state, |_, _| ()).unwrap();
+        serve(server, state, |_, _, _| ()).unwrap();
         let mut response = String::new();
         BufReader::new(client).read_line(&mut response).unwrap();
         serde_json::from_str(&response).unwrap()
@@ -263,7 +284,10 @@ mod tests {
             let (mut client, server) = UnixStream::pair().unwrap();
             client.write_all(b"{\"command\":\"list\"}\n").unwrap();
             let changed = AtomicBool::new(false);
-            serve(server, &state, |_, _| changed.store(true, Ordering::SeqCst)).unwrap();
+            serve(server, &state, |_, _, _| {
+                changed.store(true, Ordering::SeqCst)
+            })
+            .unwrap();
             assert_eq!(changed.load(Ordering::SeqCst), expected);
             let restored = AppState::new(temp.path().join("config.json")).unwrap();
             assert_eq!(
@@ -281,7 +305,7 @@ mod tests {
         let changed = AtomicBool::new(false);
         let request = json!({"command":"add", "path":temp.path()});
         client.write_all(format!("{request}\n").as_bytes()).unwrap();
-        serve(server, &state, |_, _| {
+        serve(server, &state, |_, _, _| {
             changed.store(true, Ordering::SeqCst);
         })
         .unwrap();
@@ -307,6 +331,47 @@ mod tests {
         let invalid = json!({"command":"contexts","request":{"action":"list","project":temp.path(),"extra":"no"}});
         assert_eq!(rpc(&state, format!("{invalid}\n").as_bytes())["ok"], false);
     }
+
+    #[test]
+    fn external_reader_open_registers_only_its_document_and_notifies_the_workspace() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = AppState::new(temp.path().join("settings.json")).unwrap();
+        let file = temp.path().join("source.ts");
+        fs::write(&file, "export const answer = 42;\n").unwrap();
+        let request = json!({"command":"reader-open","file":file,"line":1,"endLine":1,"source":"Codex","register":true});
+        let mut legacy = request.clone();
+        legacy.as_object_mut().unwrap().remove("register");
+        assert_eq!(rpc(&state, format!("{legacy}\n").as_bytes())["ok"], false);
+        assert!(state.config.lock().unwrap().file_spaces.is_empty());
+        let mut invalid = request.clone();
+        invalid["line"] = json!(0);
+        assert_eq!(rpc(&state, format!("{invalid}\n").as_bytes())["ok"], false);
+        assert!(state.config.lock().unwrap().file_spaces.is_empty());
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client.write_all(format!("{request}\n").as_bytes()).unwrap();
+        let notified = AtomicBool::new(false);
+        serve(server, &state, |value, context, document| {
+            assert!(context && document);
+            assert_eq!(value["request"]["source"], "Codex");
+            notified.store(true, Ordering::SeqCst);
+        })
+        .unwrap();
+        assert!(notified.load(Ordering::SeqCst));
+        let config = state.config.lock().unwrap();
+        assert!(config.projects.is_empty());
+        assert!(config.file_spaces[0].roots.is_empty());
+        assert_eq!(
+            config.file_spaces[0].files,
+            vec![file.canonicalize().unwrap().to_str().unwrap()]
+        );
+        drop(config);
+        let restored = AppState::new(temp.path().join("settings.json")).unwrap();
+        assert_eq!(
+            restored.config.lock().unwrap().file_spaces[0].files.len(),
+            1
+        );
+    }
+
     #[test]
     fn socket_is_private_rejects_symlinks_and_serves_real_connections() {
         let temp = tempfile::tempdir().unwrap();
@@ -320,7 +385,7 @@ mod tests {
         let state = AppState::new(temp.path().join("config.json")).unwrap();
         let thread = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            serve(stream, &state, |_, _| ()).unwrap();
+            serve(stream, &state, |_, _, _| ()).unwrap();
         });
         let mut client = UnixStream::connect(&path).unwrap();
         client.write_all(b"{\"command\":\"list\"}\n").unwrap();
@@ -341,7 +406,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         let (mut client, server) = UnixStream::pair().unwrap();
-        let thread = std::thread::spawn(move || serve(server, &state, |_, _| ()).unwrap());
+        let thread = std::thread::spawn(move || serve(server, &state, |_, _, _| ()).unwrap());
         client
             .write_all(&vec![b'x'; MAX_REQUEST as usize + 1])
             .unwrap();

@@ -36,11 +36,14 @@ tauri-plugin-single-instance = "2.5.4"
 tauri-plugin-clipboard-manager = "2.5.0"
 notify = "8.2"
 tempfile = "3.27.0"
+toml_edit = "0.20.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSWindow", "NSApplication"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSWindow", "NSApplication", "NSWorkspace", "objc2-uniform-type-identifiers"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL", "NSError", "NSObject", "NSBundle"] }
+objc2-uniform-type-identifiers = { version = "0.3.2", default-features = false, features = ["std", "UTType"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

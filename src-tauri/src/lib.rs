@@ -1,14 +1,26 @@
 //! Native command boundary for the BOA project cockpit.
 mod cli;
+#[path = "codex-handler.rs"]
+mod codex_handler;
+pub use codex_handler::codex_open_entry;
+#[path = "codex-config.rs"]
+mod codex_config;
 mod context;
 #[path = "context-views.rs"]
 mod context_views;
+#[path = "document-open.rs"]
+mod document_open;
+#[path = "editor-integrations.rs"]
+mod editor_integrations;
 #[path = "file-workspace.rs"]
 mod file_workspace;
 mod files;
 mod git;
 #[path = "image-comparison.rs"]
 mod image_comparison;
+#[cfg(target_os = "macos")]
+#[path = "mac-file-handlers.rs"]
+mod mac_file_handlers;
 mod navigation;
 mod projects;
 mod search;
@@ -43,6 +55,15 @@ async fn list_projects(state: NativeState<'_>) -> Result<Vec<Project>, String> {
 #[tauri::command]
 fn get_settings(state: NativeState<'_>) -> Result<Settings, String> {
     state.settings()
+}
+
+#[tauri::command]
+async fn editor_integrations(
+    app: tauri::AppHandle,
+    action: String,
+    extensions: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    editor_integrations::execute(app, action, extensions).await
 }
 
 #[tauri::command]
@@ -390,8 +411,25 @@ struct Navigation {
 }
 
 #[tauri::command]
+async fn open_document(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    file: String,
+) -> Result<Navigation, String> {
+    let target = work(state.inner().clone(), move |state| {
+        document_open::open(state, &file)
+    })
+    .await?;
+    let _ = app.emit("boa:projects-changed", ());
+    Ok(target)
+}
+
+#[tauri::command]
 fn resolve_navigation(state: NativeState<'_>, file: String) -> Result<Navigation, String> {
-    let file = Path::new(&file);
+    navigation_target(&state, Path::new(&file))
+}
+
+fn navigation_target(state: &AppState, file: &Path) -> Result<Navigation, String> {
     if !file.is_absolute()
         || file
             .components()
@@ -594,6 +632,7 @@ pub fn run() {
             list_projects,
             choose_comparison_image,
             get_settings,
+            editor_integrations,
             set_watch_directory,
             set_language,
             pin_project,
@@ -616,6 +655,7 @@ pub fn run() {
             compare_branch,
             export_context,
             resolve_navigation,
+            open_document,
             search_project,
             file_workspace,
             context_views,

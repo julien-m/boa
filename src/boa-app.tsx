@@ -275,17 +275,21 @@ export default function App() {
 		let disposed = false;
 		let cleanup: (() => void) | undefined;
 		const handleLinks = async (urls: string[]): Promise<void> => {
-			if (pausedRef.current || disposed) return;
+			if (disposed) return;
 			try {
 				const raw = urls.at(-1);
 				if (!raw) return;
 				const request = parseNavigation(raw);
-				const target = await api.navigate(request.file);
+				if (pausedRef.current && !request.document) return;
+				const target = request.document
+					? await api.openDocument(request.file)
+					: await api.navigate(request.file);
 				const spaces = await fileWorkspace.state();
 				const containing = spaces.spaces.find((s) => spaceEntries(s).includes(target.project));
 				if (!containing) await api.add(target.project);
 				await client.invalidateQueries({ queryKey: ["projects"] });
-				if (disposed || pausedRef.current) return;
+				if (request.document) await client.invalidateQueries({ queryKey: ["file-workspace"] });
+				if (disposed || (pausedRef.current && !request.document)) return;
 				history.visit({
 					view: containing ? "space" : "project",
 					root: target.project,
@@ -302,7 +306,7 @@ export default function App() {
 					...target,
 					line: request.line,
 					endLine: request.endLine,
-					source: request.source,
+					source: request.document ? "BOA" : request.source,
 					navigationId: crypto.randomUUID(),
 				});
 			} catch (error) {

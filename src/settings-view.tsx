@@ -5,6 +5,7 @@ import { FolderOpen, Languages, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type ProjectSettings } from "./api";
+import { EditorIntegrations } from "./editor-integrations";
 import { FileWorkspaceSettings } from "./file-workspace-settings";
 import { setInterfaceLanguage } from "./i18n";
 
@@ -128,6 +129,7 @@ export function SettingsView({
 					<p>{t("archiveHint")}</p>
 				</div>
 			</section>
+			<EditorIntegrations />
 			<FileWorkspaceSettings />
 		</div>
 	);
