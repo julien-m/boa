@@ -101,6 +101,31 @@ async function render(element: React.ReactNode) {
 const selected = () => [...host.querySelectorAll("[data-navigation-target]")];
 
 describe("Markdown preview navigation", () => {
+	it("does not confirm a nearby rendered block for hidden Markdown source lines", async () => {
+		const document =
+			"# Visible\n\n<!-- hidden passage -->\n\n[reference]: https://example.com\n\nAnother block.";
+		const onReveal = vi.fn();
+		for (const hidden of ["<!-- hidden passage -->", "[reference]: https://example.com"]) {
+			const line = document.split("\n").indexOf(hidden) + 1;
+			onReveal.mockClear();
+			await render(
+				<MarkdownPreview
+					content={document}
+					project="/fixture"
+					path="hidden.md"
+					onCopyLink={() => {}}
+					onReveal={onReveal}
+					navigation={{ line, navigationId: hidden }}
+				/>,
+			);
+			await act(async () => {
+				await new Promise((done) => requestAnimationFrame(done));
+			});
+			expect(selected().length).toBeGreaterThan(0);
+			expect(onReveal).toHaveBeenCalledWith(false);
+		}
+	});
+
 	it("opens manual and CLI Markdown in preview, preserving explicit Source and Git diffs", async () => {
 		const selection: Selection = { project: "/fixture", path: "demo.MD" };
 		await render(<CodeViewer selection={selection} />);
@@ -358,6 +383,23 @@ describe("file image and unsupported previews", () => {
 		await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="markdown-toggle"]')?.click());
 		expect(host.querySelector('[data-testid="mock-source"]')).not.toBeNull();
 		expect(host.querySelector('[data-testid="read-only-toggle"]')).not.toBeNull();
+	});
+	it("opens an acknowledged SVG passage in source instead of reporting the image as needs-review", async () => {
+		assetState.kind = "image";
+		assetState.dataUrl = "data:image/svg+xml;base64,PHN2Zy8+";
+		await render(
+			<CodeViewer
+				selection={{
+					project: "/fixture",
+					path: "plan.svg",
+					line: content.split("\n").findIndex((line) => line.includes("total")) + 1,
+					receiptId: "svg-passage",
+				}}
+			/>,
+		);
+		expect(host.querySelector('[data-testid="mock-source"]')).not.toBeNull();
+		expect(host.querySelector(".file-image-stage img")).toBeNull();
+		expect(receiptState.acknowledge).not.toHaveBeenCalledWith("svg-passage", "needs-review");
 	});
 });
 

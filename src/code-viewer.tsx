@@ -214,7 +214,10 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 		staleTime: 0,
 		refetchOnWindowFocus: false,
 	});
-	const sourceRequested = markdownMode?.key === fileKey ? markdownMode.source : false;
+	const sourceRequested =
+		markdownMode?.key === fileKey
+			? markdownMode.source
+			: Boolean(!isMarkdown && selection?.receiptId && selection.line);
 	const svgSource =
 		query.data?.kind === "image" && /\.svg$/i.test(selection?.path ?? "") && Boolean(query.data.modified);
 	const nonText =

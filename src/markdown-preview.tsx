@@ -303,6 +303,8 @@ export function MarkdownPreview({
 				Boolean(
 					target?.isConnected &&
 						target.hasAttribute("data-navigation-target") &&
+						Number(target.dataset.sourceLine) <= endLine &&
+						Number(target.dataset.sourceEndLine) >= line &&
 						viewport.width > 0 &&
 						viewport.height > 0 &&
 						bounds &&
