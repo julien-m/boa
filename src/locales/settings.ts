@@ -45,6 +45,9 @@ export const settingsFr = {
 		notInstalled: "Application non installée.",
 		claudeUnsupported: "Ajout d’un éditeur indisponible.",
 		systemSaved: "Associations macOS mises à jour.",
+		systemUnchanged: "Déjà configuré. Aucune modification nécessaire.",
+		confirmationPending:
+			"Une confirmation macOS attend encore votre réponse. Répondez à cette fenêtre avant de réappliquer.",
 		working: "Vérification et configuration…",
 		statusError: "L’état des intégrations est indisponible. Vous pouvez réessayer.",
 		actionError: "La configuration n’a pas pu être vérifiée. Réessayez avant de la considérer terminée.",
@@ -98,6 +101,9 @@ export const settingsEn: typeof settingsFr = {
 		notInstalled: "Application not installed.",
 		claudeUnsupported: "Adding an editor is unavailable.",
 		systemSaved: "macOS associations updated.",
+		systemUnchanged: "Already configured. No changes needed.",
+		confirmationPending:
+			"A macOS confirmation is still waiting for your answer. Answer that dialog before applying again.",
 		working: "Checking and configuring…",
 		statusError: "Integration status is unavailable. You can try again.",
 		actionError: "The configuration could not be verified. Try again before considering it complete.",

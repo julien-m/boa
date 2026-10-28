@@ -215,7 +215,9 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 		refetchOnWindowFocus: false,
 	});
 	const sourceRequested =
-		markdownMode?.key === fileKey ? markdownMode.source : Boolean(selection?.receiptId && selection.line);
+		markdownMode?.key === fileKey
+			? markdownMode.source
+			: Boolean(!isMarkdown && selection?.receiptId && selection.line);
 	const svgSource =
 		query.data?.kind === "image" && /\.svg$/i.test(selection?.path ?? "") && Boolean(query.data.modified);
 	const nonText =
@@ -604,6 +606,12 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 						path={selection.path}
 						content={query.data.modified}
 						navigation={selection.line || selection.anchor !== undefined ? selection : undefined}
+						onReveal={(displayed) => {
+							const id = selection.receiptId;
+							if (!id || completedReceipt.current === id || selection.anchorStatus === "needs-review") return;
+							completedReceipt.current = id;
+							void contextApi.acknowledge(id, displayed ? "displayed" : "needs-review").catch(() => {});
+						}}
 						restorePosition={
 							selection.markdownRestore ??
 							(markdownBookmark.current?.key === fileKey ? markdownBookmark.current.position : undefined)

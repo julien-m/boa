@@ -227,7 +227,9 @@ export function MarkdownPreview({
 	onOpenLink,
 	restorePosition,
 	navigation,
+	onReveal,
 }: {
+	onReveal?: (displayed: boolean) => void;
 	navigation?: { line?: number; endLine?: number; navigationId?: string; anchor?: string };
 	restorePosition?: MarkdownBookmark;
 	content: string;
@@ -238,6 +240,8 @@ export function MarkdownPreview({
 }) {
 	const { t } = useTranslation("workspace");
 	const scroll = useRef<HTMLDivElement>(null);
+	const revealCallback = useRef(onReveal);
+	revealCallback.current = onReveal;
 	const anchor = useRef<MarkdownBookmark | null>(restorePosition ?? null);
 	const capturePosition = (): void => {
 		const container = scroll.current;
@@ -291,7 +295,26 @@ export function MarkdownPreview({
 			capturePosition();
 		}
 		lastNavigation.current = request;
+		const frame = requestAnimationFrame(() => {
+			const target = targets[0];
+			const viewport = container.getBoundingClientRect();
+			const bounds = target?.getBoundingClientRect();
+			revealCallback.current?.(
+				Boolean(
+					target?.isConnected &&
+						target.hasAttribute("data-navigation-target") &&
+						Number(target.dataset.sourceLine) <= endLine &&
+						Number(target.dataset.sourceEndLine) >= line &&
+						viewport.width > 0 &&
+						viewport.height > 0 &&
+						bounds &&
+						bounds.bottom > viewport.top &&
+						bounds.top < viewport.bottom,
+				),
+			);
+		});
 		return () => {
+			cancelAnimationFrame(frame);
 			for (const target of targets) target.removeAttribute("data-navigation-target");
 		};
 	}, [line, endLine, navigationId, content, restorePosition]);

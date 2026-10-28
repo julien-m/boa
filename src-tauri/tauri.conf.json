@@ -36,7 +36,7 @@
   "bundle": {
     "active": true,
     "macOS": {
-      "infoPlist": "info.plist"
+      "infoPlist": "target/editor-integrations.plist"
     },
     "targets": [
       "app"

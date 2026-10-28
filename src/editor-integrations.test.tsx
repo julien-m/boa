@@ -137,3 +137,26 @@ it("shows linked extensions under one checkbox and applies the whole group", asy
 		extensions: ["html", "htm"],
 	});
 }, 2000);
+
+it("reports an unchanged system configuration without claiming another update", async () => {
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	mockedInvoke.mockResolvedValueOnce({ status, restartRequired: false, changed: 0, failures: [] });
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(control("status").textContent).toContain("Déjà configuré");
+	expect(control("status").textContent).not.toContain("mises à jour");
+}, 2000);
+
+it("explains an outstanding OS confirmation instead of suggesting another configuration attempt", async () => {
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	mockedInvoke.mockResolvedValueOnce({
+		status,
+		restartRequired: false,
+		changed: 0,
+		failures: ["css: macOS confirmation is still pending; answer it before applying again"],
+	});
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain("attend encore votre réponse");
+	expect(control("status").textContent).toBe("");
+}, 2000);
