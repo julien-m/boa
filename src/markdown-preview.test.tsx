@@ -9,6 +9,8 @@ import "./i18n";
 import { MarkdownPreview } from "./markdown-preview";
 import type { Selection } from "./models";
 
+const receiptState = vi.hoisted(() => ({ acknowledge: vi.fn(async () => ({})) }));
+vi.mock("./context-api", () => ({ contextApi: receiptState }));
 const editingState = vi.hoisted(() => ({ active: false }));
 const assetState = vi.hoisted(() => ({
 	kind: "text" as "text" | "image" | "unsupported",
@@ -55,6 +57,7 @@ let root: Root;
 let client: QueryClient;
 beforeEach(() => {
 	editingState.active = false;
+	receiptState.acknowledge.mockClear();
 	assetState.kind = "text";
 	assetState.dataUrl = undefined;
 	assetState.open.mockReset().mockResolvedValue(undefined);
@@ -69,13 +72,14 @@ beforeEach(() => {
 		const top = this.dataset.sourceLine
 			? Number(this.dataset.sourceLine) * 20 - (container?.scrollTop ?? 0)
 			: 0;
+		const height = this.classList.contains("markdown-scroll") ? 400 : 20;
 		return {
 			top,
-			bottom: top + 20,
+			bottom: top + height,
 			left: 0,
 			right: 600,
 			width: 600,
-			height: 20,
+			height,
 			x: 0,
 			y: top,
 			toJSON: () => ({}),
@@ -117,6 +121,82 @@ describe("Markdown preview navigation", () => {
 		editingState.active = false;
 		await render(<CodeViewer selection={{ ...selection, repo: "/fixture" }} />);
 		expect(host.querySelector('[data-testid="mock-diff"]')).not.toBeNull();
+	});
+
+	it("keeps acknowledged Markdown in preview and confirms only a revealed highlighted block", async () => {
+		const lines = content.split("\n");
+		const line = lines.findIndex((text) => text.startsWith("| id")) + 1;
+		const endLine = lines.findIndex((text) => text.startsWith("| price")) + 1;
+		const receiptId = "markdown-receipt";
+		await render(
+			<CodeViewer
+				selection={{
+					project: "/fixture",
+					path: "demo.md",
+					line,
+					endLine,
+					receiptId,
+					navigationId: receiptId,
+				}}
+			/>,
+		);
+		expect(host.querySelector('[data-testid="mock-source"]')).toBeNull();
+		expect(selected().map((node) => node.textContent)).toEqual(["idUUID", "pricenumber"]);
+		await act(async () => {
+			await new Promise((done) => requestAnimationFrame(done));
+		});
+		expect(receiptState.acknowledge).toHaveBeenCalledWith(receiptId, "displayed");
+		const nextReceipt = "single-line-receipt";
+		const paragraphLine = lines.findIndex((text) => text === "First paragraph.") + 1;
+		await render(
+			<CodeViewer
+				selection={{
+					project: "/fixture",
+					path: "demo.md",
+					line: paragraphLine,
+					endLine: paragraphLine,
+					receiptId: nextReceipt,
+					navigationId: nextReceipt,
+				}}
+			/>,
+		);
+		await act(async () => {
+			await new Promise((done) => requestAnimationFrame(done));
+		});
+		expect(selected().map((node) => node.textContent)).toEqual(["First paragraph."]);
+		expect(receiptState.acknowledge).toHaveBeenCalledWith(nextReceipt, "displayed");
+	});
+
+	it("moves from a front-matter separator to the requested source block in the same preview", async () => {
+		const target = "Identify the available native tool before continuing.";
+		const document = [
+			"---",
+			"name: sample",
+			"description: A sample document",
+			"---",
+			"",
+			"# Title",
+			"",
+			"## Prepare",
+			"",
+			`1. ${target}`,
+			"2. Continue after inspection.",
+		].join("\n");
+		const line = document.split("\n").findIndex((text) => text.includes(target)) + 1;
+		const preview = (line: number, navigationId: string) => (
+			<MarkdownPreview
+				content={document}
+				project="/fixture"
+				path="skill.md"
+				onCopyLink={() => {}}
+				navigation={{ line, endLine: line, navigationId }}
+			/>
+		);
+		await render(preview(1, "without-coordinates"));
+		expect(selected().map((node) => node.tagName)).toEqual(["HR"]);
+		await render(preview(line, "with-coordinates"));
+		expect(selected().map((node) => node.textContent)).toEqual([target]);
+		expect(host.querySelector("hr")?.hasAttribute("data-navigation-target")).toBe(false);
 	});
 
 	it("reveals table rows, replaces highlights, handles repeat requests and falls back on invisible lines", async () => {

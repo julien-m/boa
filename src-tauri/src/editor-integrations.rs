@@ -150,7 +150,7 @@ fn status() -> Result<Status, String> {
     let path = codex_path()?;
     Ok(Status {
         installed: bundle.is_some(),
-        system: crate::mac_file_handlers::status(bundle.as_deref()),
+        system: crate::mac_file_handlers::status(bundle.as_deref())?,
         codex: CodexStatus {
             available: path.exists() || crate::mac_file_handlers::available("com.openai.codex"),
             configured: match executable {

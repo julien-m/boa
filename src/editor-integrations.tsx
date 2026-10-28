@@ -71,11 +71,22 @@ export function EditorIntegrations() {
 						? ""
 						: action === "codex"
 							? "integrations.codexSaved"
-							: "integrations.systemSaved",
+							: result.changed === 0
+								? "integrations.systemUnchanged"
+								: "integrations.systemSaved",
 			);
-			if (result.failures.length) setError("integrations.partialError");
-		} catch {
-			setError("integrations.actionError");
+			if (result.failures.length)
+				setError(
+					result.failures.some((failure) => failure.includes("macOS confirmation is still pending"))
+						? "integrations.confirmationPending"
+						: "integrations.partialError",
+				);
+		} catch (reason) {
+			setError(
+				String(reason).includes("macOS confirmation is still pending")
+					? "integrations.confirmationPending"
+					: "integrations.actionError",
+			);
 		} finally {
 			setBusy(false);
 		}

@@ -1271,7 +1271,7 @@ try {
 		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "extension-picker.png") });
 	}
 	await page.getByTestId("integration-system").click();
-	await expect(page.getByTestId("integration-status")).toContainText("macOS associations updated");
+	await expect(page.getByTestId("integration-status")).toContainText("Already configured");
 	await page.getByTestId("integration-extensions").click();
 	await expect(page.getByTestId("integration-codex")).toBeEnabled();
 	await page.getByTestId("integration-codex").click();
