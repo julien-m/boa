@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, X } from "lucide-react";
 import { useState } from "react";
 import { defaultShortcuts, type FileSpace, fileWorkspace, spaceEntries } from "./file-workspace-api";
@@ -50,7 +50,19 @@ export function FileWorkspaceSettings() {
 							className="icon-button"
 							disabled={busy}
 							aria-label={`${l.remove} ${space.name}`}
-							onClick={() => void perform(() => fileWorkspace.remove(space.id))}
+							onClick={() =>
+								void perform(async () => {
+									if (
+										await confirm(`${l.confirmRemoveSpace}\n${space.name}\n\n${l.spaceReferenceHint}`, {
+											title: "BOA",
+											kind: "warning",
+											okLabel: l.remove,
+											cancelLabel: l.cancel,
+										})
+									)
+										await fileWorkspace.remove(space.id);
+								})
+							}
 						>
 							<X size={14} />
 						</button>
@@ -93,11 +105,23 @@ export function FileWorkspaceSettings() {
 									type="button"
 									className="icon-button"
 									aria-label={`${l.remove} ${root}`}
+									disabled={busy}
 									onClick={() =>
-										setDraft({
-											...draft,
-											roots: draft.roots.filter((r) => r !== root),
-											files: draft.files?.filter((r) => r !== root),
+										void perform(async () => {
+											if (
+												!(await confirm(`${l.confirmRemoveEntry}\n${root}\n\n${l.spaceReferenceHint}`, {
+													title: "BOA",
+													kind: "warning",
+													okLabel: l.remove,
+													cancelLabel: l.cancel,
+												}))
+											)
+												return;
+											setDraft({
+												...draft,
+												roots: draft.roots.filter((r) => r !== root),
+												files: draft.files?.filter((r) => r !== root),
+											});
 										})
 									}
 								>

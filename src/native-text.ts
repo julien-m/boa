@@ -89,6 +89,7 @@ const englishText: Record<string, string> = {
 
 // Replace only the known wrapper. Everything after it is opaque OS/Git/path data.
 const englishPrefixes: [string, string][] = [
+	["Fichier surveillé introuvable : ", "Watched file not found: "],
 	["Conservation des métadonnées impossible : ", "Unable to preserve file metadata: "],
 	["Ouverture impossible : ", "Unable to open: "],
 	["Surveillance indisponible : ", "File monitoring unavailable: "],

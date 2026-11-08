@@ -1,0 +1,39 @@
+/* Keep simultaneous notices in one overlay without covering each other. */
+.app-notices {
+	position: absolute;
+	top: 8px;
+	left: 12px;
+	right: 12px;
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+	pointer-events: none;
+}
+.app-notices > .app-notice {
+	position: static;
+	align-items: flex-start;
+	gap: 16px;
+	min-width: 0;
+	pointer-events: auto;
+}
+.app-notice > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.app-notice > .icon-button,
+.nav-space-row > .icon-button {
+	flex-shrink: 0;
+}
+.nav-space-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.nav-space-row > .nav-button {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}

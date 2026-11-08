@@ -3,7 +3,7 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import {
 	Archive,
 	ArchiveRestore,
@@ -21,6 +21,7 @@ import {
 	RefreshCw,
 	Search,
 	Settings,
+	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ErrorBoundary } from "react-error-boundary";
@@ -47,6 +48,7 @@ import { SearchInput } from "./search-input";
 import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
+import "./app-notices.css";
 
 export default function App() {
 	const { t } = useTranslation("dashboard");
@@ -133,6 +135,32 @@ export default function App() {
 	const [sort, setSort] = useState(() => localStorage.getItem("boa-project-sort") ?? "name");
 	const [display, setDisplay] = useState(() => localStorage.getItem("boa-project-display") ?? "grid");
 	const [notice, setNotice] = useState("");
+	const [dismissedWatchError, setDismissedWatchError] = useState<string | null>(null);
+	const watchError = settings.data?.watchError ?? null;
+	useEffect(() => setDismissedWatchError(null), [watchError]);
+	const [removingSpace, setRemovingSpace] = useState<string | null>(null);
+	const removeSpace = async (id: string, name: string) => {
+		if (removingSpace) return;
+		setRemovingSpace(id);
+		try {
+			if (
+				!(await confirm(`${fl.confirmRemoveSpace}\n${name}\n\n${fl.spaceReferenceHint}`, {
+					title: "BOA",
+					kind: "warning",
+					okLabel: fl.remove,
+					cancelLabel: fl.cancel,
+				}))
+			)
+				return;
+			await fileWorkspace.remove(id);
+			if (selectedSpace === id) visitView({ view: "overview" });
+			await client.invalidateQueries({ queryKey: ["file-workspace"] });
+		} catch (error) {
+			setNotice(localizeNativeText(String(error)));
+		} finally {
+			setRemovingSpace(null);
+		}
+	};
 	useEffect(() => {
 		const restore = (event: Event) => {
 			const selection = (event as CustomEvent<Selection>).detail;
@@ -617,16 +645,25 @@ export default function App() {
 					</button>
 					<div className="nav-section-title">{fl.spaces}</div>
 					{(workspace.data?.spaces ?? []).map((space) => (
-						<button
-							type="button"
-							key={space.id}
-							className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen ? "selected" : ""}`}
-							onClick={() => {
-								visitView({ view: "space", space: space.id });
-							}}
-						>
-							{space.name}
-						</button>
+						<div className="nav-space-row" key={space.id}>
+							<button
+								type="button"
+								className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+								onClick={() => visitView({ view: "space", space: space.id })}
+							>
+								{space.name}
+							</button>
+							<button
+								type="button"
+								className="icon-button"
+								aria-label={`${fl.remove} ${space.name}`}
+								title={`${fl.remove} ${space.name}. ${fl.spaceReferenceHint}`}
+								disabled={removingSpace !== null}
+								onClick={() => void removeSpace(space.id, space.name)}
+							>
+								<X size={14} />
+							</button>
+						</div>
 					))}
 					<button
 						type="button"
@@ -716,24 +753,38 @@ export default function App() {
 					</div>
 				</nav>
 				<main className="main-content">
-					{settings.data?.watchError && !settingsOpen && (
-						<div className="app-notice" role="alert">
-							{t("watchError", { error: settings.data.watchError })}
-						</div>
-					)}
-					{notice && (
-						<div className="app-notice" role="alert" data-testid="app-notice">
-							<span>{notice}</span>
-							<button
-								type="button"
-								className="icon-button"
-								data-testid="dismiss-notice"
-								onClick={() => setNotice("")}
-							>
-								×
-							</button>
-						</div>
-					)}
+					<div className="app-notices">
+						{watchError && watchError !== dismissedWatchError && !settingsOpen && (
+							<div className="app-notice" role="alert" data-testid="watch-notice">
+								<span>{t("watchError", { error: watchError })}</span>
+								<button
+									type="button"
+									className="icon-button"
+									aria-label={t("dismissNotice")}
+									title={t("dismissNotice")}
+									data-testid="dismiss-watch-notice"
+									onClick={() => setDismissedWatchError(watchError)}
+								>
+									<X size={16} />
+								</button>
+							</div>
+						)}
+						{notice && (
+							<div className="app-notice" role="alert" data-testid="app-notice">
+								<span>{notice}</span>
+								<button
+									type="button"
+									className="icon-button"
+									aria-label={t("dismissNotice")}
+									title={t("dismissNotice")}
+									data-testid="dismiss-notice"
+									onClick={() => setNotice("")}
+								>
+									<X size={16} />
+								</button>
+							</div>
+						)}
+					</div>
 					{globalSearch && (
 						<div
 							className="file-search-overlay"
