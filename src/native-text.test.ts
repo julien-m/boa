@@ -59,6 +59,9 @@ describe("native text localization", () => {
 		i18n.resolvedLanguage = "en";
 		const payload =
 			"/projects/été/Projet inaccessible : x\n\tfatal: invalid path 'Lecture seule' (os error 13)";
+		expect(localizeNativeText(`Fichier surveillé introuvable : ${payload}`)).toBe(
+			`Watched file not found: ${payload}`,
+		);
 		expect(localizeNativeText(`Projet inaccessible : ${payload}`)).toBe(`Project inaccessible: ${payload}`);
 		expect(localizeNativeText(`Lecture de ${payload} : Permission denied`)).toBe(
 			`Reading ${payload} : Permission denied`,

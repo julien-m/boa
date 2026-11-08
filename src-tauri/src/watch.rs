@@ -183,11 +183,20 @@ fn configure(
     }
     for (path, recursive) in desired {
         if !path.exists() {
-            error = Some(format!(
-                "Surveillance indisponible : {} : {}",
-                path.display(),
-                std::io::Error::from(std::io::ErrorKind::NotFound)
-            ));
+            error = Some(
+                if targets
+                    .file_entries
+                    .contains(&path.to_string_lossy().to_string())
+                {
+                    format!("Fichier surveillé introuvable : {}", path.display())
+                } else {
+                    format!(
+                        "Surveillance indisponible : {} : {}",
+                        path.display(),
+                        std::io::Error::from(std::io::ErrorKind::NotFound)
+                    )
+                },
+            );
             continue;
         }
         if watched.get(&path) == Some(&recursive) {
@@ -601,7 +610,14 @@ pub(crate) fn start(
                 for project in &update.rescan {
                     state.invalidate_repositories(Path::new(project));
                 }
-                if update.discovery || !update.rescan.is_empty() {
+                let file_changed = {
+                    let active = routing.read().unwrap_or_else(|e| e.into_inner());
+                    update
+                        .projects
+                        .iter()
+                        .any(|path| active.file_entries.contains(path))
+                };
+                if update.discovery || !update.rescan.is_empty() || file_changed {
                     // Rebind manually added roots even if their summary cannot be read while missing.
                     let mut next = routing.read().unwrap_or_else(|e| e.into_inner()).clone();
                     update.merge(configure_state(
@@ -683,9 +699,80 @@ mod tests {
         );
         assert!(sibling.projects.is_empty());
         std::fs::remove_file(&file).unwrap();
+        let mut watcher = notify::recommended_watcher(|_| {}).unwrap();
+        let mut watched = BTreeMap::new();
+        let error = configure(&mut watcher, &mut watched, &targets(&state)).unwrap();
+        assert!(
+            error.starts_with("Fichier surveillé introuvable : "),
+            "{error}"
+        );
+        assert_eq!(watched.get(file.parent().unwrap()), Some(&false));
+        std::fs::write(&file, "restored").unwrap();
+        assert!(configure(&mut watcher, &mut watched, &targets(&state)).is_none());
+        std::fs::remove_file(&file).unwrap();
         std::fs::create_dir(&file).unwrap();
         assert_eq!(desired_paths(&targets(&state)).get(&file), Some(&false));
     }
+    // Native integration: one shared ten-second deadline for registration, loss and recovery.
+    #[test]
+    fn files_added_after_service_start_report_loss_and_recover() {
+        use super::*;
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("live.md");
+        std::fs::write(&file, "initial").unwrap();
+        let file = file.canonicalize().unwrap();
+        let path = file.to_string_lossy().into_owned();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
+        let (sender, receiver) = mpsc::channel();
+        let service = start(state.clone(), move |update| {
+            let _ = sender.send(update);
+        })
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        crate::file_workspace::execute(
+            &state,
+            crate::file_workspace::Request::SaveSpace {
+                id: "live".into(),
+                name: "Live".into(),
+                roots: vec![],
+                files: vec![path.clone()],
+            },
+        )
+        .unwrap();
+        // A routed native write proves registration finished, without assuming thread timing.
+        loop {
+            std::fs::write(&file, "changed").unwrap();
+            if let Ok(update) = receiver.recv_timeout(Duration::from_millis(20))
+                && update.projects.contains(&path)
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "watch registration did not complete"
+            );
+        }
+        std::fs::remove_file(&file).unwrap();
+        loop {
+            receiver
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if state.settings().unwrap().watch_error.is_some() {
+                break;
+            }
+        }
+        std::fs::write(&file, "restored").unwrap();
+        loop {
+            receiver
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap();
+            if state.settings().unwrap().watch_error.is_none() {
+                break;
+            }
+        }
+        drop(service);
+    }
+
     #[test]
     fn filtered_file_spaces_watch_only_selected_subtrees() {
         let temp = tempfile::tempdir().unwrap();

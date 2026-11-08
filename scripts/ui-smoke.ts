@@ -26,6 +26,8 @@ const filePreferences: Record<
 > = {};
 let searchShortcuts = { contextual: "Mod+F", global: "Mod+Shift+F" };
 let watchDirectory: string | null = null;
+let settingsCalls = 0;
+let watchError: string | null = "Surveillance indisponible : dossier-test";
 let folderChoice: string | null = directory;
 let language = "fr";
 let automaticallyDiscovered = false;
@@ -265,7 +267,8 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				registeredProjects.push({ ...project, path: `${directory}/auto`, name: "Auto QA" });
 			return registeredProjects;
 		case "get_settings":
-			return { watchDirectory, watchError: null, language };
+			settingsCalls++;
+			return { watchDirectory, watchError, language };
 		case "editor_integrations": {
 			const status = {
 				installed: true,
@@ -284,10 +287,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 		}
 		case "set_language":
 			language = String(args.language);
-			return { watchDirectory, watchError: null, language };
+			return { watchDirectory, watchError, language };
 		case "set_watch_directory":
 			watchDirectory = args.path as string | null;
-			return { watchDirectory, watchError: null, language };
+			return { watchDirectory, watchError, language };
 		case "archive_project":
 			registeredProjects = registeredProjects.map((item) =>
 				item.path === args.project ? { ...item, archived: Boolean(args.archived) } : item,
@@ -476,6 +479,39 @@ await page.addInitScript(() => {
 });
 try {
 	await page.goto("http://localhost:1420");
+	await expect(page.getByTestId("watch-notice")).toBeVisible();
+	await page.getByTestId("dismiss-watch-notice").click();
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	const refreshSettings = async () => {
+		const before = settingsCalls;
+		await page.evaluate(() =>
+			Reflect.get(window, "boaTestFilesystemChanged")({ discovery: false, settings: true, projects: [] }),
+		);
+		await expect.poll(() => settingsCalls).toBeGreaterThan(before);
+		await page.evaluate(
+			() =>
+				new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+		);
+	};
+	await refreshSettings();
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	watchError = null;
+	await refreshSettings();
+	await expect
+		.poll(() => page.evaluate(() => document.querySelector('[data-testid="watch-notice"]') === null))
+		.toBe(true);
+	watchError = "Surveillance indisponible : dossier-test";
+	await refreshSettings();
+	await expect(page.getByTestId("watch-notice")).toBeVisible();
+	await page.getByTestId("dismiss-watch-notice").focus();
+	await page.keyboard.press("Enter");
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	watchError = "Surveillance indisponible : autre-dossier";
+	await refreshSettings();
+	await expect(page.getByTestId("watch-notice")).toContainText("autre-dossier");
+	watchError = null;
+	await refreshSettings();
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
 	await expect(page.getByTestId("empty-add-project")).toBeVisible();
 	await expect(page.getByText("Aucun dossier n’est parcouru avant votre sélection.")).toBeVisible();
 	expect(summaryCalls).toBe(0);
@@ -1663,6 +1699,13 @@ try {
 	await expect(isolated.locator(".tree-row")).toHaveCount(1);
 	await isolated.getByTestId("file-preview.png").click();
 	await expect(isolated.locator(".file-asset-preview img")).toBeVisible();
+
+	await page.locator(".navigation").getByRole("button", { name: "Retirer preview.png", exact: true }).click();
+	await expect.poll(() => fileSpaces.some((s) => s.name === "preview.png")).toBe(false);
+	await expect(page.getByTestId("file-space-view")).toHaveCount(0);
+	await expect(
+		page.locator(".navigation").getByRole("button", { name: "Outils QA", exact: true }),
+	).toBeVisible();
 
 	// Exercise real Monaco keyboard navigation and guided display receipts, with only IPC mocked.
 	await page.getByTestId("dashboard-nav").click();

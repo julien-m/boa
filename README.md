@@ -81,6 +81,8 @@ Markdown links to local files open inside BOA, relative to the current document.
 
 Wide Markdown tables use intrinsic column widths in a separate, keyboard-focusable horizontal scroll area. Hover or focus a table, fenced code/diagram block or image to reveal **Expand**. It opens that block in a modal filling the BOA window. **Expand** above the preview opens the entire document at full available width. Escape or Close returns to the same reader position, including table scrolling. Diagram fences remain code unless their source already renders an image; expansion does not add a diagram renderer.
 
+Monitoring warnings have a Close button. Dismissing one keeps its details in Settings; a new error or an error returning after recovery appears again. A missing individual file is identified explicitly.
+
 External changes refresh open files through native filesystem notifications. BOA tries to keep the same visible passage using a text anchor when lines are inserted above it; if the passage disappears, it retains a nearby position. Editing drafts remain intact and report a conflict instead of being replaced.
 
 ## Images, Library and comparison
@@ -387,6 +389,8 @@ For acknowledged opening, the CLI exits 0 for a confirmed `displayed` result, 2 
 Saved views persist across restarts; receipts do not. Neither creating nor updating a view automatically resumes paused guidance. BOA has a CLI, not a bundled MCP server; assistants can call the same CLI contract.
 
 ## File spaces and focused browsing
+
+Use the cross next to a file space in the sidebar to remove it from BOA. Its original files and folders remain on disk. To remove only one entry, open Settings, edit the space, remove that entry and save.
 
 Use **Settings → File spaces** to create a named collection of existing folders and individual files. Spaces appear separately in the sidebar and never run Git discovery or status scans. Files stay in their original locations. Each folder has an on-demand visibility/sort menu: choose the files and subfolders to show, temporarily show everything, or sort by name, date added, modification date, creation date, file type or size in either direction. These sort choices are shared with the Library toolbar and saved per root. Date added is the macOS date when an item entered its containing directory, independently of its creation date; unavailable dates sort last in either direction. Name, type and size sorts keep folders first, while pins keep their manual order. Selecting a folder includes its descendants; ancestors remain traversable. Pinned files and folders stay accessible even when excluded from the visible selection. Pins stay above the tree and can be reordered by drag-and-drop or the arrow buttons. Visibility and pins are local preferences, not access-control boundaries.
 

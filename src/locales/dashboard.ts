@@ -1,5 +1,6 @@
 /** Project dashboard interface translations. */
 export const dashboardFr = {
+	dismissNotice: "Fermer le message",
 	importTitle: "Ajouter un projet à BOA",
 	guidanceTitle: "Source déclarée par la commande reçue ; cliquer pour suspendre ou reprendre le guidage",
 	refreshProjects: "Actualiser les projets",
@@ -95,6 +96,7 @@ export const dashboardFr = {
 };
 
 export const dashboardEn = {
+	dismissNotice: "Dismiss message",
 	importTitle: "Add a project to BOA",
 	guidanceTitle: "Source declared by the received command; click to pause or resume guidance",
 	refreshProjects: "Refresh projects",
