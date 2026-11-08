@@ -3,7 +3,7 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { open } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import {
 	Archive,
 	ArchiveRestore,
@@ -140,16 +140,18 @@ export default function App() {
 	useEffect(() => setDismissedWatchError(null), [watchError]);
 	const [removingSpace, setRemovingSpace] = useState<string | null>(null);
 	const removeSpace = async (id: string, name: string) => {
-		if (
-			removingSpace ||
-			!window.confirm(`${fl.confirmRemoveSpace}
-${name}
-
-${fl.spaceReferenceHint}`)
-		)
-			return;
+		if (removingSpace) return;
 		setRemovingSpace(id);
 		try {
+			if (
+				!(await confirm(`${fl.confirmRemoveSpace}\n${name}\n\n${fl.spaceReferenceHint}`, {
+					title: "BOA",
+					kind: "warning",
+					okLabel: fl.remove,
+					cancelLabel: fl.cancel,
+				}))
+			)
+				return;
 			await fileWorkspace.remove(id);
 			if (selectedSpace === id) visitView({ view: "overview" });
 			await client.invalidateQueries({ queryKey: ["file-workspace"] });

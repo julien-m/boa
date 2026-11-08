@@ -17,16 +17,19 @@ async function navigateHistory(direction: "back" | "forward") {
 	);
 }
 
+let pendingConfirmation: { message: string; buttons: { OkCancelCustom: string[] } } | null = null;
+let answerConfirmation: (answer: string) => void = () => {};
+let rejectNextConfirmation = false;
 async function confirmRemoval(trigger: () => Promise<unknown>, name: string, accept: boolean) {
-	const pending = page.waitForEvent("dialog");
-	const action = trigger();
-	const dialog = await pending;
-	expect(dialog.type()).toBe("confirm");
-	expect(dialog.message()).toContain(name);
-	expect(dialog.message()).toContain("Les éléments restent à leur emplacement d’origine.");
-	if (accept) await dialog.accept();
-	else await dialog.dismiss();
-	await action;
+	const before = JSON.stringify(fileSpaces);
+	await trigger();
+	await expect.poll(() => pendingConfirmation?.message).toContain(name);
+	expect(pendingConfirmation!.message).toContain("Les éléments restent à leur emplacement d’origine.");
+	// The native promise is still pending: no persisted mutation may happen yet.
+	expect(JSON.stringify(fileSpaces)).toBe(before);
+	const labels = pendingConfirmation!.buttons.OkCancelCustom;
+	answerConfirmation(labels[accept ? 0 : 1]);
+	pendingConfirmation = null;
 }
 
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
@@ -111,6 +114,16 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 		return null;
 	}
 	if (command === "plugin:dialog|open") return folderChoice;
+	if (command === "plugin:dialog|message") {
+		if (rejectNextConfirmation) {
+			rejectNextConfirmation = false;
+			throw new Error("Confirmation unavailable");
+		}
+		pendingConfirmation = args as unknown as NonNullable<typeof pendingConfirmation>;
+		return new Promise<string>((resolve) => {
+			answerConfirmation = resolve;
+		});
+	}
 	switch (command) {
 		case "reader_pending":
 			return [];
@@ -1736,6 +1749,11 @@ try {
 	const removeIsolated = page
 		.locator(".navigation")
 		.getByRole("button", { name: "Retirer preview.png", exact: true });
+	rejectNextConfirmation = true;
+	await removeIsolated.click();
+	await expect(page.getByTestId("app-notice")).toContainText("Confirmation unavailable");
+	expect(fileSpaces.some((s) => s.name === "preview.png")).toBe(true);
+	await page.getByTestId("dismiss-notice").click();
 	await confirmRemoval(() => removeIsolated.click(), "preview.png", false);
 	await expect(isolated).toBeVisible();
 	expect(fileSpaces.some((s) => s.name === "preview.png")).toBe(true);
