@@ -139,8 +139,15 @@ export default function App() {
 	const watchError = settings.data?.watchError ?? null;
 	useEffect(() => setDismissedWatchError(null), [watchError]);
 	const [removingSpace, setRemovingSpace] = useState<string | null>(null);
-	const removeSpace = async (id: string) => {
-		if (removingSpace) return;
+	const removeSpace = async (id: string, name: string) => {
+		if (
+			removingSpace ||
+			!window.confirm(`${fl.confirmRemoveSpace}
+${name}
+
+${fl.spaceReferenceHint}`)
+		)
+			return;
 		setRemovingSpace(id);
 		try {
 			await fileWorkspace.remove(id);
@@ -650,7 +657,7 @@ export default function App() {
 								aria-label={`${fl.remove} ${space.name}`}
 								title={`${fl.remove} ${space.name}. ${fl.spaceReferenceHint}`}
 								disabled={removingSpace !== null}
-								onClick={() => void removeSpace(space.id)}
+								onClick={() => void removeSpace(space.id, space.name)}
 							>
 								<X size={14} />
 							</button>

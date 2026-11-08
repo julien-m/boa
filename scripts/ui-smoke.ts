@@ -17,6 +17,18 @@ async function navigateHistory(direction: "back" | "forward") {
 	);
 }
 
+async function confirmRemoval(trigger: () => Promise<unknown>, name: string, accept: boolean) {
+	const pending = page.waitForEvent("dialog");
+	const action = trigger();
+	const dialog = await pending;
+	expect(dialog.type()).toBe("confirm");
+	expect(dialog.message()).toContain(name);
+	expect(dialog.message()).toContain("Les éléments restent à leur emplacement d’origine.");
+	if (accept) await dialog.accept();
+	else await dialog.dismiss();
+	await action;
+}
+
 const directory = mkdtempSync(join(tmpdir(), "boa-ui-"));
 const project = { path: directory, name: "BOA QA", pinned: false, archived: false };
 let fileSpaces: { id: string; name: string; roots: string[]; files?: string[] }[] = [];
@@ -1471,11 +1483,32 @@ try {
 	await page.getByTestId("settings-nav").click();
 	await page.getByRole("textbox", { name: "Recherche contextuelle", exact: true }).press("Control+g");
 	await expect.poll(() => searchShortcuts.contextual).toBe("Mod+G");
+	await confirmRemoval(
+		() =>
+			page
+				.locator(".space-settings-row")
+				.getByRole("button", { name: "Retirer Outils QA", exact: true })
+				.click(),
+		"Outils QA",
+		false,
+	);
+	expect(fileSpaces.some((s) => s.name === "Outils QA")).toBe(true);
 	await page.getByRole("button", { name: "Modifier l’espace", exact: true }).click();
 	folderChoice = `${directory}/second`;
 	await page.getByRole("button", { name: "Ajouter un dossier", exact: true }).click();
 	await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
 	await expect.poll(() => fileSpaces[0].roots.length).toBe(2);
+	await page.getByRole("button", { name: "Modifier l’espace", exact: true }).click();
+	const entryRemoval = page
+		.locator("form")
+		.getByRole("button", { name: `Retirer ${directory}/second`, exact: true });
+	await confirmRemoval(() => entryRemoval.click(), `${directory}/second`, false);
+	await expect(entryRemoval).toBeVisible();
+	await confirmRemoval(() => entryRemoval.click(), `${directory}/second`, true);
+	await expect(entryRemoval).toHaveCount(0);
+	// The accepted edit stays a draft until saved; cancelling the editor preserves the saved space.
+	await page.locator("form").getByRole("button", { name: "Annuler", exact: true }).click();
+	expect(fileSpaces[0].roots.length).toBe(2);
 	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
 	const browsers = page.locator("[data-file-browser]");
 	await browsers.nth(0).getByTestId("file-sample.ts").dblclick();
@@ -1700,7 +1733,13 @@ try {
 	await isolated.getByTestId("file-preview.png").click();
 	await expect(isolated.locator(".file-asset-preview img")).toBeVisible();
 
-	await page.locator(".navigation").getByRole("button", { name: "Retirer preview.png", exact: true }).click();
+	const removeIsolated = page
+		.locator(".navigation")
+		.getByRole("button", { name: "Retirer preview.png", exact: true });
+	await confirmRemoval(() => removeIsolated.click(), "preview.png", false);
+	await expect(isolated).toBeVisible();
+	expect(fileSpaces.some((s) => s.name === "preview.png")).toBe(true);
+	await confirmRemoval(() => removeIsolated.click(), "preview.png", true);
 	await expect.poll(() => fileSpaces.some((s) => s.name === "preview.png")).toBe(false);
 	await expect(page.getByTestId("file-space-view")).toHaveCount(0);
 	await expect(

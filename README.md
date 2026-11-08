@@ -390,7 +390,7 @@ Saved views persist across restarts; receipts do not. Neither creating nor updat
 
 ## File spaces and focused browsing
 
-Use the cross next to a file space in the sidebar to remove it from BOA. Its original files and folders remain on disk. To remove only one entry, open Settings, edit the space, remove that entry and save.
+Use the cross next to a file space in the sidebar to remove it from BOA. Removing an entire space or an individual entry requires confirmation showing its name/path; Cancel keeps it in place. Its original files and folders remain on disk. To remove only one entry, open Settings, edit the space, remove that entry and save.
 
 Use **Settings → File spaces** to create a named collection of existing folders and individual files. Spaces appear separately in the sidebar and never run Git discovery or status scans. Files stay in their original locations. Each folder has an on-demand visibility/sort menu: choose the files and subfolders to show, temporarily show everything, or sort by name, date added, modification date, creation date, file type or size in either direction. These sort choices are shared with the Library toolbar and saved per root. Date added is the macOS date when an item entered its containing directory, independently of its creation date; unavailable dates sort last in either direction. Name, type and size sorts keep folders first, while pins keep their manual order. Selecting a folder includes its descendants; ancestors remain traversable. Pinned files and folders stay accessible even when excluded from the visible selection. Pins stay above the tree and can be reordered by drag-and-drop or the arrow buttons. Visibility and pins are local preferences, not access-control boundaries.
 

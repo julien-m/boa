@@ -50,7 +50,15 @@ export function FileWorkspaceSettings() {
 							className="icon-button"
 							disabled={busy}
 							aria-label={`${l.remove} ${space.name}`}
-							onClick={() => void perform(() => fileWorkspace.remove(space.id))}
+							onClick={() => {
+								if (
+									window.confirm(`${l.confirmRemoveSpace}
+${space.name}
+
+${l.spaceReferenceHint}`)
+								)
+									void perform(() => fileWorkspace.remove(space.id));
+							}}
 						>
 							<X size={14} />
 						</button>
@@ -93,13 +101,20 @@ export function FileWorkspaceSettings() {
 									type="button"
 									className="icon-button"
 									aria-label={`${l.remove} ${root}`}
-									onClick={() =>
+									onClick={() => {
+										if (
+											!window.confirm(`${l.confirmRemoveEntry}
+${root}
+
+${l.spaceReferenceHint}`)
+										)
+											return;
 										setDraft({
 											...draft,
 											roots: draft.roots.filter((r) => r !== root),
 											files: draft.files?.filter((r) => r !== root),
-										})
-									}
+										});
+									}}
 								>
 									<X size={13} />
 								</button>
