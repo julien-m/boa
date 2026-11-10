@@ -441,7 +441,7 @@ fn navigation_target(state: &AppState, file: &Path) -> Result<Navigation, String
         return Err("Le chemin doit désigner un fichier".into());
     }
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    let root = config
+    let (root, relative) = config
         .projects
         .iter()
         .map(|p| p.path.as_str())
@@ -451,21 +451,20 @@ fn navigation_target(state: &AppState, file: &Path) -> Result<Navigation, String
                 .iter()
                 .flat_map(|s| s.roots.iter().chain(&s.files).map(String::as_str)),
         )
-        .filter(|root| file.starts_with(root))
-        .max_by_key(|root| root.len())
+        .filter_map(|root| {
+            projects::relative_to_registered_root(file, root).map(|relative| (root, relative))
+        })
+        .max_by_key(|(_, relative)| file.components().count() - relative.components().count())
         .ok_or("Importez d’abord ce projet dans BOA")?;
     Ok(Navigation {
         project: root.into(),
-        path: if file == Path::new(root) {
+        path: if relative.as_os_str().is_empty() {
             file.file_name()
                 .ok_or("Nom de fichier invalide")?
                 .to_string_lossy()
                 .into_owned()
         } else {
-            file.strip_prefix(root)
-                .map_err(|e| e.to_string())?
-                .to_string_lossy()
-                .into()
+            relative.to_string_lossy().into()
         },
     })
 }
