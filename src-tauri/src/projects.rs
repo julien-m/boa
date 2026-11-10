@@ -61,6 +61,72 @@ fn default_language() -> String {
     "fr".into()
 }
 
+/// Resolve saved paths again: a previously registered folder may now be a symlink.
+/// Unavailable roots retain their saved identity until they can be resolved.
+fn normalize_projects(config: &mut Config) {
+    let mut aliases = Vec::new();
+    let mut projects: Vec<Project> = Vec::new();
+    let mut indices = HashMap::new();
+    for mut project in std::mem::take(&mut config.projects) {
+        if let Ok(real) = Path::new(&project.path).canonicalize()
+            && real.is_dir()
+            && let Some(real) = real.to_str()
+            && real != project.path
+        {
+            aliases.push((project.path.clone(), real.to_owned()));
+            project.path = real.to_owned();
+        }
+        if let Some(&index) = indices.get(&project.path) {
+            let existing: &mut Project = &mut projects[index];
+            existing.pinned |= project.pinned;
+            existing.archived &= project.archived;
+        } else {
+            indices.insert(project.path.clone(), projects.len());
+            projects.push(project);
+        }
+    }
+    config.projects = projects;
+    for space in &mut config.file_spaces {
+        let mut seen = BTreeSet::new();
+        for root in &mut space.roots {
+            if let Some((_, real)) = aliases.iter().find(|(alias, _)| alias == root) {
+                root.clone_from(real);
+            }
+        }
+        space.roots.retain(|root| seen.insert(root.clone()));
+    }
+    // Canonical settings win scalar conflicts; lists retain both entries' choices.
+    for (alias, real) in aliases {
+        if let Some(preferences) = config.file_preferences.remove(&alias) {
+            if let Some(existing) = config.file_preferences.get_mut(&real) {
+                existing.filtered &= preferences.filtered;
+                for item in preferences.included {
+                    if !existing.included.contains(&item) {
+                        existing.included.push(item);
+                    }
+                }
+                for item in preferences.pins {
+                    if !existing.pins.contains(&item) {
+                        existing.pins.push(item);
+                    }
+                }
+                if existing.sort.is_empty() {
+                    existing.sort = preferences.sort;
+                }
+            } else {
+                config.file_preferences.insert(real, preferences);
+            }
+        }
+    }
+}
+
+fn matches_real_path(saved: &str, canonical: &Path) -> bool {
+    Path::new(saved) == canonical
+        || Path::new(saved)
+            .canonicalize()
+            .is_ok_and(|path| path == canonical)
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -140,6 +206,7 @@ impl AppState {
         } else {
             Config::default()
         };
+        normalize_projects(&mut config);
         config.projects.sort_by_key(|p| p.name.to_lowercase());
         let state = Self {
             config: Mutex::new(config),
@@ -263,7 +330,11 @@ impl AppState {
         }
         let mut config = self.config.lock().map_err(|e| e.to_string())?;
         let canonical = path.to_string_lossy().into_owned();
-        if let Some(index) = config.projects.iter().position(|p| p.path == canonical) {
+        if let Some(index) = config
+            .projects
+            .iter()
+            .position(|p| matches_real_path(&p.path, &path))
+        {
             if config.projects[index].archived {
                 let mut candidate = config.clone();
                 candidate.projects[index].archived = false;
@@ -302,7 +373,7 @@ impl AppState {
         let project = candidate
             .projects
             .iter_mut()
-            .find(|p| Path::new(&p.path) == canonical)
+            .find(|p| matches_real_path(&p.path, &canonical))
             .ok_or("Projet non enregistré dans BOA")?;
         project.pinned = pinned;
         let result = project.clone();
@@ -360,7 +431,10 @@ impl AppState {
             return Err("Ce chemin ne désigne pas un fichier régulier".into());
         }
         if !file_entry
-            && !config.projects.iter().any(|p| Path::new(&p.path) == path)
+            && !config
+                .projects
+                .iter()
+                .any(|p| matches_real_path(&p.path, &path))
             && !config
                 .file_spaces
                 .iter()
@@ -482,7 +556,13 @@ fn discover_project_folders(config: &mut Config) -> Result<(), String> {
     let mut known: BTreeSet<String> = config
         .projects
         .iter()
-        .map(|project| project.path.clone())
+        .map(|project| {
+            Path::new(&project.path)
+                .canonicalize()
+                .ok()
+                .and_then(|path| path.into_os_string().into_string().ok())
+                .unwrap_or_else(|| project.path.clone())
+        })
         .collect();
     for entry in entries {
         let entry = entry.map_err(|e| format!("Lecture du dossier surveillé : {e}"))?;

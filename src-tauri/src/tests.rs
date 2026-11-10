@@ -441,6 +441,170 @@ fn first_launch_stays_empty_even_when_a_projects_folder_exists() {
 }
 
 #[test]
+fn merges_project_aliases_and_preferences_on_startup() {
+    use crate::projects::{Config, Project};
+    use serde_json::json;
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let real = temp.path().join("nested/project");
+    fs::create_dir_all(&real).unwrap();
+    let real = real.canonicalize().unwrap();
+    let alias = temp.path().join("project");
+    symlink(&real, &alias).unwrap();
+    let missing = temp.path().join("offline");
+    let config_path = temp.path().join("projects.json");
+    let entry = |path: &Path, pinned, archived| Project {
+        path: path.to_string_lossy().into_owned(),
+        name: "project".into(),
+        pinned,
+        archived,
+    };
+    let mut config = Config {
+        file_spaces: vec![crate::file_workspace::Space {
+            id: "shared".into(),
+            roots: vec![
+                alias.to_string_lossy().into_owned(),
+                real.to_string_lossy().into_owned(),
+            ],
+            ..Default::default()
+        }],
+        projects: vec![
+            entry(&alias, true, true),
+            entry(&real, false, false),
+            entry(&missing, false, true),
+        ],
+        watch_directory: Some(
+            temp.path()
+                .join("unavailable-watch")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        ..Config::default()
+    };
+    for (path, value) in [
+        (
+            &alias,
+            json!({"filtered":true,"included":["docs"],"pins":["notes.md"],"sort":"name"}),
+        ),
+        (
+            &real,
+            json!({"filtered":false,"included":["src"],"pins":["README.md","notes.md"],"sort":"modified"}),
+        ),
+    ] {
+        config.file_preferences.insert(
+            path.to_string_lossy().into_owned(),
+            serde_json::from_value(value).unwrap(),
+        );
+    }
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let views: Vec<_> = [&alias, &real]
+        .iter()
+        .map(|path| {
+            json!({
+                "id":"guide", "project":path, "title":path.to_string_lossy(),
+                "kind":"walkthrough", "steps":[], "revision":3
+            })
+        })
+        .collect();
+    let context_path = config_path.with_file_name("context-views.json");
+    let original_contexts = serde_json::to_vec(&views).unwrap();
+    fs::write(&context_path, &original_contexts).unwrap();
+    let state = AppState::new(config_path.clone()).unwrap();
+    let assert_merged = |state: &AppState| {
+        let config = state.config.lock().unwrap();
+        assert_eq!(config.projects.len(), 2);
+        let project = config
+            .projects
+            .iter()
+            .find(|p| Path::new(&p.path) == real)
+            .unwrap();
+        assert!(project.pinned);
+        assert!(!project.archived);
+        assert!(
+            config
+                .projects
+                .iter()
+                .any(|p| Path::new(&p.path) == missing)
+        );
+        assert_eq!(config.file_spaces[0].roots, [real.to_string_lossy()]);
+        let prefs = &config.file_preferences[real.to_str().unwrap()];
+        assert!(!prefs.filtered);
+        assert!(prefs.included.contains(&"docs".into()) && prefs.included.contains(&"src".into()));
+        assert_eq!(prefs.pins, ["README.md", "notes.md"]);
+        assert_eq!(prefs.sort, "modified");
+        assert!(
+            !config
+                .file_preferences
+                .contains_key(alias.to_str().unwrap())
+        );
+    };
+    assert_merged(&state);
+    let contexts = crate::context_views::execute(
+        &state,
+        crate::context_views::Request::List {
+            project: real.to_string_lossy().into_owned(),
+        },
+    )
+    .unwrap();
+    let contexts = contexts.as_array().unwrap();
+    assert_eq!(contexts.len(), views.len());
+    assert_ne!(contexts[0]["id"], contexts[1]["id"]);
+    for (context, original) in contexts.iter().zip(&views) {
+        assert_eq!(context["title"], original["title"]);
+        assert_eq!(context["revision"], original["revision"]);
+    }
+    assert_eq!(fs::read(&context_path).unwrap(), original_contexts);
+    assert_merged(&AppState::new(config_path.clone()).unwrap());
+
+    state.list_projects().unwrap();
+    assert_merged(&state);
+    assert_merged(&AppState::new(config_path).unwrap());
+}
+
+#[test]
+fn moved_project_aliases_do_not_duplicate_or_change_live_project_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let old = root.join("project");
+    let real = root.join("moved");
+    fs::create_dir(&old).unwrap();
+    let config_path = root.join("settings/projects.json");
+    let state = AppState::new(config_path.clone()).unwrap();
+    let initial = state.add_project(&old).unwrap();
+    state.pin_project(&initial.path, true).unwrap();
+    state.set_watch_directory(Some(&root)).unwrap();
+    fs::rename(&old, &real).unwrap();
+    std::os::unix::fs::symlink(&real, &old).unwrap();
+    let projects = state.list_projects().unwrap();
+    let matching: Vec<_> = projects
+        .iter()
+        .filter(|p| Path::new(&p.path).canonicalize().unwrap() == real)
+        .collect();
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].path, initial.path);
+    assert!(matching[0].pinned);
+    assert_eq!(state.add_project(&real).unwrap().path, initial.path);
+    assert_eq!(state.registered(&initial.path).unwrap(), real);
+    assert!(!state.pin_project(&initial.path, false).unwrap().pinned);
+    assert!(
+        state
+            .pin_project(real.to_str().unwrap(), true)
+            .unwrap()
+            .pinned
+    );
+    let restarted = AppState::new(config_path).unwrap();
+    let config = restarted.config.lock().unwrap();
+    assert!(
+        config
+            .projects
+            .iter()
+            .any(|p| Path::new(&p.path) == real && p.pinned)
+    );
+    assert!(!config.projects.iter().any(|p| p.path == initial.path));
+}
+
+#[test]
 fn explicit_project_registration_and_pins_are_portable_and_persisted() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("my projects/été project");

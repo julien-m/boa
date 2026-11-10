@@ -206,6 +206,39 @@ fn validate(view: &View) -> Result<(), String> {
     }
     Ok(())
 }
+/// Keep saved guides reachable after a registered folder becomes an alias.
+/// Colliding IDs are renamed, never overwritten; the original store stays intact
+/// until the next explicit context edit persists the normalized views.
+pub(crate) fn normalize_projects(views: &mut [View]) {
+    for view in views.iter_mut() {
+        if let Ok(real) = Path::new(&view.project).canonicalize()
+            && let Some(real) = real.to_str()
+        {
+            view.project = real.to_owned();
+        }
+    }
+    let reserved: BTreeSet<_> = views
+        .iter()
+        .map(|view| (view.project.clone(), view.id.clone()))
+        .collect();
+    let mut used = BTreeSet::new();
+    for view in views {
+        if !used.insert((view.project.clone(), view.id.clone())) {
+            let prefix: String = view.id.chars().take(80).collect();
+            let mut suffix = 1;
+            loop {
+                let id = format!("{prefix}-merged-{suffix}");
+                let key = (view.project.clone(), id.clone());
+                if !reserved.contains(&key) && used.insert(key) {
+                    view.id = id;
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+    }
+}
+
 pub(crate) fn load(path: &Path) -> Result<Vec<View>, String> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -220,7 +253,7 @@ pub(crate) fn load(path: &Path) -> Result<Vec<View>, String> {
         .take(MAX_STORE as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    let views: Vec<View> =
+    let mut views: Vec<View> =
         serde_json::from_slice(&bytes).map_err(|e| format!("Unreadable context store: {e}"))?;
     if views.len() > 256 {
         return Err("Too many context views".into());
@@ -232,6 +265,7 @@ pub(crate) fn load(path: &Path) -> Result<Vec<View>, String> {
             return Err("Duplicate context view".into());
         }
     }
+    normalize_projects(&mut views);
     Ok(views)
 }
 fn persist(state: &AppState, views: &[View]) -> Result<(), String> {
