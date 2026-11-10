@@ -586,6 +586,35 @@ fn moved_project_aliases_do_not_duplicate_or_change_live_project_identity() {
     assert!(matching[0].pinned);
     assert_eq!(state.add_project(&real).unwrap().path, initial.path);
     assert_eq!(state.registered(&initial.path).unwrap(), real);
+    let file = real.join("document.md");
+    fs::write(&file, "# Moved project").unwrap();
+    let receipt = crate::context_views::open(
+        &state,
+        file.to_string_lossy().into_owned(),
+        1,
+        1,
+        "CLI".into(),
+        None,
+    )
+    .unwrap();
+    let navigation = crate::navigation_target(&state, Path::new(&receipt.request.file)).unwrap();
+    assert_eq!(navigation.project, initial.path);
+    assert_eq!(navigation.path, file.file_name().unwrap().to_string_lossy());
+    let unrelated = root.join("unregistered/document.md");
+    fs::create_dir(unrelated.parent().unwrap()).unwrap();
+    fs::write(&unrelated, "# Outside registered roots").unwrap();
+    assert!(
+        crate::context_views::open(
+            &state,
+            unrelated.to_string_lossy().into_owned(),
+            1,
+            1,
+            "CLI".into(),
+            None,
+        )
+        .is_err()
+    );
+    assert!(crate::navigation_target(&state, &unrelated).is_err());
     assert!(!state.pin_project(&initial.path, false).unwrap().pinned);
     assert!(
         state

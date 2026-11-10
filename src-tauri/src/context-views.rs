@@ -497,8 +497,15 @@ pub(crate) fn open(
         (roots, files)
     };
     let authorized = |path: &Path| {
-        roots.iter().any(|root| path.starts_with(root))
-            || files.iter().any(|file| path == Path::new(file))
+        roots
+            .iter()
+            .any(|root| crate::projects::relative_to_registered_root(path, root).is_some())
+            || files.iter().any(|file| {
+                path == Path::new(file)
+                    || Path::new(file)
+                        .canonicalize()
+                        .is_ok_and(|saved| path == saved)
+            })
     };
     let mut file = file;
     if !authorized(Path::new(&file)) {

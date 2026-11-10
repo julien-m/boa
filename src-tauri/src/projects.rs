@@ -127,6 +127,17 @@ fn matches_real_path(saved: &str, canonical: &Path) -> bool {
             .is_ok_and(|path| path == canonical)
 }
 
+/// Retain the saved navigation identity while accepting its current real root.
+pub(crate) fn relative_to_registered_root(file: &Path, saved: &str) -> Option<PathBuf> {
+    file.strip_prefix(saved)
+        .map(Path::to_path_buf)
+        .ok()
+        .or_else(|| {
+            let root = Path::new(saved).canonicalize().ok()?;
+            file.strip_prefix(root).map(Path::to_path_buf).ok()
+        })
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
