@@ -1,5 +1,4 @@
 /** One app-scoped draft; native saves are serialized and coalesce obsolete revisions. */
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { collectionApi } from "./context-collection-api";
@@ -14,6 +13,7 @@ import {
 	isCollectionDraft,
 } from "./context-collection-model";
 import { CollectionPanel } from "./context-collection-panel";
+import { useWindowCloseGuard } from "./window-close";
 import "./context-collection.css";
 
 type Collection = {
@@ -110,6 +110,12 @@ export function ContextCollectionProvider({ children }: { children: ReactNode })
 		setDraft(next);
 		persist(next);
 	};
+	useWindowCloseGuard((event) => {
+		if (unsaved.current) {
+			event.preventDefault();
+			setOpen(true);
+		}
+	});
 	useEffect(() => {
 		const unload = (event: BeforeUnloadEvent) => {
 			if (unsaved.current) {
@@ -117,16 +123,9 @@ export function ContextCollectionProvider({ children }: { children: ReactNode })
 				event.returnValue = "";
 			}
 		};
-		const unlisten = getCurrentWindow().onCloseRequested((event) => {
-			if (unsaved.current) {
-				event.preventDefault();
-				setOpen(true);
-			}
-		});
 		window.addEventListener("beforeunload", unload);
 		return () => {
 			window.removeEventListener("beforeunload", unload);
-			void unlisten.then((stop) => stop()).catch(() => {});
 		};
 	}, []);
 	const value: Collection = {
