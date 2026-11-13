@@ -157,6 +157,8 @@ File-tree, project and global search are separate from this reader bar. Focus th
 
 Drafts survive tab and project navigation while BOA remains open. A changed tab is marked, and the **Drafts** menu can reopen a draft. Do not rely on drafts as a persistent backup across application exit. Save or deliberately discard them before updating or quitting BOA; the application warns when closing with unsaved work.
 
+The red window close button closes BOA when all work is safe. A single close decision checks both file drafts and context collection saves: unsaved file edits, pending saves or failed context saves keep the window open and reveal their recovery controls. Closing works again after saving or deliberately discarding the file changes and successfully saving the context.
+
 If the file changes on disk while a draft is open, BOA preserves the draft and reports the external change. Saving compares against the original file instead of silently overwriting a newer version. Inspect and reconcile the two versions before retrying. Save failures leave the draft available.
 
 Editing is restricted to existing UTF-8 files inside the registered root, up to 2 MiB, excluding Git metadata and external symlink targets. Git diffs remain read-only. On macOS, atomic saves preserve extended attributes, ACLs, owner/group and permissions; failure to preserve metadata aborts the save.
