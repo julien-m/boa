@@ -100,7 +100,7 @@ it("replaces the native row menu, selects the row, calls Finder and restores key
 	await act(async () =>
 		document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })),
 	);
-	expect(document.activeElement).toBe(item("Partager le contexte"));
+	expect(document.activeElement).toBe(item("Ajouter au contexte"));
 	await act(async () =>
 		document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
 	);
@@ -129,7 +129,7 @@ it("shares a path-only context through the existing composer without copying bef
 	await act(async () =>
 		row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
 	);
-	await act(async () => item("Partager le contexte").click());
+	await act(async () => item("Ajouter au contexte").click());
 	expect(document.querySelector('[data-testid="context-popover"]')).not.toBeNull();
 	expect(document.querySelector('[data-testid="context-popover"]')!.textContent).toContain(image.path);
 	expect(writeText).not.toHaveBeenCalled();

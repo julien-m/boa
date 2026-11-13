@@ -8,6 +8,7 @@ import { api, type ProjectSettings } from "./api";
 import { EditorIntegrations } from "./editor-integrations";
 import { FileWorkspaceSettings } from "./file-workspace-settings";
 import { setInterfaceLanguage } from "./i18n";
+import { ImageWheelSettings } from "./image-wheel-settings";
 
 export function SettingsView({
 	settings,
@@ -76,7 +77,11 @@ export function SettingsView({
 				</label>
 				<p className="muted small">{t("languageHint")}</p>
 			</section>
-			<section className="settings-card" aria-labelledby="discovery-heading">
+			<section
+				className="settings-card"
+				data-testid="project-discovery-settings"
+				aria-labelledby="discovery-heading"
+			>
 				<div className="settings-heading">
 					<FolderOpen size={20} />
 					<h2 id="discovery-heading">{t("discoveryTitle")}</h2>
@@ -117,9 +122,9 @@ export function SettingsView({
 						</span>
 					)}
 				</div>
-				{(error || settings.watchError) && (
+				{error && (
 					<p className="error" role="alert">
-						{error || settings.watchError}
+						{error}
 					</p>
 				)}
 				<div className="settings-details">
@@ -129,6 +134,23 @@ export function SettingsView({
 					<p>{t("archiveHint")}</p>
 				</div>
 			</section>
+			{settings.watchError && (
+				<section
+					className="settings-card"
+					data-testid="file-monitoring-settings"
+					aria-labelledby="file-monitoring-heading"
+				>
+					<div className="settings-heading">
+						<FolderOpen size={20} />
+						<h2 id="file-monitoring-heading">{t("fileMonitoringTitle")}</h2>
+					</div>
+					<p className="muted">{t("fileMonitoringDescription")}</p>
+					<p className="error" role="alert" data-testid="file-monitoring-error">
+						{settings.watchError}
+					</p>
+				</section>
+			)}
+			<ImageWheelSettings />
 			<EditorIntegrations />
 			<FileWorkspaceSettings />
 		</div>

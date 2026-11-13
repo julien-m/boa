@@ -6,7 +6,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub(crate) const FILE_LIMIT: u64 = 2 * 1024 * 1024;
+// Bound source/form previews while allowing textual Delphi forms above 2 MiB.
+pub(crate) const FILE_LIMIT: u64 = 8 * 1024 * 1024;
 pub(crate) const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
 
 pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
@@ -104,7 +105,7 @@ pub(crate) fn text(path: &Path) -> Result<String, String> {
 
 pub(crate) fn decode(bytes: Vec<u8>) -> Result<String, String> {
     if bytes.len() as u64 > FILE_LIMIT {
-        return Err("Fichier trop volumineux pour l’aperçu (2 Mo maximum).".into());
+        return Err("Fichier trop volumineux pour l’aperçu (8 Mo maximum).".into());
     }
     if bytes.contains(&0) {
         return Err("Fichier binaire : aperçu texte indisponible.".into());

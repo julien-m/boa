@@ -2,11 +2,40 @@ export const settingsFr = {
 	eyebrow: "VOTRE ESPACE DE TRAVAIL",
 	title: "Réglages",
 	intro: "Votre espace, à votre façon. Ces préférences restent sur ce Mac.",
+	imageWheel: {
+		title: "Navigation des images à la molette",
+		tabs: "Navigation d’onglets · Ctrl+Tab",
+		tabsHint:
+			"Utilise Ctrl+Tab et Ctrl+Maj+Tab pour passer à l’image suivante ou précédente. Les deux molettes gardent leur défilement normal ; les commandes d’onglets changent l’image ouverte.",
+		description:
+			"Choisissez la molette utilisée pour passer à l’image suivante ou précédente, puis adaptez sa sensibilité à votre souris.",
+		axis: "Commande de navigation",
+		horizontal: "Horizontale · molette du pouce",
+		vertical: "Verticale · molette centrale",
+		both: "Les deux molettes",
+		off: "Désactivée",
+		sensitivity: "Sensibilité",
+		low: "Faible · plus lent",
+		high: "Forte · plus réactif",
+		axisHint:
+			"La molette choisie change d’image, même en zoom. L’autre reste disponible pour faire défiler l’image. La molette du pouce doit envoyer un défilement horizontal.",
+		bothHint:
+			"Les deux molettes changent d’image. Si l’image agrandie déborde, elles restent disponibles pour la faire défiler.",
+		offHint:
+			"Les molettes font défiler l’image. Les flèches et les boutons permettent toujours de changer d’image.",
+		reset: "Réinitialiser la navigation",
+		saveFailed: "Le réglage n’a pas pu être enregistré. Réessayez.",
+		loadFailed:
+			"Les réglages de molette n’ont pas pu être chargés. Les valeurs par défaut sont utilisées ; choisissez vos réglages pour les enregistrer à nouveau.",
+	},
 	languageTitle: "Langue de l’interface",
 	languageDescription: "Choisissez la langue des menus, des vues et des messages de BOA.",
 	languageLabel: "Langue",
 	languageHint: "Le changement s’applique immédiatement, sans redémarrer.",
 	discoveryTitle: "Découverte des projets",
+	fileMonitoringTitle: "Surveillance des fichiers",
+	fileMonitoringDescription:
+		"Un emplacement enregistré ne peut pas être surveillé. Vérifiez son chemin : il peut différer de celui du dossier présent sur le disque.",
 	automatic: "Automatique",
 	manual: "Manuelle",
 	description:
@@ -59,11 +88,38 @@ export const settingsEn: typeof settingsFr = {
 	eyebrow: "YOUR WORKSPACE",
 	title: "Settings",
 	intro: "Your workspace, your way. These preferences stay on this Mac.",
+	imageWheel: {
+		title: "Image wheel navigation",
+		tabs: "Tab navigation · Ctrl+Tab",
+		tabsHint:
+			"Uses Ctrl+Tab and Ctrl+Shift+Tab for the next or previous image. Both wheels keep normal scrolling; tab commands change the open image.",
+		description:
+			"Choose the wheel used for the next or previous image, then adjust its sensitivity for your mouse.",
+		axis: "Navigation input",
+		horizontal: "Horizontal · thumb wheel",
+		vertical: "Vertical · main wheel",
+		both: "Both wheels",
+		off: "Disabled",
+		sensitivity: "Sensitivity",
+		low: "Low · slower",
+		high: "High · faster",
+		axisHint:
+			"The selected wheel changes images, even when zoomed. The other wheel keeps scrolling the image. The thumb wheel must send horizontal scrolling.",
+		bothHint: "Both wheels change images. When a zoomed image overflows, they keep scrolling it instead.",
+		offHint: "Wheels scroll the image. Arrow keys and buttons still change images.",
+		reset: "Reset navigation",
+		saveFailed: "The setting could not be saved. Try again.",
+		loadFailed:
+			"Wheel settings could not be loaded. Defaults are in use; choose your settings to save them again.",
+	},
 	languageTitle: "Interface language",
 	languageDescription: "Choose the language for BOA menus, views and messages.",
 	languageLabel: "Language",
 	languageHint: "Changes apply immediately. No restart required.",
 	discoveryTitle: "Project discovery",
+	fileMonitoringTitle: "File monitoring",
+	fileMonitoringDescription:
+		"A registered location cannot be monitored. Check its saved path: it may differ from the folder currently on disk.",
 	automatic: "Automatic",
 	manual: "Manual",
 	description:

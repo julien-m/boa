@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import type { ContextView, ReaderOpenRequest } from "../src/context-api";
+import type { CollectionDraft } from "../src/context-collection-model";
 
 async function navigateHistory(direction: "back" | "forward") {
 	await page.evaluate(
@@ -63,6 +64,21 @@ const repo = {
 	operation: null,
 	error: null,
 };
+const nestedRepo = {
+	...repo,
+	path: join(directory, ".local/publication"),
+	name: "publication",
+	ahead: 0,
+	changes: ["preview.ts", "notes.md"].map((path) => ({ ...change, path, index: "?", worktree: "?" })),
+};
+const commitChanges = [
+	change,
+	...Array.from({ length: 24 }, (_, index) => ({
+		...change,
+		path: `src/feature-${index}.ts`,
+		worktree: ".",
+	})),
+];
 let registeredProjects: (typeof project)[] = [];
 let summaryCalls = 0;
 let projectListCalls = 0;
@@ -80,6 +96,9 @@ let summaryGate: Promise<void> | null = null;
 let releaseSummary = (): void => {};
 let exportsCreated = 0;
 let contextViews: ContextView[] = [];
+let collectionDraft: CollectionDraft | null = null;
+let collectionExport: { prompt: string; images: { name: string; dataUrl: string }[] } | null = null;
+let cancelCollectionExport = false;
 const readerReceipts = new Map<string, { request: ReaderOpenRequest; status: string }>();
 const browser = await chromium.launch({
 	channel: process.env.BOA_TEST_BROWSER === "chromium" ? undefined : "chrome",
@@ -336,7 +355,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 		case "project_summary":
 			if (summaryGate) await summaryGate;
 			summaryCalls++;
-			return { repos: [repo], scanLimited: false };
+			return { repos: [repo, nestedRepo], scanLimited: false };
 		case "read_directory":
 			if (fileSpaces.some((s) => s.files?.includes(String(args.project)))) {
 				const name = String(args.project).split("/").pop()!;
@@ -442,7 +461,7 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				},
 			];
 		case "git_commit_files":
-			return [change];
+			return commitChanges;
 		case "search_project":
 			return {
 				matches: [{ path: "sample.ts", line: 2, text: "export function newFunction()" }],
@@ -453,6 +472,26 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			return { base: "main", head: hash, mergeBase: "b".repeat(40), changes: [change] };
 		case "resolve_navigation":
 			return { project: directory, path: "sample.ts" };
+		case "context_collection_load":
+			return collectionDraft;
+		case "context_collection_save":
+			collectionDraft = structuredClone(args.draft as CollectionDraft);
+			return null;
+		case "context_collection_export": {
+			if (cancelCollectionExport) return null;
+			collectionExport = {
+				prompt: String(args.prompt),
+				images: args.images as { name: string; dataUrl: string }[],
+			};
+			const markdownPath = join(directory, "collection-context.md");
+			writeFileSync(markdownPath, collectionExport.prompt);
+			const imagePaths = collectionExport.images.map((image) => {
+				const path = join(directory, image.name);
+				writeFileSync(path, Buffer.from(image.dataUrl.split(",")[1], "base64"));
+				return path;
+			});
+			return { directory, markdownPath, imagePaths };
+		}
 		case "export_context": {
 			exportsCreated++;
 			const markdownPath = join(directory, "context.md");
@@ -507,6 +546,9 @@ try {
 	await expect(page.getByTestId("watch-notice")).toBeVisible();
 	await page.getByTestId("dismiss-watch-notice").click();
 	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	await page.reload();
+	await expect(page.getByTestId("empty-add-project")).toBeVisible();
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
 	const refreshSettings = async () => {
 		const before = settingsCalls;
 		await page.evaluate(() =>
@@ -527,10 +569,15 @@ try {
 		.toBe(true);
 	watchError = "Surveillance indisponible : dossier-test";
 	await refreshSettings();
-	await expect(page.getByTestId("watch-notice")).toBeVisible();
-	await page.getByTestId("dismiss-watch-notice").focus();
-	await page.keyboard.press("Enter");
 	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	language = "en";
+	await refreshSettings();
+	await expect(page.locator("html")).toHaveAttribute("lang", "en");
+	await refreshSettings();
+	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
+	language = "fr";
+	await refreshSettings();
+	await expect(page.locator("html")).toHaveAttribute("lang", "fr");
 	watchError = "Surveillance indisponible : autre-dossier";
 	await refreshSettings();
 	await expect(page.getByTestId("watch-notice")).toContainText("autre-dossier");
@@ -542,6 +589,31 @@ try {
 	expect(summaryCalls).toBe(0);
 	await page.getByTestId("settings-nav").click();
 	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
+	watchError = "Surveillance indisponible : ancien-emplacement";
+	await refreshSettings();
+	await expect(page.getByTestId("file-monitoring-error")).toContainText("ancien-emplacement");
+	await expect(page.getByTestId("project-discovery-settings")).not.toContainText("ancien-emplacement");
+	watchError = null;
+	await refreshSettings();
+	await expect(page.getByTestId("file-monitoring-settings")).toHaveCount(0);
+	await page.getByTestId("image-wheel-axis").selectOption("horizontal");
+	await page.getByTestId("image-wheel-sensitivity").focus();
+	await page.keyboard.press("Home");
+	await page.keyboard.press("ArrowRight");
+	await page.keyboard.press("ArrowRight");
+	await expect(page.getByTestId("image-wheel-sensitivity-value")).toHaveText("3 / 10");
+	await page.reload();
+	await page.getByTestId("settings-nav").click();
+	await expect(page.getByTestId("image-wheel-axis")).toHaveValue("horizontal");
+	await expect(page.getByTestId("image-wheel-sensitivity")).toHaveValue("3");
+	await expect(page.getByTestId("image-wheel-test")).toHaveCount(0);
+	if (process.env.BOA_QA_OUTPUT)
+		await page
+			.getByTestId("image-wheel-settings")
+			.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-wheel-settings.png") });
+	await page.getByTestId("image-wheel-reset").click();
+	await expect(page.getByTestId("image-wheel-axis")).toHaveValue("both");
+	await page.getByTestId("image-wheel-axis").selectOption("horizontal");
 	folderChoice = null;
 	await page.getByTestId("choose-watch-directory").click();
 	await expect(page.getByTestId("discovery-mode")).toHaveText("Manuelle");
@@ -761,6 +833,42 @@ try {
 	await page.getByTestId("save-context").click();
 	expect(clipboard).toContain("lecture claire");
 	expect(clipboard).not.toContain("Lignes :");
+	// The new collection preserves the quick-copy flow and captures rendered selections separately.
+	await page.evaluate(() => {
+		const element = document.querySelector('[data-testid="markdown-preview"] strong');
+		if (!element) throw new Error("Markdown text absent");
+		const range = document.createRange();
+		range.selectNodeContents(element);
+		window.getSelection()?.removeAllRanges();
+		window.getSelection()?.addRange(range);
+	});
+	await page.getByTestId("markdown-preview").locator("strong").first().click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Annoter", exact: true }).click();
+	await page.getByTestId("context-message").fill("Keep the rendered excerpt");
+	await page.getByTestId("context-message").press("Enter");
+	await expect.poll(() => collectionDraft?.items.length).toBe(1);
+	await page.getByTestId("collection-indicator").click();
+	await page.getByTestId("collection-instruction").fill("Review files and image annotations together");
+	await expect(page.getByTestId("collection-panel")).toContainText("lecture claire");
+	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
+	// A tab reference targets the right-clicked file and adds no whole-file contents.
+	await page.getByTestId("tab-README.md").click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Ajouter au contexte", exact: true }).click();
+	await expect(page.getByTestId("context-file")).toHaveAttribute("aria-pressed", "true");
+	await page.getByTestId("context-message").fill("Whole-file description");
+	await page.getByTestId("context-message").press("Enter");
+	await expect.poll(() => collectionDraft?.items.length).toBe(2);
+	const fileReference = collectionDraft!.items[1];
+	expect(fileReference.kind === "text" && fileReference.wholeFile && fileReference.context.code === "").toBe(
+		true,
+	);
+	await page.getByTestId("collection-indicator").click();
+	await page
+		.getByTestId("collection-panel")
+		.getByRole("button", { name: "Supprimer 2", exact: true })
+		.click();
+	await expect.poll(() => collectionDraft?.items.length).toBe(1);
+	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
 	await page.keyboard.press("Control+Shift+b");
 	await expect(page.getByTestId("context-popover")).toBeVisible();
 	await page.keyboard.press("Escape");
@@ -771,6 +879,40 @@ try {
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toHaveCount(0);
 	await expect(page.locator(".monaco-editor").first()).toBeVisible();
+	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
+	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
+	if (!monacoPath) throw new Error("Monaco import unavailable");
+	// Source-text right-click uses the same composer as rendered Markdown and file references.
+	await page.evaluate(async (path) => {
+		const module = await import(path);
+		const editor = module.editor
+			.getEditors()
+			.find((item) => item.getDomNode()?.closest('[data-testid="code-viewer"]'));
+		if (!editor?.getModel()) throw new Error("Source editor missing");
+		const match = editor.getModel()!.findMatches("lecture claire", false, false, false, null, false)[0];
+		if (!match) throw new Error("Selected source passage missing");
+		editor.setSelection(match.range);
+		editor.revealRangeInCenter(match.range);
+		editor.focus();
+	}, monacoPath);
+	await page
+		.locator(".monaco-editor .view-line")
+		.filter({ hasText: "lecture claire" })
+		.first()
+		.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Annoter", exact: true }).click();
+	await page.getByTestId("context-message").fill("Source selection annotation");
+	await page.getByTestId("context-message").press("Enter");
+	await expect.poll(() => collectionDraft?.items.length).toBe(2);
+	const sourceAnnotation = collectionDraft!.items[1];
+	expect(sourceAnnotation.kind === "text" && sourceAnnotation.context.code).toBe("lecture claire");
+	await page.getByTestId("collection-indicator").click();
+	await page
+		.getByTestId("collection-panel")
+		.getByRole("button", { name: "Supprimer 2", exact: true })
+		.click();
+	await expect.poll(() => collectionDraft?.items.length).toBe(1);
+	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toBeVisible();
 	await expect(page.getByRole("img", { name: "Plan", exact: true })).toBeVisible();
@@ -814,9 +956,6 @@ try {
 	await expect(page.locator(".markdown-image").filter({ hasText: "Unavailable" })).toBeVisible();
 	await expect(page.locator(".markdown-preview iframe, .markdown-preview script")).toHaveCount(0);
 	expect(await page.evaluate(() => Reflect.get(window, "boaUnsafe"))).toBeUndefined();
-	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
-	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
-	if (!monacoPath) throw new Error("Monaco import unavailable");
 	for (const [path, language] of [
 		["config.json", "json"],
 		["config.xml", "xml"],
@@ -1216,14 +1355,22 @@ try {
 	await page.getByTestId("create-context").click();
 	await page.getByTestId("context-message").fill("Explique la version avant modification.");
 	await selectOriginal(2, 2);
-	await expect(page.getByTestId("context-popover")).toContainText("L2–2");
+	// Annotation sources are frozen when the composer opens, even if another passage is selected.
+	await expect(page.getByTestId("context-popover")).toContainText("L1–4");
 	await expect(page.getByTestId("context-message")).toHaveValue("Explique la version avant modification.");
-	await page.getByTestId("context-message").press("Enter");
+	await page.getByTestId("save-context").click();
 	await expect(page.getByTestId("context-popover")).toHaveCount(0);
 	expect(clipboard).toContain("oldFunction");
-	expect(clipboard).not.toContain("export const amount");
+	expect(clipboard).toContain("export const amount");
 	expect(clipboard).toContain("Avant");
 	expect(clipboard).toContain(project.path);
+	await selectOriginal(2, 2);
+	await page.getByTestId("code-viewer").focus();
+	await page.keyboard.press("Shift+F10");
+	await page.getByRole("menuitem", { name: "Annoter", exact: true }).click();
+	await page.getByTestId("context-message").fill("Keep the original source version");
+	await page.getByTestId("add-context-collection").click();
+	await expect.poll(() => collectionDraft?.items.length).toBe(2);
 	await page.getByTestId("create-context").click();
 	await page.getByTestId("context-file").click();
 	await page.getByTestId("context-message").fill("Regarde le fichier entier");
@@ -1236,9 +1383,74 @@ try {
 	await expect(page.getByTestId("context-message")).toHaveValue("");
 	await page.getByTestId("close-contexts").click();
 
+	const repositoryGrip = page.getByTestId("repository-resizer");
+	await expect(repositoryGrip).toHaveAttribute("aria-orientation", "vertical");
+	const repositoryWidth = await page.locator(".repo-list").evaluate((e) => e.clientWidth);
+	await repositoryGrip.press("ArrowRight");
+	expect(await page.locator(".repo-list").evaluate((e) => e.clientWidth)).toBeGreaterThan(repositoryWidth);
+	const repositoryBounds = await repositoryGrip.boundingBox();
+	if (!repositoryBounds) throw new Error("Repository splitter missing");
+	await page.mouse.move(repositoryBounds.x + repositoryBounds.width / 2, repositoryBounds.y + 40);
+	await page.mouse.down();
+	await page.mouse.move(repositoryBounds.x + 70, repositoryBounds.y + 40);
+	await page.mouse.up();
+	const repositorySize = await repositoryGrip.getAttribute("aria-valuenow");
+	await expect(page.getByTestId("git-changes-tab")).toHaveText(`Changements locaux ${repo.changes.length}`);
+	await page.getByTestId(`repo-${nestedRepo.path}`).click();
+	await expect(page.getByTestId("git-changes-tab")).toHaveText(
+		`Changements locaux ${nestedRepo.changes.length}`,
+	);
+	await expect(page.getByTestId(`repo-${nestedRepo.path}`)).toContainText(".local/publication");
+	for (const file of nestedRepo.changes)
+		await expect(page.getByTestId(`change-${file.path}`)).toContainText("Non suivi");
+	await page.getByTestId(`repo-${repo.path}`).click();
 	await page.getByTestId("git-history-tab").click();
 	await page.getByTestId(`commit-${hash}`).click();
 	await expect(page.getByTestId("commit-details")).toContainText("Modifier le calcul");
+	await expect(repositoryGrip).toHaveAttribute("aria-valuenow", repositorySize!);
+	const historyGrip = page.getByTestId("history-resizer");
+	await expect(historyGrip).toHaveAttribute("aria-orientation", "horizontal");
+	const commitListHeight = await page.getByTestId("commit-list").evaluate((e) => e.clientHeight);
+	await historyGrip.press("ArrowDown");
+	expect(await page.getByTestId("commit-list").evaluate((e) => e.clientHeight)).toBeGreaterThan(
+		commitListHeight,
+	);
+	const historyBounds = await historyGrip.boundingBox();
+	if (!historyBounds) throw new Error("History splitter missing");
+	const detailsHeight = await page.getByTestId("commit-details").evaluate((e) => e.clientHeight);
+	await page.mouse.move(
+		historyBounds.x + historyBounds.width / 2,
+		historyBounds.y + historyBounds.height / 2,
+	);
+	await page.mouse.down();
+	await page.mouse.move(historyBounds.x + historyBounds.width / 2, historyBounds.y - 70);
+	await page.mouse.up();
+	expect(await page.getByTestId("commit-details").evaluate((e) => e.clientHeight)).toBeGreaterThan(
+		detailsHeight,
+	);
+	await expect(page.getByTestId("commit-file-count")).toContainText(`${commitChanges.length} fichiers`);
+	await page.getByTestId("commit-grouping").selectOption("list");
+	await expect(page.getByTestId("change-folder-Racine")).toHaveCount(0);
+	await expect(page.locator(".commit-file-list .change-row")).toHaveCount(commitChanges.length);
+	const lastCommitFile = commitChanges.at(-1)!;
+	await page.getByTestId(`change-${lastCommitFile.path}`).scrollIntoViewIfNeeded();
+	await expect(page.getByTestId(`change-${lastCommitFile.path}`)).toBeVisible();
+	await page.getByTestId("change-sample.ts").click();
+	await expect(page.locator(".code-viewer .view-line").filter({ hasText: "amount" }).first()).toBeVisible();
+	if (process.env.BOA_GIT_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_GIT_QA_OUTPUT, "git-history.png") });
+	await page.getByTestId("layout-split").click();
+	await expect(historyGrip).toHaveAttribute("aria-orientation", "vertical");
+	await expect(repositoryGrip).toHaveAttribute("aria-valuenow", repositorySize!);
+	const detailsWidth = await page.getByTestId("commit-details").evaluate((e) => e.clientWidth);
+	await historyGrip.press("ArrowLeft");
+	expect(await page.getByTestId("commit-details").evaluate((e) => e.clientWidth)).toBeGreaterThan(
+		detailsWidth,
+	);
+	if (process.env.BOA_GIT_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_GIT_QA_OUTPUT, "git-history-mixed.png") });
+	await page.getByTestId("layout-git").click();
+
 	await page.getByTestId("change-sample.ts").click();
 	await expect(page.getByTestId("code-viewer")).toContainText(`Commit ${hash}`);
 	await page.getByTestId(`commit-${hash}`).click();
@@ -1312,6 +1524,9 @@ try {
 	await page.getByTestId("archive-project-Auto QA").click();
 	await page.getByTestId("settings-nav").click();
 	await page.getByTestId("interface-language").selectOption("en");
+	await expect(page.getByTestId("image-wheel-settings").getByRole("heading")).toHaveText(
+		"Image wheel navigation",
+	);
 	await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
 	await expect(page.getByTestId("dashboard-nav")).toContainText("Overview");
 	await expect(page.locator("html")).toHaveAttribute("lang", "en");
@@ -1367,7 +1582,7 @@ try {
 	await page.getByTestId("layout-files").click();
 	await page.getByTestId("file-README.md").click();
 	await page.getByTestId("create-context").click();
-	await expect(page.getByTestId("context-popover")).toContainText("Context to share");
+	await expect(page.getByTestId("context-popover")).toContainText("Annotation");
 	await page.getByTestId("context-message").fill("Explain this file");
 	await page.getByTestId("save-context").click();
 	expect(clipboard).toContain("Project:");
@@ -1527,6 +1742,23 @@ try {
 	await browsers.nth(0).getByTestId("file-sample.ts").dblclick();
 	await browsers.nth(1).getByTestId("file-sample.ts").dblclick();
 	await expect(page.getByRole("tab", { name: "sample.ts", exact: true })).toHaveCount(2);
+	// Identically named tabs in a File Space must keep their own root when annotated.
+	const firstSpaceTab = page.getByRole("tab", { name: "sample.ts", exact: true }).first();
+	const referencedPath = await firstSpaceTab.getAttribute("data-hint");
+	await firstSpaceTab.click({ button: "right" });
+	await page.getByRole("menuitem", { name: "Ajouter au contexte", exact: true }).click();
+	await page.getByTestId("context-message").fill("File Space reference");
+	await page.getByTestId("context-message").press("Enter");
+	await expect.poll(() => collectionDraft?.items.length).toBe(3);
+	const spaceReference = collectionDraft!.items[2];
+	expect(spaceReference.kind === "text" && spaceReference.context.path).toBe(referencedPath);
+	await page.getByTestId("collection-indicator").click();
+	await page
+		.getByTestId("collection-panel")
+		.getByRole("button", { name: "Supprimer 3", exact: true })
+		.click();
+	await expect.poll(() => collectionDraft?.items.length).toBe(2);
+	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
 	await browsers.nth(1).getByTestId("file-sample.ts").focus();
 	await page.keyboard.press("Control+g");
 	await expect(page.getByTestId("file-search-panel")).toBeVisible();
@@ -1593,6 +1825,34 @@ try {
 	await lightbox.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
 	await lightbox.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
+	// Horizontal navigation leaves vertical scrolling available on a zoomed image.
+	await page.setViewportSize({ width: 1440, height: 500 });
+	await lightbox.getByRole("slider", { name: "Niveau de zoom", exact: true }).evaluate((node) => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, "1600");
+		node.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await expect
+		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.scrollHeight > node.clientHeight))
+		.toBe(true);
+	await lightbox.locator(".image-viewport").hover();
+	await page.mouse.wheel(0, 80);
+	await expect
+		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.scrollTop))
+		.toBeGreaterThan(0);
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	await page.mouse.wheel(1, 0);
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", nextLibraryPath);
+	// Wait for the documented fixed navigation interval, rather than a quiet-period debounce.
+	await page.waitForTimeout(210);
+	await lightbox
+		.locator(".image-viewport")
+		.evaluate((viewport) =>
+			viewport.dispatchEvent(new WheelEvent("wheel", { deltaX: -1, bubbles: true, cancelable: true })),
+		);
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	await page.setViewportSize({ width: 1440, height: 940 });
+	await lightbox.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
+	await lightbox.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
 	await lightbox.evaluate((dialog) => {
 		const first = dialog.querySelector("img")!;
 		const ratio = first.getBoundingClientRect().width / first.naturalWidth;
@@ -1670,6 +1930,142 @@ try {
 	await page.keyboard.press("Escape");
 	await expect(comparison).toHaveCount(0);
 	await expect(lightbox).toBeVisible();
+	// Annotate distinct images, retain normalized positions through zoom/navigation, then export once.
+	await lightbox.getByTestId("image-annotate").click();
+	const annotateAt = async (x: number, y: number, message: string) => {
+		const img = lightbox.locator(".image-pixel-surface img");
+		const bounds = await img.boundingBox();
+		if (!bounds) throw new Error("Annotation source missing");
+		await img.click({ position: { x: bounds.width * x, y: bounds.height * y } });
+		await lightbox.getByTestId("image-context-message").fill(message);
+		await expect(lightbox.getByTestId("image-context-add")).toBeEnabled();
+		await lightbox.getByTestId("image-context-add").click();
+		await expect(lightbox.getByTestId("image-context-form")).toHaveCount(0);
+	};
+	await annotateAt(0.25, 0.75, "Move the primary control");
+	await expect(lightbox.locator(".image-context-marker")).toHaveCSS("background-color", "rgb(51, 156, 255)");
+	const firstPin = lightbox.getByRole("button", { name: "Annotation 1", exact: true });
+	await firstPin.hover();
+	await expect(lightbox.getByRole("tooltip")).toHaveText("Move the primary control");
+	await expect(firstPin).not.toHaveAttribute("title");
+	const dragPinTo = async (x: number, y: number) => {
+		const pin = await firstPin.boundingBox();
+		const image = await lightbox.locator(".image-pixel-surface img").boundingBox();
+		if (!pin || !image) throw new Error("Missing drag surface");
+		await page.mouse.move(pin.x + pin.width / 2, pin.y + pin.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(image.x + image.width * x, image.y + image.height * y, { steps: 4 });
+		await page.mouse.up();
+	};
+	await dragPinTo(0.5, 0.5);
+	await expect
+		.poll(() => {
+			const image = collectionDraft?.items.find((item) => item.kind === "image");
+			return image?.kind === "image" ? image.annotations[0].point : null;
+		})
+		.toEqual({ x: 0.5, y: 0.5 });
+	await dragPinTo(0.25, 0.75);
+	await expect
+		.poll(() => {
+			const image = collectionDraft?.items.find((item) => item.kind === "image");
+			return image?.kind === "image" ? image.annotations[0].point : null;
+		})
+		.toEqual({ x: 0.25, y: 0.75 });
+	await lightbox.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
+	await annotateAt(0.625, 0.25, "Increase this spacing");
+	await lightbox.getByRole("button", { name: "Annotation 2", exact: true }).click();
+	await expect(lightbox.getByTestId("image-context-message")).toHaveValue("Increase this spacing");
+	await expect(lightbox.getByTestId("image-context-form").locator("input[type=number]")).toHaveCount(0);
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-annotation-pill.png") });
+	await lightbox.getByTestId("image-context-add").click();
+	await expect(lightbox.locator(".image-viewport")).toBeFocused();
+	await expect(lightbox.locator(".image-context-marker")).toHaveCount(2);
+	await lightbox.getByRole("button", { name: "Image suivante", exact: true }).click();
+	await expect(lightbox.getByTestId("image-annotate")).toHaveAttribute("aria-pressed", "true");
+	await annotateAt(0.75, 0.5, "Change the second image");
+	await expect.poll(() => collectionDraft?.items.length).toBe(4);
+	const collectedImages = collectionDraft!.items.filter((item) => item.kind === "image");
+	expect(collectedImages).toHaveLength(2);
+	expect(collectedImages[0].path).toBe(libraryPath);
+	expect(collectedImages[1].path).toBe(nextLibraryPath);
+	expect(collectedImages[0].annotations.map((a) => a.point)).toEqual([
+		{ x: 0.25, y: 0.75 },
+		{ x: 0.625, y: 0.25 },
+	]);
+	await lightbox.getByRole("button", { name: /Relire le contexte/ }).click();
+	const collectionPanel = page.getByTestId("collection-panel");
+	await expect(collectionPanel.getByTestId("collection-item")).toHaveCount(4);
+	await collectionPanel.getByTestId("collection-clear").click();
+	await expect(collectionPanel.getByText("Vider ce contexte ?", { exact: true })).toBeVisible();
+	await expect(collectionPanel.getByTestId("collection-clear-cancel")).toHaveCSS("border-top-style", "solid");
+	await expect(collectionPanel.getByTestId("collection-clear-confirm")).toHaveCSS(
+		"border-top-style",
+		"solid",
+	);
+	if (process.env.BOA_QA_OUTPUT)
+		await collectionPanel
+			.locator(".collection-footer")
+			.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "context-clear-buttons.png") });
+	await collectionPanel.getByTestId("collection-clear-cancel").click();
+	await expect(collectionPanel.getByTestId("collection-item")).toHaveCount(4);
+	await collectionPanel.getByTestId("collection-copy").click();
+	expect(clipboard).toContain("lecture claire");
+	expect(clipboard).toContain("oldFunction");
+	expect(clipboard).toContain("Avant");
+	expect(clipboard).toContain("Move the primary control");
+	expect(clipboard).toContain("Change the second image");
+	expect(clipboard).toContain("Review files and image annotations together");
+	expect(collectionDraft!.items).toHaveLength(4);
+	cancelCollectionExport = true;
+	await collectionPanel.getByTestId("collection-export").click();
+	await expect(collectionPanel.getByTestId("collection-export")).toBeEnabled();
+	expect(collectionExport).toBeNull();
+	cancelCollectionExport = false;
+	await collectionPanel.getByTestId("collection-export").click();
+	await expect(collectionPanel.getByTestId("collection-notice")).toContainText(directory);
+	const exportedCollection = collectionExport as unknown as NonNullable<typeof collectionExport>;
+	expect(exportedCollection.images).toHaveLength(2);
+	expect(readFileSync(join(directory, "collection-context.md"), "utf8")).toBe(clipboard);
+	for (const exported of exportedCollection.images) {
+		expect(exportedCollection.prompt).toContain(`](${exported.name})`);
+		const png = readFileSync(join(directory, exported.name));
+		expect(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))).toBe(true);
+		const source = collectedImages[exportedCollection.images.indexOf(exported)];
+		expect(png.readUInt32BE(16)).toBe(source.width);
+		expect(png.readUInt32BE(20)).toBe(source.height);
+		expect(exported.dataUrl).not.toBe(source.dataUrl);
+	}
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "context-collection.png") });
+	if (process.env.BOA_QA_OUTPUT) {
+		await collectionPanel.getByTestId("collection-item").nth(2).scrollIntoViewIfNeeded();
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "context-collection-images.png") });
+	}
+	await collectionPanel.getByRole("button", { name: "Supprimer l’annotation 2", exact: true }).click();
+	await expect
+		.poll(() => {
+			const item = collectionDraft?.items[2];
+			return item?.kind === "image" ? item.annotations.length : 0;
+		})
+		.toBe(1);
+	await collectionPanel.getByRole("button", { name: "Supprimer 2", exact: true }).click();
+	await expect.poll(() => collectionDraft?.items.length).toBe(3);
+	await collectionPanel
+		.getByTestId("collection-item")
+		.first()
+		.getByRole("textbox")
+		.fill("Edited collection comment");
+	await expect
+		.poll(() => {
+			const item = collectionDraft?.items[0];
+			return item?.kind === "text" ? item.message : "";
+		})
+		.toBe("Edited collection comment");
+	await collectionPanel.getByRole("button", { name: "Fermer", exact: true }).click();
+	await lightbox.getByRole("button", { name: "Image précédente", exact: true }).click();
+	await expect(lightbox.locator(".image-context-marker")).toHaveCount(1);
+	await lightbox.getByTestId("image-annotate").click();
 	await lightbox.getByRole("button", { name: "Image suivante", exact: true }).focus();
 	await expect(lightbox.getByRole("tooltip")).toHaveText("Image suivante · → Page ↓");
 	await page.keyboard.press("Escape");
@@ -1678,7 +2074,30 @@ try {
 	await expect(page.getByRole("searchbox", { name: "Filtrer les images…", exact: true })).toHaveValue(
 		"preview + png",
 	);
+	await page.getByTestId("settings-nav").click();
+	await page.getByTestId("image-wheel-axis").selectOption("tabs");
+
+	if (process.env.BOA_QA_OUTPUT)
+		await page
+			.getByTestId("image-wheel-settings")
+			.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-tab-navigation.png") });
+	await navigateHistory("back");
 	await page.locator(".library-image").first().click();
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	await expect(lightbox.getByRole("button", { name: "Image suivante", exact: true })).toBeEnabled();
+	await page.keyboard.press("Control+Tab");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", nextLibraryPath);
+	await page.waitForTimeout(210);
+	await page.keyboard.press("Control+Shift+Tab");
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	await lightbox.getByTestId("image-annotate").click();
+	await lightbox.getByRole("button", { name: "Annotation 1", exact: true }).click();
+	await lightbox.getByTestId("image-context-message").focus();
+	await page.keyboard.press("Control+Tab");
+	await expect(lightbox.getByTestId("image-context-form")).toBeVisible();
+	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	await page.keyboard.press("Escape");
+	await lightbox.getByTestId("image-annotate").click();
 	await lightbox.getByRole("button", { name: "Ouvrir dans Fichiers", exact: true }).click();
 	await expect(page.locator(".workspace-reader")).toBeVisible();
 	await browsers.nth(1).getByTestId("file-preview.png").click({ button: "right" });
@@ -1914,6 +2333,31 @@ try {
 		.poll(() => page.getByTestId("markdown-preview").evaluate((element) => element.scrollTop))
 		.toBeCloseTo(markdownScroll, 0);
 	// Run fake time last: Playwright's Performance mock lacks User Timing entries used by Monaco.
+	await page.getByTestId("dashboard-nav").click();
+	await page.reload();
+	await page.getByTestId("collection-indicator").click();
+	await expect(page.getByTestId("collection-item")).toHaveCount(3);
+	await expect(page.getByTestId("collection-instruction")).toHaveValue(
+		"Review files and image annotations together",
+	);
+	await expect(page.getByTestId("collection-item").first().getByRole("textbox")).toHaveValue(
+		"Edited collection comment",
+	);
+	await page.getByTestId("collection-copy").click();
+	expect(clipboard).toContain("Edited collection comment");
+	expect(clipboard).not.toContain("Increase this spacing");
+	await page.setViewportSize({ width: 820, height: 700 });
+	await expect(page.getByTestId("collection-copy")).toBeInViewport();
+	await expect(page.getByTestId("collection-export")).toBeInViewport();
+	expect(
+		await page
+			.getByTestId("collection-panel")
+			.evaluate((element) => element.scrollWidth <= element.clientWidth),
+	).toBe(true);
+	await page.setViewportSize({ width: 1440, height: 940 });
+	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
+	await page.getByTestId("settings-nav").click();
+	await expect(page.getByTestId("image-wheel-axis")).toHaveValue("tabs");
 	await page.getByTestId("dashboard-nav").click();
 	const idleSummaries = summaryCalls;
 	const idleLists = projectListCalls;

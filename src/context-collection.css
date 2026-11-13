@@ -1,0 +1,327 @@
+/* Review is a native modal; image markers alone use spatial positioning. */
+.collection-dialog {
+	width: min(800px, calc(100vw - 48px));
+	max-height: calc(100dvh - 48px);
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	background: var(--panel, #fff);
+	color: inherit;
+	overflow: hidden;
+}
+.collection-dialog[open] {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+}
+.collection-dialog::backdrop {
+	background: #0005;
+}
+.collection-heading,
+.collection-item-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.collection-heading {
+	flex-shrink: 0;
+	padding: 16px 24px;
+	border-bottom: 1px solid var(--line);
+}
+.collection-heading h2 {
+	margin: 0;
+	font-size: 16px;
+}
+.collection-body {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 16px;
+	min-height: 0;
+	overflow: auto;
+	padding: 24px;
+}
+.collection-field {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+	min-width: 0;
+}
+.collection-field textarea {
+	width: 100%;
+	box-sizing: border-box;
+	resize: vertical;
+	min-height: 48px;
+}
+.collection-summary,
+.collection-body p,
+.collection-footer p,
+.image-context-form p {
+	margin: 0;
+}
+.collection-items {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 24px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.collection-item {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 12px;
+	padding: 16px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+}
+.collection-source {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.collection-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.collection-actions button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+}
+.collection-item-heading .collection-actions {
+	flex-shrink: 0;
+}
+.collection-excerpt {
+	margin: 0;
+	padding: 12px;
+	max-height: 240px;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	background: var(--bg, #f5f5f5);
+	border-radius: 4px;
+	font-size: 12px;
+}
+.collection-body details {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.collection-body summary {
+	cursor: pointer;
+	padding-block: 8px;
+}
+.collection-footer {
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 12px;
+	padding: 16px 24px;
+	border-top: 1px solid var(--line);
+	max-height: 40dvh;
+	overflow: auto;
+}
+.collection-error {
+	color: var(--red);
+	overflow-wrap: anywhere;
+}
+.collection-notice {
+	overflow-wrap: anywhere;
+}
+.collection-snapshot {
+	position: relative;
+	align-self: flex-start;
+	max-width: 100%;
+	line-height: 0;
+}
+.collection-snapshot img {
+	display: block;
+	max-width: 100%;
+	max-height: 400px;
+	width: auto;
+	height: auto;
+	object-fit: contain;
+}
+.image-context-markers {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+.image-context-marker {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border: 2px solid white;
+	border-radius: 50% 50% 50% 3px;
+	background: var(--annotation-blue);
+	color: white;
+	font: bold 12px / 1 system-ui;
+	box-shadow: 0 1px 4px #0005;
+}
+.collection-annotations {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 12px;
+	margin: 0;
+	padding-left: 24px;
+}
+.collection-annotations li {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+.collection-annotations .collection-field {
+	flex: 1;
+}
+.image-pixel-surface img.annotating {
+	cursor: crosshair;
+}
+.annotation-composer {
+	border-color: var(--blue);
+}
+.annotation-composer > header {
+	background: var(--selected);
+	color: var(--blue);
+}
+.annotation-composer .context-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+@media (max-width: 640px) {
+	.collection-dialog {
+		width: calc(100vw - 16px);
+		max-height: calc(100dvh - 16px);
+	}
+	.collection-body,
+	.collection-heading,
+	.collection-footer {
+		padding: 16px;
+	}
+	.collection-item-heading {
+		align-items: flex-start;
+		flex-wrap: wrap;
+	}
+}
+
+/* Spatial annotation UI follows the selected image point; ordinary controls stay in a row. */
+button.image-context-marker {
+	pointer-events: auto;
+	padding: 0;
+	cursor: pointer;
+}
+.image-context-marker.draft {
+	background: var(--annotation-draft);
+}
+.image-context-marker.selected {
+	outline: 3px solid #339cff66;
+	outline-offset: 3px;
+}
+.image-note {
+	position: fixed;
+	z-index: 100;
+	width: min(380px, calc(100vw - 16px));
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 4px;
+	padding: 4px 8px;
+	background: #303030;
+	color: #f3f3f3;
+	border: 1px solid #ffffff24;
+	border-radius: 24px;
+	box-shadow: 0 4px 16px #0005;
+	line-height: 1.4;
+}
+.image-note-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.image-note-row input {
+	flex: 1;
+	min-width: 0;
+	width: 100%;
+	padding: 8px;
+	background: transparent;
+	border: 0;
+	color: inherit;
+}
+.image-note-row button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	flex-shrink: 0;
+	border-radius: 50%;
+}
+.image-note-row .image-note-done {
+	background: var(--annotation-action);
+	color: white;
+}
+.image-note-row .image-note-done:disabled {
+	background: #656565;
+}
+.image-note-label {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+.image-note p,
+.image-note small {
+	margin: 0;
+	padding: 4px 8px;
+}
+.image-note-status {
+	color: #bbb;
+}
+
+.collection-actions button:not(.primary-button) {
+	min-height: 32px;
+	padding: 4px 12px;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	background: var(--bg);
+	cursor: pointer;
+}
+.collection-actions button:not(.primary-button):hover:not(:disabled) {
+	border-color: var(--blue);
+}
+.collection-actions button.collection-clear-confirm {
+	border-color: var(--red);
+	background: color-mix(in srgb, var(--red) 14%, var(--bg));
+	color: var(--red);
+}
+button.image-context-marker {
+	touch-action: none;
+	cursor: grab;
+}
+button.image-context-marker {
+	translate: var(--annotation-drag-x, 0px) var(--annotation-drag-y, 0px);
+}
+button.image-context-marker:active {
+	cursor: grabbing;
+}

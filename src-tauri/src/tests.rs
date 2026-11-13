@@ -1172,6 +1172,35 @@ fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() 
 }
 
 #[test]
+fn source_previews_accept_large_textual_forms_and_preserve_safety_rejections() {
+    let root = tempfile::tempdir().unwrap();
+    // Representative textual form above the former 2 MiB ceiling, generated without user data.
+    let content = "x".repeat(5 * 1024 * 1024 / 2);
+    fs::write(root.path().join("form.dfm"), &content).unwrap();
+    let preview = files::file_preview(root.path(), "form.dfm").unwrap();
+    assert_eq!(preview.kind, "text");
+    assert_eq!(preview.preview.modified, content);
+    for (name, bytes) in [
+        ("binary.dfm", &b"TPF0\0binary"[..]),
+        ("legacy.pas", &b"\xff"[..]),
+    ] {
+        fs::write(root.path().join(name), bytes).unwrap();
+        let preview = files::file_preview(root.path(), name).unwrap();
+        assert_eq!(preview.kind, "unsupported");
+        assert!(preview.preview.modified.is_empty());
+        assert!(preview.reason.is_some());
+    }
+    let large = root.path().join("large.dfm");
+    fs::File::create(&large)
+        .unwrap()
+        .set_len(files::FILE_LIMIT + 1)
+        .unwrap();
+    let preview = files::file_preview(root.path(), "large.dfm").unwrap();
+    assert_eq!(preview.kind, "unsupported");
+    assert!(preview.reason.unwrap().contains("8 Mo"));
+}
+
+#[test]
 fn file_preview_fallbacks_are_bounded_and_external_open_requires_a_regular_registered_entry() {
     let root = tempfile::tempdir().unwrap();
     let large = root.path().join("large.png");

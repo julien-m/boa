@@ -172,7 +172,7 @@ export function FileWorkspace({
 					)}
 				</aside>
 				<div className="file-tree-resizer-slot" inert={!showTree} aria-hidden={!showTree}>
-					<PanelResizer container={container} vertical fileTree />
+					<PanelResizer container={container} vertical panel="tree" />
 				</div>
 				<div className="file-workspace-content">
 					{libraryRoot && (

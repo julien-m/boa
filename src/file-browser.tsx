@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Filter, Images, Pin, X } from "lucide-react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
+import { useContextCollection } from "./context-collection";
 import {
 	FileContextMenu,
 	type FileMenuEvent,
@@ -66,6 +67,7 @@ export function FileBrowser({
 	folderRequestId?: string;
 }) {
 	const l = useFileLabels();
+	const collection = useContextCollection();
 	const openLibrary = useImageLibrary();
 	const chooseFolder = useLibraryFolder();
 	const closeLibrary = useCloseImageLibrary();
@@ -572,19 +574,21 @@ export function FileBrowser({
 						chooseFolder?.(root, fileMenu.entry.path);
 						setSearch("");
 					}}
-					onShare={() =>
-						setContextRequest({
+					onShare={() => {
+						const request = {
 							id: crypto.randomUUID(),
 							context: {
 								project: root,
-								path: fileMenu.entry.path,
+								path: singleFile ? root : `${root.replace(/\/$/, "")}/${fileMenu.entry.path}`,
 								code: "",
 								startLine: null,
 								endLine: null,
 								label: fileMenu.entry.name,
 							},
-						})
-					}
+						};
+						if (collection) collection.annotate(request.context);
+						else setContextRequest(request);
+					}}
 				/>
 			)}
 			{search === null && preferences.filtered && !preferences.included.length && !showAll && !manage && (

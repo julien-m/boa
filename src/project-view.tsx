@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { fileAnnotationContext, useAnnotationMenu } from "./annotation-menu";
 import { api } from "./api";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
@@ -47,6 +48,7 @@ export function ProjectView({
 	const { t } = useTranslation("workspace");
 	const contextLabels = useContextLabels();
 	const editing = useFileEditing();
+	const annotation = useAnnotationMenu();
 	const [layout, setLayout] = useState<Layout>(() => {
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
@@ -312,11 +314,17 @@ export function ProjectView({
 					}
 				>
 					<div className="file-editor">
+						{annotation.menu}
 						{tabs.length > 0 && (
 							<div className="file-tabs" role="tablist" aria-label={t("tabs.label")}>
 								{tabs.map((tab) => (
 									<div
 										key={tab.path}
+										onContextMenu={(event) => annotation.open(event, fileAnnotationContext(tab))}
+										onKeyDown={(event) => {
+											if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
+												annotation.open(event, fileAnnotationContext(tab));
+										}}
 										className={`file-tab ${!selection?.repo && selection?.path === tab.path ? "active" : ""}`}
 									>
 										<button

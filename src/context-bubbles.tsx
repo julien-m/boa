@@ -3,6 +3,8 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Copy, MessageSquarePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useContextCollection } from "./context-collection";
+import { useCollectionLabels } from "./context-collection-labels";
 import { i18n } from "./i18n";
 
 export interface CodeContext {
@@ -42,10 +44,12 @@ export function ContextBubbles({
 }: {
 	capture: () => CodeContext | null;
 	context: CodeContext | null;
-	externalRequest?: { id: string; context: CodeContext };
+	externalRequest?: { id: string; context: CodeContext; anchor?: { top: number; right: number } };
 	hideTrigger?: boolean;
 }) {
 	const { t } = useTranslation("workspace");
+	const collection = useContextCollection();
+	const cl = useCollectionLabels();
 	const container = useRef<HTMLDivElement>(null);
 	const input = useRef<HTMLTextAreaElement>(null);
 	const [draft, setDraft] = useState<CodeContext | null>(null);
@@ -61,6 +65,15 @@ export function ContextBubbles({
 			return;
 		}
 		const bounds = container.current?.getBoundingClientRect();
+		if (collection && !hideTrigger) {
+			collection.annotate(
+				next,
+				bounds
+					? { top: bounds.bottom + 8, right: Math.max(16, window.innerWidth - bounds.right) }
+					: undefined,
+			);
+			return;
+		}
 		if (bounds) setAnchor({ top: bounds.bottom + 8, right: Math.max(16, window.innerWidth - bounds.right) });
 		setDraft(next);
 		setWholeFile(!next.code);
@@ -69,9 +82,9 @@ export function ContextBubbles({
 	};
 	useEffect(() => {
 		if (!externalRequest) return;
-		setAnchor({ top: 80, right: 16 });
+		setAnchor(externalRequest.anchor ?? { top: 80, right: 16 });
 		setDraft(externalRequest.context);
-		setWholeFile(true);
+		setWholeFile(!externalRequest.context.code);
 		setMessage("");
 		setNotice(null);
 	}, [externalRequest]);
@@ -127,6 +140,17 @@ export function ContextBubbles({
 			setPending(false);
 		}
 	};
+	const addToCollection = () => {
+		if (!draft || !collection?.ready) return;
+		try {
+			collection.addText(draft, message, wholeFile);
+			setDraft(null);
+			setMessage("");
+			setNotice({ key: "context.added" });
+		} catch (error) {
+			setNotice({ key: "context.copyFailed", error: String(error) });
+		}
+	};
 	return (
 		<div className="context-bubbles" ref={container}>
 			{!hideTrigger && (
@@ -157,7 +181,7 @@ export function ContextBubbles({
 					role="dialog"
 					aria-modal="false"
 					aria-label={t("context.title")}
-					className="bubble-popover"
+					className={`bubble-popover ${collection ? "annotation-composer" : ""}`}
 					style={{
 						position: "fixed",
 						top: anchor.top,
@@ -182,7 +206,8 @@ export function ContextBubbles({
 						className="bubble-draft"
 						onSubmit={(event) => {
 							event.preventDefault();
-							void submit();
+							if (collection) addToCollection();
+							else void submit();
 						}}
 					>
 						<div className="context-scope" role="group" aria-label={t("context.scope")}>
@@ -231,18 +256,31 @@ export function ContextBubbles({
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 									event.preventDefault();
-									void submit();
+									if (collection) addToCollection();
+									else void submit();
 								}
 							}}
 						/>
 						<div className="context-actions">
+							{collection && (
+								<button
+									type="button"
+									className="primary-button"
+									data-testid="add-context-collection"
+									disabled={!collection.ready || pending}
+									onClick={addToCollection}
+								>
+									{cl.add}
+								</button>
+							)}
 							<button type="button" className="quiet-button" onClick={() => setDraft(null)}>
 								{t("context.cancel")}
 							</button>
 							<button
-								type="submit"
+								type="button"
+								onClick={() => void submit()}
 								data-testid="save-context"
-								className="primary-button"
+								className={collection ? "quiet-button" : "primary-button"}
 								disabled={!message.trim() || pending}
 							>
 								<Copy size={13} />

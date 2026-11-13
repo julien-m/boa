@@ -16,6 +16,8 @@ import { localizeNativeText } from "./native-text";
 export type ProjectSettings = {
 	watchDirectory: string | null;
 	watchError: string | null;
+	/** Native identity retained independently of the translated display text. */
+	watchErrorIdentity?: string | null;
 	language: "fr" | "en";
 };
 
@@ -25,6 +27,7 @@ const invoke = <T>(command: string, args?: Record<string, unknown>): Promise<T> 
 	});
 const settingsLabels = (value: ProjectSettings): ProjectSettings => ({
 	...value,
+	watchErrorIdentity: value.watchError,
 	watchError: value.watchError ? localizeNativeText(value.watchError) : null,
 });
 const previewLabels = (value: Preview): Preview => ({

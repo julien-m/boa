@@ -31,6 +31,7 @@ import { type AppLocation, navigationVisit, useAppHistory } from "./app-history"
 import { captureCurrentReaderSelection } from "./code-viewer";
 import { resolveContextPassage } from "./context-anchors";
 import { contextApi, type ReaderOpenRequest } from "./context-api";
+import { CollectionIndicator } from "./context-collection";
 import { DraftIndicator } from "./file-editing";
 import { FileSearchPanel } from "./file-search-panel";
 import { FileSpaceView } from "./file-space-view";
@@ -49,6 +50,8 @@ import { installSearchShortcuts } from "./search-shortcuts";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
 import "./app-notices.css";
+
+const DISMISSED_WATCH_ERROR_KEY = "boa-dismissed-watch-error";
 
 export default function App() {
 	const { t } = useTranslation("dashboard");
@@ -135,9 +138,16 @@ export default function App() {
 	const [sort, setSort] = useState(() => localStorage.getItem("boa-project-sort") ?? "name");
 	const [display, setDisplay] = useState(() => localStorage.getItem("boa-project-display") ?? "grid");
 	const [notice, setNotice] = useState("");
-	const [dismissedWatchError, setDismissedWatchError] = useState<string | null>(null);
+	const [dismissedWatchError, setDismissedWatchError] = useState<string | null>(() => {
+		try {
+			return localStorage.getItem(DISMISSED_WATCH_ERROR_KEY);
+		} catch {
+			// If browser storage is unavailable, start with a visible warning rather than hide it.
+			return null;
+		}
+	});
 	const watchError = settings.data?.watchError ?? null;
-	useEffect(() => setDismissedWatchError(null), [watchError]);
+	const watchErrorIdentity = settings.data?.watchErrorIdentity ?? watchError;
 	const [removingSpace, setRemovingSpace] = useState<string | null>(null);
 	const removeSpace = async (id: string, name: string) => {
 		if (removingSpace) return;
@@ -602,6 +612,7 @@ export default function App() {
 					<span className="muted">{t("projectSpace")}</span>
 				</div>
 				<div className="titlebar-right">
+					<CollectionIndicator />
 					<DraftIndicator />
 					{navigation && navigation.source !== "BOA" && (
 						<button
@@ -754,7 +765,7 @@ export default function App() {
 				</nav>
 				<main className="main-content">
 					<div className="app-notices">
-						{watchError && watchError !== dismissedWatchError && !settingsOpen && (
+						{watchError && watchErrorIdentity !== dismissedWatchError && !settingsOpen && (
 							<div className="app-notice" role="alert" data-testid="watch-notice">
 								<span>{t("watchError", { error: watchError })}</span>
 								<button
@@ -763,7 +774,15 @@ export default function App() {
 									aria-label={t("dismissNotice")}
 									title={t("dismissNotice")}
 									data-testid="dismiss-watch-notice"
-									onClick={() => setDismissedWatchError(watchError)}
+									onClick={() => {
+										setDismissedWatchError(watchErrorIdentity);
+										try {
+											if (watchErrorIdentity)
+												localStorage.setItem(DISMISSED_WATCH_ERROR_KEY, watchErrorIdentity);
+										} catch {
+											/* Keep this session dismissed if browser storage is unavailable. */
+										}
+									}}
 								>
 									<X size={16} />
 								</button>
