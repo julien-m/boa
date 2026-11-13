@@ -6,6 +6,8 @@ pub use codex_handler::codex_open_entry;
 #[path = "codex-config.rs"]
 mod codex_config;
 mod context;
+#[path = "context-collection.rs"]
+mod context_collection;
 #[path = "context-views.rs"]
 mod context_views;
 #[path = "document-open.rs"]
@@ -404,6 +406,76 @@ async fn export_context(
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn context_collection_load(
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("context-collection.json");
+    tauri::async_runtime::spawn_blocking(move || context_collection::load(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn context_collection_save(
+    app: tauri::AppHandle,
+    draft: serde_json::Value,
+) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("context-collection.json");
+    tauri::async_runtime::spawn_blocking(move || context_collection::save(&path, &draft))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn context_collection_export(
+    state: NativeState<'_>,
+    app: tauri::AppHandle,
+    prompt: String,
+    images: Vec<context_collection::Image>,
+) -> Result<Option<context_collection::Export>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let prepared =
+        tauri::async_runtime::spawn_blocking(move || context_collection::prepare(prompt, images))
+            .await
+            .map_err(|error| error.to_string())??;
+    let english = state.settings()?.language == "en";
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(if english {
+            "Export context"
+        } else {
+            "Exporter le contexte"
+        })
+        .pick_folder(move |path| {
+            let _ = send.send(path);
+        });
+    let Some(destination) = receive
+        .await
+        .map_err(|_| "Export folder selection failed".to_string())?
+    else {
+        return Ok(None);
+    };
+    // Only the directory returned by this native picker authorizes export writes.
+    let destination = destination
+        .into_path()
+        .map_err(|_| "Invalid export folder".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        context_collection::export_to(&destination, prepared).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[derive(serde::Serialize)]
 struct Navigation {
     project: String,
@@ -653,6 +725,9 @@ pub fn run() {
             git_diff,
             compare_branch,
             export_context,
+            context_collection_load,
+            context_collection_save,
+            context_collection_export,
             resolve_navigation,
             open_document,
             search_project,

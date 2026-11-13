@@ -28,7 +28,7 @@ const englishText: Record<string, string> = {
 	"Capture PNG invalide": "Invalid PNG capture",
 	"Chemin hors du projet": "Path outside the project",
 	"Ce chemin ne désigne pas un fichier régulier": "This path does not point to a regular file",
-	"Fichier trop volumineux pour l’aperçu (2 Mo maximum).": "File too large to preview (2 MB maximum).",
+	"Fichier trop volumineux pour l’aperçu (8 Mo maximum).": "File too large to preview (8 MB maximum).",
 	"Fichier binaire : aperçu texte indisponible.": "Binary file: text preview unavailable.",
 	"Ce fichier n’est pas encodé en UTF-8.": "This file is not encoded in UTF-8.",
 	"Nom de fichier non UTF-8": "Non-UTF-8 filename",

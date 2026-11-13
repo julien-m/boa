@@ -5,20 +5,56 @@ import { useTranslation } from "react-i18next";
 export function PanelResizer({
 	container,
 	vertical = false,
-	fileTree = false,
+	panel = "git",
 }: {
 	container: RefObject<HTMLDivElement | null>;
 	vertical?: boolean;
-	fileTree?: boolean;
+	panel?: "git" | "tree" | "history" | "repositories";
 }) {
 	const { t } = useTranslation("workspace");
-	const storageKey = fileTree ? "boa-tree-width" : vertical ? "boa-git-width" : "boa-git-height";
-	const property = fileTree ? "--file-tree-size" : vertical ? "--git-list-size" : "--git-size";
-	const minimum = fileTree ? 12 : vertical ? 20 : 18;
-	const maximum = vertical ? 70 : 75;
+	const configuration = {
+		git: {
+			storageKey: vertical ? "boa-git-width" : "boa-git-height",
+			property: vertical ? "--git-list-size" : "--git-size",
+			minimum: vertical ? 20 : 18,
+			maximum: vertical ? 70 : 75,
+			initial: vertical ? 42 : 39,
+			label: vertical ? "width" : "height",
+			testId: vertical ? "git-width-resizer" : "git-resizer",
+		},
+		tree: {
+			storageKey: "boa-tree-width",
+			property: "--file-tree-size",
+			minimum: 12,
+			maximum: 70,
+			initial: 24,
+			label: "treeWidth",
+			testId: "file-tree-resizer",
+		},
+		history: {
+			storageKey: `boa-history-${vertical ? "width" : "height"}`,
+			property: "--history-list-size",
+			minimum: vertical ? 20 : 18,
+			maximum: 80,
+			initial: 55,
+			label: "history",
+			testId: "history-resizer",
+		},
+		repositories: {
+			storageKey: "boa-repository-width",
+			property: "--repository-list-size",
+			minimum: 12,
+			maximum: 40,
+			initial: 18,
+			label: "repositories",
+			testId: "repository-resizer",
+		},
+	}[panel];
+	const { storageKey, property, minimum, maximum } = configuration;
+	const history = panel === "history";
 	const [value, setValue] = useState(() => {
 		const saved = Number(localStorage.getItem(storageKey));
-		return saved >= minimum && saved <= maximum ? saved : fileTree ? 24 : vertical ? 42 : 39;
+		return saved >= minimum && saved <= maximum ? saved : configuration.initial;
 	});
 	const current = useRef(value);
 	const update = (ratio: number): void => {
@@ -40,9 +76,9 @@ export function PanelResizer({
 			aria-valuenow={Math.round(value)}
 			aria-valuemin={minimum}
 			aria-valuemax={maximum}
-			aria-label={fileTree ? t("resizer.treeWidth") : vertical ? t("resizer.width") : t("resizer.height")}
+			aria-label={t(`resizer.${configuration.label}`)}
 			data-hint={vertical ? t("resizer.widthHint") : t("resizer.heightHint")}
-			data-testid={fileTree ? "file-tree-resizer" : vertical ? "git-width-resizer" : "git-resizer"}
+			data-testid={configuration.testId}
 			className={vertical ? "git-resizer vertical" : "git-resizer"}
 			onPointerDown={(event) => {
 				event.preventDefault();
@@ -54,7 +90,7 @@ export function PanelResizer({
 				update(
 					vertical
 						? ((event.clientX - bounds.left) / bounds.width) * 100
-						: ((bounds.bottom - event.clientY) / bounds.height) * 100,
+						: ((history ? event.clientY - bounds.top : bounds.bottom - event.clientY) / bounds.height) * 100,
 				);
 			}}
 			onPointerUp={(event) => {
@@ -70,7 +106,10 @@ export function PanelResizer({
 						: event.key === "ArrowUp" || event.key === "ArrowDown"
 				) {
 					event.preventDefault();
-					update(current.current + (event.key === (vertical ? "ArrowRight" : "ArrowUp") ? 3 : -3));
+					update(
+						current.current +
+							(event.key === (vertical ? "ArrowRight" : history ? "ArrowDown" : "ArrowUp") ? 3 : -3),
+					);
 					persist();
 				}
 			}}

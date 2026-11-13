@@ -36,6 +36,8 @@ Save creates/replaces the complete view; update merges only supplied top-level f
 --wait or --json on open waits for the reader, not merely the request transport.
 Exit 0: displayed (or queued without --wait), 1: error, 2: not confirmed displayed.
 Receipts expire on app restart; query immediately. --wait-ms: 100..15000 ms.
+Context (file excerpts and annotated images) is available in the app title bar.
+Use its Copy all context / Export actions; contexts above manages navigation views.
 boa spaces list [--json]
 boa spaces save <id> --name <nom> [--root <dossier>] [--file <fichier>] [--json] [--dry-run]
 boa spaces remove <id> [--json] [--dry-run]

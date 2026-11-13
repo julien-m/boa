@@ -38,10 +38,9 @@ vi.mock("./file-editing", () => ({
 	}),
 }));
 vi.mock("./context-bubbles", () => ({ ContextBubbles: () => null }));
-vi.mock("./syntax-highlighting", () => ({}));
-vi.mock("monaco-editor/basic-languages/monaco.contribution.js", () => ({}));
 vi.mock("monaco-editor/editor/contrib/find/browser/findController.js", () => ({}));
-vi.mock("monaco-editor/editor/editor.api.js", () => ({
+vi.mock("monaco-editor/editor/editor.api.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("monaco-editor/editor/editor.api.js")>()),
 	Uri: { from: () => ({ toString: () => "boa-file:/demo.md" }) },
 }));
 vi.mock("@monaco-editor/react", () => ({

@@ -1,7 +1,7 @@
 /** Quick Look-style image browsing keeps the gallery, its filters and scroll position underneath. */
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, FileCode2, FolderSearch, Maximize2, Minimize2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
@@ -9,6 +9,8 @@ import type { LibraryImage } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { useFinderContextMenu } from "./finder-context-menu";
 import { ImageViewer, ImageZoom, useImageZoomSession } from "./image-viewer";
+import { createImageTabNavigation, createImageWheelNavigation } from "./image-wheel";
+import { useImageWheelPreferences } from "./use-image-wheel-preferences";
 
 export function ImageLibraryPreview({
 	root,
@@ -53,6 +55,40 @@ export function ImageLibraryPreview({
 		zoomSession.retain();
 		onStep(direction);
 	};
+	const wheelState = useRef({ step, index, total, fetching: query.isFetching });
+	wheelState.current = { step, index, total, fetching: query.isFetching };
+	const { preferences: wheelPreferences } = useImageWheelPreferences();
+	const wheelNavigation = useMemo(() => createImageWheelNavigation(wheelPreferences), [wheelPreferences]);
+	const tabNavigation = useMemo(() => createImageTabNavigation(wheelPreferences), [wheelPreferences]);
+	useEffect(() => {
+		const element = dialog.current;
+		if (!element) return;
+		const navigate = (event: WheelEvent) => {
+			if (!(event.target instanceof Element) || event.defaultPrevented) return;
+			if (event.target.closest("header,.image-context-form,input,textarea,select,button,[contenteditable]"))
+				return;
+			const current = wheelState.current;
+			const viewport = event.target.closest<HTMLElement>(".image-viewport");
+			const loadingSurface =
+				current.fetching && (event.target === element || !!event.target.closest(".inline-status"));
+			if (viewport ? !element.contains(viewport) : !loadingSurface) return;
+			const image = viewport?.querySelector("img");
+			const ready = !current.fetching && !!image?.complete && !!image.naturalWidth;
+			const decision = wheelNavigation(event, viewport, ready);
+			if (!decision.consume) return;
+			event.preventDefault();
+			if (current.fetching || !decision.direction) return;
+			if (
+				(decision.direction < 0 && current.index <= 0) ||
+				(decision.direction > 0 && current.index >= current.total - 1)
+			)
+				return;
+			current.step(decision.direction);
+		};
+		// React's delegated wheel handlers may be passive; this listener deliberately owns navigation.
+		element.addEventListener("wheel", navigate, { passive: false });
+		return () => element.removeEventListener("wheel", navigate);
+	}, [wheelNavigation]);
 	useEffect(() => {
 		setFailed(false);
 	}, [image.path, image.modified, image.size]);
@@ -84,6 +120,21 @@ export function ImageLibraryPreview({
 				onKeyDown={(event) => {
 					finder.onKeyDown(event);
 					if (event.defaultPrevented) return;
+					// Thumb-wheel tab commands apply only to an open image, never to text being edited.
+					if (
+						!(event.target as HTMLElement).closest(
+							'input:not([type="range"]),textarea,select,[contenteditable]',
+						)
+					) {
+						const decision = tabNavigation(event, !query.isFetching);
+						if (decision.consume) {
+							event.preventDefault();
+							event.stopPropagation();
+							if (decision.direction && (decision.direction < 0 ? index > 0 : index < total - 1))
+								step(decision.direction);
+							return;
+						}
+					}
 					if (event.metaKey || event.ctrlKey || event.altKey) return;
 					if ((event.target as HTMLElement).closest("input,textarea,select,[contenteditable]")) return;
 					const direction = ["ArrowRight", "PageDown"].includes(event.key)
@@ -111,7 +162,9 @@ export function ImageLibraryPreview({
 						className="icon-button"
 						aria-label={l.previousImage}
 						data-hint={l.previousImage}
-						aria-keyshortcuts="ArrowLeft PageUp"
+						aria-keyshortcuts={
+							wheelPreferences.axis === "tabs" ? "ArrowLeft PageUp Control+Shift+Tab" : "ArrowLeft PageUp"
+						}
 						disabled={index <= 0 || query.isFetching}
 						onClick={() => step(-1)}
 					>
@@ -122,7 +175,9 @@ export function ImageLibraryPreview({
 						className="icon-button"
 						aria-label={l.nextImage}
 						data-hint={l.nextImage}
-						aria-keyshortcuts="ArrowRight PageDown"
+						aria-keyshortcuts={
+							wheelPreferences.axis === "tabs" ? "ArrowRight PageDown Control+Tab" : "ArrowRight PageDown"
+						}
 						disabled={index >= total - 1 || query.isFetching}
 						onClick={() => step(1)}
 					>

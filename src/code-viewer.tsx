@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import "monaco-editor/basic-languages/monaco.contribution.js";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { fileAnnotationContext, useAnnotationMenu } from "./annotation-menu";
 import { api } from "./api";
 import { contextApi } from "./context-api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
@@ -26,8 +27,10 @@ import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
 import { ReaderNavigation } from "./reader-navigation";
 import { relocateLine } from "./reading-position";
+import { createSourceLanguageResolver } from "./source-language";
 import "./syntax-highlighting";
 import "monaco-editor/editor/contrib/find/browser/findController.js";
+import "monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js";
 
 // Local worker and local language grammars keep all code on the Mac and work offline.
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
@@ -112,39 +115,7 @@ const options: monaco.editor.IStandaloneEditorConstructionOptions = {
 	fontFamily: "SF Mono, Menlo, monospace",
 };
 
-function language(path: string): string {
-	const extension = path.split(".").pop()?.toLowerCase() ?? "";
-	return (
-		(
-			{
-				ts: "typescript",
-				tsx: "typescript",
-				js: "javascript",
-				mjs: "javascript",
-				jsx: "javascript",
-				py: "python",
-				rs: "rust",
-				md: "markdown",
-				json: "json",
-				jsonc: "json",
-				xml: "xml",
-				xsd: "xml",
-				xsl: "xml",
-				xslt: "xml",
-				svg: "xml",
-				css: "css",
-				html: "html",
-				toml: "toml",
-				yaml: "yaml",
-				yml: "yaml",
-				sh: "shell",
-				swift: "swift",
-				go: "go",
-				sql: "sql",
-			} as Record<string, string>
-		)[extension] ?? "plaintext"
-	);
-}
+const language = createSourceLanguageResolver(monaco.languages.getLanguages());
 
 interface CodeViewerProps {
 	selection: Selection | null;
@@ -154,6 +125,7 @@ interface CodeViewerProps {
 export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerProps) {
 	const { t, i18n } = useTranslation("workspace");
 	const editing = useFileEditing();
+	const annotationMenu = useAnnotationMenu();
 	const draft = selection && !selection.repo ? editing.draft(selection.project, selection.path) : undefined;
 	const [discard, setDiscard] = useState(false);
 	useEffect(() => setDiscard(false), [selection?.project, selection?.path]);
@@ -224,13 +196,13 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 		!draft &&
 		(query.data?.kind === "unsupported" || (query.data?.kind === "image" && !(svgSource && sourceRequested)));
 	const showMarkdown = isMarkdown && !draft && !nonText && !sourceRequested;
-	const capture = (): CodeContext | null => {
+	const capture = (sourceEditor = editorRef.current, sourceSide = sideRef.current): CodeContext | null => {
 		if (!selection || !query.data) return null;
-		const editor = showMarkdown || nonText ? null : editorRef.current;
+		const editor = showMarkdown || nonText ? null : sourceEditor;
 		const range = editor?.getSelection();
 		const selected = range && !range.isEmpty();
 		const renderedSelection = showMarkdown ? window.getSelection() : null;
-		const previewElement = document.querySelector('[data-testid="markdown-preview"]');
+		const previewElement = viewerElement.current?.querySelector('[data-testid="markdown-preview"]');
 		const renderedText =
 			renderedSelection?.anchorNode &&
 			renderedSelection.focusNode &&
@@ -244,7 +216,7 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			startLine: selected ? range.startLineNumber : null,
 			endLine: selected ? range.endLineNumber : null,
 			code: selected ? (editor?.getModel()?.getValueInRange(range) ?? "") : renderedText,
-			label: `${query.data.label} · ${showMarkdown ? t("viewer.markdown") : t(`viewer.${sideRef.current}`)}`,
+			label: `${query.data.label} · ${showMarkdown ? t("viewer.markdown") : t(`viewer.${sourceSide}`)}`,
 		};
 	};
 	useEffect(() => {
@@ -362,7 +334,25 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			data-reader-path={selection.path}
 			className={`code-viewer ${compact ? "compact" : ""}`}
 			data-testid="code-viewer"
+			onContextMenuCapture={(event) => {
+				const target = event.target as HTMLElement;
+				if (!target.closest('.monaco-container, [data-testid="markdown-preview"]')) return;
+				const original = diffRef.current?.getOriginalEditor();
+				const modified = diffRef.current?.getModifiedEditor();
+				const captured = original?.getDomNode()?.contains(target)
+					? capture(original, "before")
+					: modified?.getDomNode()?.contains(target)
+						? capture(modified, "after")
+						: capture();
+				if (captured?.code) annotationMenu.open(event, captured);
+			}}
+			onKeyDownCapture={(event) => {
+				if (!((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")) return;
+				const captured = capture();
+				if (captured?.code) annotationMenu.open(event, captured);
+			}}
 		>
+			{annotationMenu.menu}
 			{!nonText && (
 				<ReaderNavigation
 					key={`${selection.project}/${selection.path}`}
@@ -378,7 +368,10 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 				/>
 			)}
 			<div className="editor-toolbar">
-				<span className="editor-tab">
+				<span
+					className="editor-tab"
+					onContextMenu={(event) => annotationMenu.open(event, fileAnnotationContext(selection))}
+				>
 					<FileCode2 size={14} />
 					{selection.path.split("/").pop()}
 				</span>

@@ -934,12 +934,12 @@ h2 {
 }
 .git-body {
 	display: grid;
-	grid-template-columns: 210px minmax(0, 1fr);
+	grid-template-columns: minmax(120px, var(--repository-list-size, 210px)) 7px minmax(0, 1fr);
 	min-height: 0;
 	flex: 1;
 }
 .git-body.with-preview {
-	grid-template-columns: 180px minmax(0, 1fr);
+	grid-template-columns: minmax(120px, var(--repository-list-size, 180px)) 7px minmax(0, 1fr);
 }
 .git-detail-workspace > .code-viewer {
 	border-left: 1px solid var(--line);
@@ -1087,7 +1087,7 @@ details:not([open]) > summary > svg {
 }
 .history-columns {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 220px;
+	grid-template-columns: minmax(0, var(--history-list-size, 55%)) 7px minmax(0, 1fr);
 	flex: 1;
 	min-height: 0;
 }
@@ -1144,8 +1144,12 @@ details:not([open]) > summary > svg {
 	margin-left: 6px;
 }
 .commit-details {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
 	padding: 14px;
-	overflow: auto;
+	overflow: hidden;
 	background: var(--panel);
 	border-left: 1px solid var(--line);
 	font-size: 11px;
@@ -1167,8 +1171,9 @@ details:not([open]) > summary > svg {
 	font-size: 10px;
 	overflow-wrap: anywhere;
 }
-.with-preview .history-columns {
-	grid-template-columns: 1fr;
+.history-columns.stacked {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, var(--history-list-size, 55%)) 7px minmax(0, 1fr);
 }
 .with-preview .commit-details {
 	border-left: 0;
@@ -1201,13 +1206,10 @@ details:not([open]) > summary > svg {
 		display: none;
 	}
 	.git-body {
-		grid-template-columns: 180px minmax(0, 1fr);
+		grid-template-columns: minmax(120px, var(--repository-list-size, 180px)) 7px minmax(0, 1fr);
 	}
 	.git-body.with-preview {
-		grid-template-columns: 140px minmax(0, 1fr);
-	}
-	.history-columns {
-		grid-template-columns: minmax(0, 1fr) 175px;
+		grid-template-columns: minmax(120px, var(--repository-list-size, 140px)) 7px minmax(0, 1fr);
 	}
 	.dashboard-summary {
 		gap: 20px;
@@ -2498,4 +2500,88 @@ span.markdown-expandable {
 }
 .integration-feedback p {
 	margin: 4px 0;
+}
+
+.commit-file-list {
+	min-height: 0;
+	overflow: auto;
+	flex: 1;
+}
+.commit-details > svg {
+	flex-shrink: 0;
+}
+.commit-files-toolbar {
+	flex-wrap: wrap;
+	padding: 8px 0;
+	flex-shrink: 0;
+}
+.commit-files-toolbar h4 {
+	margin: 0;
+}
+.git-scope-note {
+	color: var(--muted);
+	font-size: 11px;
+	padding: 0 8px;
+}
+.repo-button > .repo-location {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.commit-metadata {
+	max-height: 40%;
+	overflow: auto;
+	flex-shrink: 0;
+}
+.history-columns:not(:has(.commit-details)) {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.image-wheel-settings {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 16px;
+}
+.image-wheel-settings p {
+	margin: 0;
+}
+.image-wheel-settings-controls {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+	align-items: start;
+	gap: 24px;
+}
+.image-wheel-settings-field {
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+	min-width: 0;
+}
+.image-wheel-settings-field select {
+	padding: 8px 12px;
+	width: 100%;
+}
+.image-wheel-sensitivity-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-height: 36px;
+}
+.image-wheel-sensitivity-row input {
+	flex: 1;
+	min-width: 0;
+}
+.image-wheel-sensitivity-row output {
+	white-space: nowrap;
+}
+.image-wheel-scale {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	gap: 16px;
 }

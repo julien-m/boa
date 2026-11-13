@@ -51,6 +51,7 @@ export function GitPanel({
 		enabled: Boolean(repo && !repo.error),
 	});
 	const detailRef = useRef<HTMLDivElement>(null);
+	const repositoriesRef = useRef<HTMLDivElement>(null);
 	const changesSelection = useRef<Selection | null>(null);
 	const selectTab = (next: "changes" | "history" | "compare"): void => {
 		if (next === tab) return;
@@ -110,7 +111,7 @@ export function GitPanel({
 					className={`git-tab ${tab === "changes" ? "active" : ""}`}
 					onClick={() => selectTab("changes")}
 				>
-					{t("changes")} <span>{repos.reduce((sum, item) => sum + item.changes.length, 0)}</span>
+					{t("changes")} <span>{repo?.changes.length ?? 0}</span>
 				</button>
 				<button
 					type="button"
@@ -163,7 +164,7 @@ export function GitPanel({
 					<p>{t("noRepositories")}</p>
 				</div>
 			) : (
-				<div className={`git-body ${expanded ? "with-preview" : ""}`}>
+				<div ref={repositoriesRef} className={`git-body ${expanded ? "with-preview" : ""}`}>
 					<aside className="repo-list">
 						<div className="pane-heading">{t("repositoriesHeading")}</div>
 						{repos.map((item) => (
@@ -172,21 +173,34 @@ export function GitPanel({
 								key={item.path}
 								data-testid={`repo-${item.path}`}
 								className={`repo-button ${item.path === repo.path ? "selected" : ""}`}
-								data-hint={item.path}
+								data-hint={`${item.path} · ${t("localChangeCount", { count: item.changes.length })}`}
 								onClick={() => handleRepository(item.path)}
 							>
 								<span>
 									<FolderGit2 size={14} />
 									<strong className="truncate">{item.name}</strong>
-									<span className="file-state">{item.error ? "!" : item.changes.length || "✓"}</span>
+									<span
+										className="file-state"
+										aria-label={t("localChangeCount", { count: item.changes.length })}
+									>
+										{item.error ? "!" : item.changes.length || "✓"}
+									</span>
 								</span>
 								<small>
 									<GitBranch size={11} />
 									{item.branch || t("noBranch")}
 								</small>
+								<small className="repo-location truncate">
+									{item.path === project.path
+										? "."
+										: item.path.startsWith(`${project.path}/`)
+											? item.path.slice(project.path.length + 1)
+											: item.path}
+								</small>
 							</button>
 						))}
 					</aside>
+					<PanelResizer container={repositoriesRef} vertical panel="repositories" />
 					<div
 						ref={detailRef}
 						className={`git-detail-workspace ${expanded ? "with-editor" : ""}`}
@@ -216,6 +230,7 @@ export function GitPanel({
 										/>
 									) : (
 										<History
+											expanded={expanded}
 											project={project}
 											repo={repo}
 											branch={branch}
@@ -269,7 +284,9 @@ function ChangeList({
 	return (
 		<>
 			<div className="content-toolbar">
-				<span>{t("filesToCommit", { count: repo.changes.length })}</span>
+				<span data-hint={repo.path}>
+					{repo.name} · {t("localChangeCount", { count: repo.changes.length })}
+				</span>
 				<label>
 					{t("view")}{" "}
 					<select
@@ -289,6 +306,7 @@ function ChangeList({
 				</div>
 			) : (
 				<div className="change-sections">
+					<p className="git-scope-note">{t("localChangesNote")}</p>
 					{staged.length > 0 && (
 						<section>
 							<h3>
@@ -420,6 +438,7 @@ function ChangeTree({
 }
 
 function History({
+	expanded,
 	project,
 	repo,
 	branch,
@@ -429,6 +448,7 @@ function History({
 	onSelect,
 	selection,
 }: {
+	expanded: boolean;
 	selection: Selection | null;
 	project: Project;
 	repo: RepoStatus;
@@ -439,6 +459,8 @@ function History({
 	onSelect: (selection: Selection) => void;
 }) {
 	const { t } = useTranslation("git");
+	const historyRef = useRef<HTMLDivElement>(null);
+	const [grouped, setGrouped] = useState(true);
 	const branches = useQuery({
 		queryKey: ["branches", project.path, repo.path],
 		queryFn: () => api.branches(project.path, repo.path),
@@ -499,7 +521,7 @@ function History({
 			)}
 			{history.error && <p className="inline-error">{String(history.error)}</p>}
 			{history.isPending && <p className="inline-status">{t("loadingHistory")}</p>}
-			<div className="history-columns">
+			<div ref={historyRef} className={`history-columns ${expanded ? "stacked" : ""}`}>
 				<div className="commit-list" data-testid="commit-list">
 					{commits.map((commit, index) => (
 						<button
@@ -542,26 +564,56 @@ function History({
 					)}
 				</div>
 				{selected && (
-					<aside className="commit-details" data-testid="commit-details">
-						<CommitDetails commit={selected} />
-						{commitFiles.error && <p className="inline-error">{String(commitFiles.error)}</p>}
-						<ChangeTree
-							changes={commitFiles.data ?? []}
-							selected={
-								selection?.repo === repo.path && selection.hash === selected.hash ? selection.path : undefined
-							}
-							grouped
-							onSelect={(change) =>
-								onSelect({
-									project: project.path,
-									repo: repo.path,
-									path: change.path,
-									oldPath: change.oldPath,
-									hash: selected.hash,
-								})
-							}
+					<>
+						<PanelResizer
+							key={expanded ? "stacked" : "columns"}
+							container={historyRef}
+							vertical={!expanded}
+							panel="history"
 						/>
-					</aside>
+						<aside className="commit-details" data-testid="commit-details">
+							<div className="commit-metadata">
+								<CommitDetails commit={selected} />
+							</div>
+							<div className="content-toolbar commit-files-toolbar">
+								<h4 data-testid="commit-file-count">
+									{t("commitFiles")}{" "}
+									{commitFiles.data && `· ${t("fileCount", { count: commitFiles.data.length })}`}
+								</h4>
+								<select
+									data-testid="commit-grouping"
+									aria-label={t("view")}
+									value={grouped ? "folders" : "list"}
+									onChange={(event) => setGrouped(event.target.value === "folders")}
+								>
+									<option value="folders">{t("byFolder")}</option>
+									<option value="list">{t("list")}</option>
+								</select>
+							</div>
+							{commitFiles.isPending && <p className="inline-status">{t("loading")}</p>}
+							<div className="commit-file-list">
+								{commitFiles.error && <p className="inline-error">{String(commitFiles.error)}</p>}
+								<ChangeTree
+									changes={commitFiles.data ?? []}
+									selected={
+										selection?.repo === repo.path && selection.hash === selected.hash
+											? selection.path
+											: undefined
+									}
+									grouped={grouped}
+									onSelect={(change) =>
+										onSelect({
+											project: project.path,
+											repo: repo.path,
+											path: change.path,
+											oldPath: change.oldPath,
+											hash: selected.hash,
+										})
+									}
+								/>
+							</div>
+						</aside>
+					</>
 				)}
 			</div>
 		</>
@@ -569,7 +621,6 @@ function History({
 }
 
 function CommitDetails({ commit }: { commit: Commit }) {
-	const { t } = useTranslation("git");
 	return (
 		<>
 			<GitCommitHorizontal size={18} />
@@ -580,7 +631,6 @@ function CommitDetails({ commit }: { commit: Commit }) {
 				{new Date(commit.date).toLocaleString(getLocale())}
 			</p>
 			<code>{commit.hash.slice(0, 12)}</code>
-			<h4>{t("commitFiles")}</h4>
 		</>
 	);
 }

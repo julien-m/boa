@@ -1,5 +1,6 @@
 import { FileCode2, Folder, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { fileAnnotationContext, useAnnotationMenu } from "./annotation-menu";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { useContextLabels } from "./context-labels";
@@ -28,6 +29,7 @@ export function FileSpaceView({
 	const contextLabels = useContextLabels();
 	const entries = spaceEntries(space);
 	const editing = useFileEditing();
+	const annotation = useAnnotationMenu();
 	const [state, setState] = useState<{
 		tabs: Selection[];
 		preview: string | null;
@@ -198,12 +200,18 @@ export function FileSpaceView({
 				}
 			>
 				<div className="file-editor">
+					{annotation.menu}
 					{!!state.tabs.length && (
 						<div className="file-tabs" role="tablist" aria-label={l.files}>
 							{state.tabs.map((tab) => (
 								<div
 									className={`file-tab ${state.selected && key(state.selected) === key(tab) ? "active" : ""}`}
 									key={key(tab)}
+									onContextMenu={(event) => annotation.open(event, fileAnnotationContext(tab))}
+									onKeyDown={(event) => {
+										if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
+											annotation.open(event, fileAnnotationContext(tab));
+									}}
 								>
 									<button
 										type="button"

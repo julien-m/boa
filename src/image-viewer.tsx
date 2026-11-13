@@ -16,6 +16,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { consumeImageAction } from "./image-actions";
 import { ImageComparison } from "./image-comparison";
+import { useImageContext } from "./image-context";
 
 type ImageLocation = { project: string; path: string };
 type ImageBackground = { mode: "default" | "checkerboard" | "white" | "black" | "custom"; color: string };
@@ -159,6 +160,15 @@ function ImageContent({
 	const viewport = useRef<HTMLDivElement>(null);
 	const container = useRef<HTMLDivElement>(null);
 	const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
+	const imageRef = useRef<HTMLImageElement>(null);
+	const [picking, setPicking] = useState(false);
+	const annotation = useImageContext({
+		src,
+		location,
+		image: imageRef,
+		ready: !!natural,
+		onActivate: () => setPicking(false),
+	});
 	const [bounds, setBounds] = useState({ width: 0, height: 0 });
 	const [localZoom, setLocalZoom] = useState<number | null>(null);
 	const sharedZoom = useContext(ImageZoomContext);
@@ -168,7 +178,6 @@ function ImageContent({
 	const [localGrid, setLocalGrid] = useState(false);
 	const grid = sharedZoom?.grid ?? localGrid;
 	const setGrid = sharedZoom?.setGrid ?? setLocalGrid;
-	const [picking, setPicking] = useState(false);
 	const [comparing, setComparing] = useState(false);
 	useEffect(() => {
 		if (!natural || !location) return;
@@ -296,6 +305,7 @@ function ImageContent({
 				actions={
 					<>
 						{actions}
+						{annotation.actions}
 						<select
 							className="image-background-select"
 							aria-label={t("imageTools.background")}
@@ -335,6 +345,7 @@ function ImageContent({
 							aria-pressed={picking}
 							disabled={!natural}
 							onClick={() => {
+								// Sampling and annotation are mutually exclusive pointer tools.
 								setPicking(!picking);
 								setSample("");
 							}}
@@ -392,13 +403,15 @@ function ImageContent({
 				<div className="image-canvas" style={backgroundStyle}>
 					<div className="image-pixel-surface">
 						<img
+							ref={imageRef}
 							src={src}
 							alt={alt}
 							referrerPolicy="no-referrer"
 							draggable={false}
-							className={picking ? "picking" : undefined}
+							className={picking ? "picking" : annotation.enabled ? "annotating" : undefined}
 							onPointerDown={(event) => {
-								void pick(event);
+								if (picking) void pick(event);
+								else annotation.onPoint(event);
 							}}
 							style={{
 								// Keep the browser's intrinsic-size paint hidden until sizing and scale commit together.
@@ -416,6 +429,7 @@ function ImageContent({
 								onError();
 							}}
 						/>
+						{annotation.overlay}
 						{grid && scale >= 4 && (
 							<span
 								className="image-pixel-grid"
@@ -426,6 +440,7 @@ function ImageContent({
 					</div>
 				</div>
 			</div>
+			{annotation.form}
 			{comparing && (
 				<ImageComparison
 					src={src}
