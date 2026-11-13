@@ -1930,8 +1930,14 @@ try {
 	await page.keyboard.press("Escape");
 	await expect(comparison).toHaveCount(0);
 	await expect(lightbox).toBeVisible();
-	// Annotate distinct images, retain normalized positions through zoom/navigation, then export once.
+	// Selecting annotation must replace the sampler without changing the clipboard.
+	const pipette = lightbox.getByRole("button", { name: "Pipette · copier une couleur", exact: true });
+	await pipette.click();
+	await expect(pipette).toHaveAttribute("aria-pressed", "true");
 	await lightbox.getByTestId("image-annotate").click();
+	await expect(pipette).toHaveAttribute("aria-pressed", "false");
+	const sampledClipboard = clipboard;
+	// Annotate distinct images, retain normalized positions through zoom/navigation, then export once.
 	const annotateAt = async (x: number, y: number, message: string) => {
 		const img = lightbox.locator(".image-pixel-surface img");
 		const bounds = await img.boundingBox();
@@ -1943,6 +1949,7 @@ try {
 		await expect(lightbox.getByTestId("image-context-form")).toHaveCount(0);
 	};
 	await annotateAt(0.25, 0.75, "Move the primary control");
+	expect(clipboard).toBe(sampledClipboard);
 	await expect(lightbox.locator(".image-context-marker")).toHaveCSS("background-color", "rgb(51, 156, 255)");
 	const firstPin = lightbox.getByRole("button", { name: "Annotation 1", exact: true });
 	await firstPin.hover();

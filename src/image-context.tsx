@@ -249,11 +249,13 @@ export function useImageContext({
 	location,
 	image,
 	ready,
+	onActivate,
 }: {
 	src: string;
 	location?: { project: string; path: string };
 	image: RefObject<HTMLImageElement | null>;
 	ready: boolean;
+	onActivate?: () => void;
 }) {
 	const c = useContextCollection();
 	const l = useCollectionLabels();
@@ -368,6 +370,7 @@ export function useImageContext({
 					disabled={!ready || !c.ready || !sourceKey}
 					aria-pressed={enabled}
 					onClick={() => {
+						onActivate?.();
 						c.setAnnotating(!enabled);
 						if (enabled) close();
 					}}

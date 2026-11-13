@@ -161,7 +161,14 @@ function ImageContent({
 	const container = useRef<HTMLDivElement>(null);
 	const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
 	const imageRef = useRef<HTMLImageElement>(null);
-	const annotation = useImageContext({ src, location, image: imageRef, ready: !!natural });
+	const [picking, setPicking] = useState(false);
+	const annotation = useImageContext({
+		src,
+		location,
+		image: imageRef,
+		ready: !!natural,
+		onActivate: () => setPicking(false),
+	});
 	const [bounds, setBounds] = useState({ width: 0, height: 0 });
 	const [localZoom, setLocalZoom] = useState<number | null>(null);
 	const sharedZoom = useContext(ImageZoomContext);
@@ -171,7 +178,6 @@ function ImageContent({
 	const [localGrid, setLocalGrid] = useState(false);
 	const grid = sharedZoom?.grid ?? localGrid;
 	const setGrid = sharedZoom?.setGrid ?? setLocalGrid;
-	const [picking, setPicking] = useState(false);
 	const [comparing, setComparing] = useState(false);
 	useEffect(() => {
 		if (!natural || !location) return;
