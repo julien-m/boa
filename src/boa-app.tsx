@@ -2,7 +2,6 @@
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import {
 	Archive,
@@ -41,6 +40,7 @@ import { createFilesystemRefresh, projectSummaryOptions } from "./filesystem-ref
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import type { Selection } from "./models";
 import { countRepos, type Project, type Summary } from "./models";
+import { subscribeNativeOpenings } from "./native-openings";
 import { localizeNativeText } from "./native-text";
 import { parseNavigation } from "./navigation";
 import { ProjectView } from "./project-view";
@@ -241,6 +241,7 @@ export default function App() {
 					endLine = undefined;
 				}
 				const spaces = await fileWorkspace.state();
+				await client.invalidateQueries({ queryKey: ["file-workspace"] });
 				if (disposed || latest !== request.requestId) {
 					await acknowledge("failed", "Superseded by another navigation request");
 					return;
@@ -266,6 +267,7 @@ export default function App() {
 					contextRef,
 					anchorStatus,
 					receiptId: request.requestId,
+					keepOpen: true,
 					navigationId: request.requestId,
 				};
 				history.visit({
@@ -283,6 +285,7 @@ export default function App() {
 					anchorStatus,
 					source: request.source,
 					receiptId: request.requestId,
+					keepOpen: true,
 					navigationId: request.requestId,
 				});
 			} catch (error) {
@@ -311,66 +314,54 @@ export default function App() {
 	}, []);
 	useEffect(() => {
 		let disposed = false;
-		let cleanup: (() => void) | undefined;
 		const handleLinks = async (urls: string[]): Promise<void> => {
 			if (disposed) return;
-			try {
-				const raw = urls.at(-1);
-				if (!raw) return;
-				const request = parseNavigation(raw);
-				if (pausedRef.current && !request.document) return;
-				const target = request.document
-					? await api.openDocument(request.file)
-					: await api.navigate(request.file);
-				const spaces = await fileWorkspace.state();
-				const containing = spaces.spaces.find((s) => spaceEntries(s).includes(target.project));
-				if (!containing) await api.add(target.project);
-				await client.invalidateQueries({ queryKey: ["projects"] });
-				if (request.document) await client.invalidateQueries({ queryKey: ["file-workspace"] });
-				if (disposed || (pausedRef.current && !request.document)) return;
-				history.visit({
-					view: containing ? "space" : "project",
-					root: target.project,
-					space: containing?.id,
-					workspace: navigationVisit({ ...target, line: request.line, endLine: request.endLine }),
-					request: {
+			for (const raw of urls) {
+				if (disposed) return;
+				try {
+					const request = parseNavigation(raw);
+					if (pausedRef.current && !request.document) continue;
+					const target = request.document
+						? await api.openDocument(request.file)
+						: await api.navigate(request.file);
+					const spaces = await fileWorkspace.state();
+					const containing = spaces.spaces.find((s) => spaceEntries(s).includes(target.project));
+					if (!containing) await api.add(target.project);
+					await client.invalidateQueries({ queryKey: ["projects"] });
+					if (request.document) await client.invalidateQueries({ queryKey: ["file-workspace"] });
+					if (disposed || (pausedRef.current && !request.document)) return;
+					history.visit({
+						view: containing ? "space" : "project",
+						root: target.project,
+						space: containing?.id,
+						workspace: navigationVisit({ ...target, line: request.line, endLine: request.endLine }),
+						request: {
+							...target,
+							line: request.line,
+							endLine: request.endLine,
+							keepOpen: true,
+							navigationId: crypto.randomUUID(),
+						},
+					});
+					setNavigation({
 						...target,
 						line: request.line,
 						endLine: request.endLine,
+						source: request.document ? "BOA" : request.source,
+						keepOpen: true,
 						navigationId: crypto.randomUUID(),
-					},
-				});
-				setNavigation({
-					...target,
-					line: request.line,
-					endLine: request.endLine,
-					source: request.document ? "BOA" : request.source,
-					navigationId: crypto.randomUUID(),
-				});
-			} catch (error) {
-				if (!disposed) setNotice(localizeNativeText(String(error)));
-			}
-		};
-		const subscribe = async (): Promise<void> => {
-			try {
-				const unlisten = await onOpenUrl((urls) => {
-					void handleLinks(urls);
-				});
-				if (disposed) {
-					unlisten();
-					return;
+					});
+				} catch (error) {
+					if (!disposed) setNotice(localizeNativeText(String(error)));
 				}
-				cleanup = unlisten;
-				const urls = await getCurrent();
-				if (urls) await handleLinks(urls);
-			} catch (error) {
-				if (!disposed) setNotice(t("cliNavigationUnavailable", { error: localizeNativeText(String(error)) }));
 			}
 		};
-		void subscribe();
+		const cleanup = subscribeNativeOpenings(handleLinks, (error) => {
+			if (!disposed) setNotice(t("cliNavigationUnavailable", { error: localizeNativeText(String(error)) }));
+		});
 		return () => {
 			disposed = true;
-			cleanup?.();
+			cleanup();
 		};
 	}, []);
 	useEffect(() => {

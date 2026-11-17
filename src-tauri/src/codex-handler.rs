@@ -48,9 +48,9 @@ fn parse(input: &str) -> Result<Target, String> {
     if !path.is_absolute()
         || file.contains('\0')
         || path.components().any(|p| matches!(p, Component::ParentDir))
-        || !path.is_file()
+        || (!path.is_file() && !path.is_dir())
     {
-        return Err("Expected an existing absolute local file".into());
+        return Err("Expected an existing absolute local file or folder".into());
     }
     let line = match object.get("location").filter(|value| !value.is_null()) {
         None => 1,
@@ -113,10 +113,14 @@ pub(crate) fn installed_bundle(executable: &Path) -> Result<PathBuf, String> {
     Ok(bundle.to_path_buf())
 }
 
-fn launch(bundle: &Path) -> Result<(), String> {
-    let mut child = Command::new("/usr/bin/open")
-        .arg("-a")
-        .arg(bundle)
+fn launch(bundle: &Path, folder: Option<&str>) -> Result<(), String> {
+    // The OS routes the selected folder as a local file URL to this exact installed bundle.
+    let mut command = Command::new("/usr/bin/open");
+    command.arg("-a").arg(bundle);
+    if let Some(folder) = folder {
+        command.arg(folder);
+    }
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -202,7 +206,7 @@ fn request(mut stream: UnixStream, value: &Value, timeout: Duration) -> Result<R
 }
 
 fn open(target: Target, bundle: &Path) -> Result<Receipt, String> {
-    launch(bundle)?;
+    launch(bundle, None)?;
     let socket = PathBuf::from(format!("/tmp/boa-cli-{}/rpc.sock", uid()));
     let startup = Instant::now() + Duration::from_secs(8);
     let stream = loop {
@@ -237,7 +241,12 @@ fn open(target: Target, bundle: &Path) -> Result<Receipt, String> {
     Ok(receipt)
 }
 
-fn run(args: &[OsString]) -> Result<Receipt, String> {
+enum OpenOutcome {
+    Reader(Box<Receipt>),
+    FolderRequested(String),
+}
+
+fn run(args: &[OsString]) -> Result<OpenOutcome, String> {
     if args.len() != 2 {
         return Err("Usage: boa --codex-open '<handler-json>'".into());
     }
@@ -245,7 +254,12 @@ fn run(args: &[OsString]) -> Result<Receipt, String> {
     let target = parse(input)?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let bundle = installed_bundle(&executable)?;
-    open(target, &bundle)
+    // A folder has no reader passage to acknowledge; navigation is handed to the native URL route.
+    if Path::new(&target.file).is_dir() {
+        launch(&bundle, Some(&target.file))?;
+        return Ok(OpenOutcome::FolderRequested(target.file));
+    }
+    open(target, &bundle).map(|receipt| OpenOutcome::Reader(Box::new(receipt)))
 }
 
 /// Return `None` for the normal GUI launch; this entry never starts a second Tauri instance.
@@ -255,9 +269,16 @@ pub fn codex_open_entry() -> Option<i32> {
         return None;
     }
     Some(match run(&args) {
-        Ok(receipt) => {
+        Ok(OpenOutcome::Reader(receipt)) => {
             println!("{}", json!({"ok":true,"result":receipt}));
             if receipt.status == "displayed" { 0 } else { 2 }
+        }
+        Ok(OpenOutcome::FolderRequested(file)) => {
+            println!(
+                "{}",
+                json!({"ok":true,"result":{"status":"requested","file":file}})
+            );
+            0
         }
         Err(error) => {
             eprintln!("{}", json!({"ok":false,"error":error}));
@@ -293,7 +314,15 @@ mod tests {
             assert!(parse(&json!({"path":file,"location":location}).to_string()).is_err());
         }
         assert!(parse(&json!({"path":file,"remotePath":"/remote"}).to_string()).is_err());
-        assert!(parse(&json!({"path":temp.path()}).to_string()).is_err());
+        assert_eq!(
+            Path::new(
+                &parse(&json!({"path":temp.path()}).to_string())
+                    .unwrap()
+                    .file
+            ),
+            temp.path()
+        );
+        assert!(parse(&json!({"path":temp.path().join("missing")}).to_string()).is_err());
     }
 
     #[test]

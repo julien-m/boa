@@ -20,3 +20,8 @@ it("keeps external protocols and invalid destinations out of local navigation", 
 	])
 		expect(localMarkdownLink(href, "/workspace/plan.md")).toBeNull();
 });
+
+it("preserves directory destinations with and without trailing slashes for native classification", () => {
+	for (const href of ["captures", "captures/"])
+		expect(localMarkdownLink(href, "/workspace/index.md")?.file).toBe(`/workspace/${href}`);
+});

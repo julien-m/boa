@@ -303,9 +303,9 @@ The custom root keeps the skill canonical in this repository and lets cc-hub man
 
 Install the signed application in `~/Applications` or `/Applications`, then open **Settings → Integrations → Configure Codex**. BOA saves its native executable as a custom file handler, embeds its logo, and sets BOA as the global and existing per-project editor preference. Other handlers and settings are preserved. Restart Codex to load the new handler, logo and preference. BOA reports configuration saved on disk; it does not restart Codex or claim that an already running instance has refreshed its menu.
 
-The installed handler runs directly from the application bundle (`Contents/MacOS/boa --codex-open '<handler-json>'`). It needs neither Bun nor this repository. It accepts a local absolute `path` and optional `location: { line, column }`; missing positions open line 1. Remote files are unsupported. The selected file is reused in its registered project or file space; otherwise only that file is added to **Opened files**.
+The installed handler runs directly from the application bundle (`Contents/MacOS/boa --codex-open '<handler-json>'`). It needs neither Bun nor this repository. It accepts a local absolute `path` and optional `location: { line, column }`; missing positions open line 1. Remote files are unsupported. The selected file or folder is reused in its registered project or file space; otherwise only that entry is added to an **Opened files · folder** space. Files from the same directory share a space; other directories get separate spaces. Explicit openings keep their tabs, and switching projects or spaces preserves each tab list and reading position for the current session. Existing spaces, including legacy **Opened files** collections, remain intact. Files retain display receipts. Folder requests report `requested` after macOS hands them to BOA; this is a navigation request, not a confirmed reader display.
 
-The handler explicitly launches its own installed bundle and sends the file through private, bounded, acknowledged navigation. Exit 0 means the reader confirmed display; a paused or unconfirmed request returns a nonzero status. Editing and **Take control** retain their normal protection. Read [the development adapter](scripts/codex-open.ts) only for checkout-based troubleshooting; it is not required by the installed integration.
+The handler explicitly launches its own installed bundle and sends the file through private, bounded, acknowledged navigation. For files, exit 0 means the reader confirmed display; a paused or unconfirmed request returns a nonzero status. Editing and **Take control** retain their normal protection. Read [the development adapter](scripts/codex-open.ts) only for checkout-based troubleshooting; it is not required by the installed integration.
 
 Some Codex reader header **Open** menus omit the original file-reference line. BOA cannot recover coordinates that were not sent. Use the original file reference's **right-click → Open with → BOA** menu to preserve the line, or `boa open --line … --wait --json`. Clicking the reference normally still opens Codex's internal reader.
 
@@ -427,6 +427,10 @@ For maintenance instructions, read [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE
 Opening the visible-item chooser keeps the current filter unchanged until an item is selected. If an empty selection was previously saved, use **Show all** directly in the empty tree to restore all files permanently.
 
 Tree/project/global search fields show a clear button while nonempty. Escape clears their text and results while keeping focus; a second Escape closes contextual/global search panels. The in-file reader bar differs: a single Escape clears and hides it while retaining the reached position.
+
+Drop existing files or folders onto the BOA window, or use **Open With → BOA**. Registered locations are reused; other items join the local **Opened files** space. A dropped file opens in a retained reader tab and a folder opens its file tree. Multiple items are processed in order, with at most 64 items per opening and 64 entries per space. BOA references the selected items in place, without copying them or registering their parent folders. Folder imports do not run Git discovery. Explicit local openings remain available while assistant guidance is paused.
+
+Local Markdown links to folders reveal their contents in the file tree while keeping the current document open. Folder destinations are checked on disk, with or without a trailing slash.
 
 ## Keyboard shortcuts
 

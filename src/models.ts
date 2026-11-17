@@ -62,6 +62,8 @@ export interface Branch {
 	remote: boolean;
 }
 export interface Selection {
+	/** Explicit OS opens retain their tabs when a batch contains several files. */
+	keepOpen?: boolean;
 	project: string;
 	absolutePath?: string;
 	repo?: string;

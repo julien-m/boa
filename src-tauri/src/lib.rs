@@ -509,8 +509,9 @@ fn navigation_target(state: &AppState, file: &Path) -> Result<Navigation, String
     {
         return Err("Chemin de navigation invalide".into());
     }
-    if !file.is_file() {
-        return Err("Le chemin doit désigner un fichier".into());
+    let directory = file.is_dir();
+    if !file.is_file() && !directory {
+        return Err("Expected an existing absolute local file or folder".into());
     }
     let config = state.config.lock().map_err(|e| e.to_string())?;
     let (root, relative) = config
@@ -530,7 +531,10 @@ fn navigation_target(state: &AppState, file: &Path) -> Result<Navigation, String
         .ok_or("Importez d’abord ce projet dans BOA")?;
     Ok(Navigation {
         project: root.into(),
-        path: if relative.as_os_str().is_empty() {
+        // A trailing slash is the existing UI navigation contract for browsing, never a reader tab.
+        path: if directory {
+            format!("{}/", relative.to_string_lossy())
+        } else if relative.as_os_str().is_empty() {
             file.file_name()
                 .ok_or("Nom de fichier invalide")?
                 .to_string_lossy()

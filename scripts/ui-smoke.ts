@@ -357,6 +357,18 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			summaryCalls++;
 			return { repos: [repo, nestedRepo], scanLimited: false };
 		case "read_directory":
+			if (args.path === "oversized")
+				throw new Error("Dossier contenant plus de 3 000 éléments : ouvrez un sous-dossier.");
+			if (args.path === "captures")
+				return [
+					{
+						name: "capture.png",
+						path: "captures/capture.png",
+						directory: false,
+						symlink: false,
+						repository: false,
+					},
+				];
 			if (fileSpaces.some((s) => s.files?.includes(String(args.project)))) {
 				const name = String(args.project).split("/").pop()!;
 				return [{ name, path: name, directory: false, symlink: false, repository: false }];
@@ -371,10 +383,11 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				"wrangler.jsonc",
 				"preview.png",
 				"preview-second.png",
+				"captures",
 			].map((name) => ({
 				name,
 				path: name,
-				directory: false,
+				directory: name === "captures",
 				symlink: false,
 				repository: false,
 			}));
@@ -384,6 +397,16 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
+			if (args.path === "folder-links.md")
+				return {
+					original: "",
+					modified:
+						"# Folder links\n\n[Captures](captures/) · [Dossier sans suffixe](captures) · [Notes hors listing](oversized/notes.md)",
+					path: args.path,
+					label: "folder-links.md",
+					binary: false,
+					editable: true,
+				};
 			if (args.path === "docs/linked.md")
 				return {
 					original: "",
@@ -470,8 +493,40 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			};
 		case "compare_branch":
 			return { base: "main", head: hash, mergeBase: "b".repeat(40), changes: [change] };
-		case "resolve_navigation":
-			return { project: directory, path: "sample.ts" };
+		case "open_document": {
+			const file = String(args.file);
+			if (file.startsWith(`${directory}/`))
+				return { project: directory, path: file.slice(directory.length + 1) };
+			const folder = file === "/external/captures";
+			const parent = file.slice(0, file.lastIndexOf("/"));
+			let space = fileSpaces.find(
+				(space) =>
+					space.files?.length &&
+					space.roots.length === 0 &&
+					space.files.every((entry) => entry.slice(0, entry.lastIndexOf("/")) === parent),
+			);
+			if (!space) {
+				space = {
+					id: `opened-files-${fileSpaces.length + 1}`,
+					name: `Opened files · ${folder ? file : parent}`,
+					roots: [],
+					files: [],
+				};
+				fileSpaces.push(space);
+			}
+			if (folder) {
+				if (!space.roots.includes(file)) space.roots.push(file);
+			} else {
+				space.files ??= [];
+				if (!space.files.includes(file)) space.files.push(file);
+			}
+			return { project: file, path: folder ? "/" : file.split("/").pop()! };
+		}
+		case "resolve_navigation": {
+			const file = String(args.file);
+			const path = file.startsWith(`${directory}/`) ? file.slice(directory.length + 1) : "sample.ts";
+			return { project: directory, path: path.replace(/\/+$/, "") === "captures" ? "captures/" : path };
+		}
 		case "context_collection_load":
 			return collectionDraft;
 		case "context_collection_save":
@@ -988,6 +1043,10 @@ try {
 	await page.getByTestId("file-sample.ts").click();
 	await expect(page.getByTestId("code-viewer")).toContainText("sample.ts");
 	expect(await page.getByTestId("code-viewer").evaluate((e) => e.clientHeight)).toBeGreaterThan(200);
+	// Prior workspace visits now retain tabs: close them explicitly to isolate the preview contract.
+	while (await page.locator('[data-testid^="close-tab-"]').count())
+		await page.locator('[data-testid^="close-tab-"]').first().click();
+	await page.getByTestId("file-sample.ts").click();
 	// Temporary previews replace each other; retained tabs survive and close independently.
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	await page.getByTestId("file-README.md").click();
@@ -2365,6 +2424,99 @@ try {
 	await page.getByTestId("collection-panel").getByRole("button", { name: "Fermer", exact: true }).click();
 	await page.getByTestId("settings-nav").click();
 	await expect(page.getByTestId("image-wheel-axis")).toHaveValue("tabs");
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("project-card-BOA QA").click();
+	await page.evaluate(
+		(project) =>
+			window.dispatchEvent(
+				new CustomEvent("boa:open-file", { detail: { project, path: "folder-links.md" } }),
+			),
+		directory,
+	);
+	for (const name of ["Captures", "Dossier sans suffixe"]) {
+		await page.getByTestId("markdown-preview").getByRole("link", { name, exact: true }).click();
+		await expect(page.getByTestId("directory-captures")).toBeVisible();
+		await expect(page.getByTestId("file-captures/capture.png")).toBeVisible();
+		await expect(page.getByTestId("tab-captures/")).toHaveCount(0);
+		await expect(page.getByTestId("tab-captures")).toHaveCount(0);
+		await expect(
+			page.getByTestId("markdown-preview").getByRole("heading", { name: "Folder links" }),
+		).toBeVisible();
+	}
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "markdown-folder-link.png") });
+	// Restore the root tree so subsequent reader contracts start in their original scope.
+	await page.evaluate(
+		(root) => window.dispatchEvent(new CustomEvent("boa:library-folder", { detail: { root, folder: "" } })),
+		directory,
+	);
+	// A readable file must remain openable even when its parent exceeds the tree listing limit.
+	await page.getByTestId("markdown-preview").getByRole("link", { name: "Notes hors listing" }).click();
+	await expect(page.getByRole("tab", { name: "notes.md", exact: true })).toBeVisible();
+	// A native drop processes all files, keeps both tabs, and bypasses paused assistant guidance.
+	await page.evaluate(
+		(project) =>
+			Reflect.get(window, "boaTestEmit")("tauri://drag-drop", {
+				paths: [`${project}/config.json`, `${project}/config.xml`],
+				position: { x: 200, y: 200 },
+			}),
+		directory,
+	);
+	await expect(page.getByRole("tab", { name: "config.json", exact: true })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "config.xml", exact: true })).toBeVisible();
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestEmit")("tauri://drag-drop", {
+			paths: ["/external/captures"],
+			position: { x: 200, y: 200 },
+		}),
+	);
+	await expect(page.getByTestId("file-space-view")).toBeVisible();
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.getByTestId("directory-root")).toBeVisible();
+	expect(fileSpaces.find((space) => space.roots.includes("/external/captures"))?.roots).toEqual([
+		"/external/captures",
+	]);
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestEmit")("tauri://drag-drop", {
+			paths: ["/external/report.md"],
+			position: { x: 200, y: 200 },
+		}),
+	);
+	await expect(page.getByTestId("code-viewer")).toContainText("report.md");
+	expect(fileSpaces.find((space) => space.files?.includes("/external/report.md"))?.files).toEqual([
+		"/external/report.md",
+	]);
+	// Acknowledged Codex openings retain the preceding preview too.
+	await page.getByTestId("dashboard-nav").click();
+	await page.getByTestId("open-project-BOA QA").click();
+	for (const path of ["config.json", "config.xml"]) {
+		const request: ReaderOpenRequest = {
+			requestId: crypto.randomUUID(),
+			file: join(directory, path),
+			line: 1,
+			endLine: 1,
+			source: "Codex",
+		};
+		readerReceipts.set(request.requestId, { request, status: "pending" });
+		await page.evaluate((request) => Reflect.get(window, "boaTestEmit")("boa:reader-open", request), request);
+		await expect.poll(() => readerReceipts.get(request.requestId)?.status).toBe("displayed");
+	}
+	await expect(page.getByRole("tab", { name: "config.json", exact: true })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "config.xml", exact: true })).toBeVisible();
+	// Switch back to the external space and add another file without losing its first tab.
+	const externalSpace = fileSpaces.find((space) => space.files?.includes("/external/report.md"))!;
+	await page.getByRole("button", { name: externalSpace.name, exact: true }).click();
+	await expect(page.getByRole("tab", { name: "report.md", exact: true })).toBeVisible();
+	await page.evaluate(() =>
+		Reflect.get(window, "boaTestEmit")("tauri://drag-drop", { paths: ["/external/another.md"] }),
+	);
+	await expect(page.getByRole("tab", { name: "report.md", exact: true })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "another.md", exact: true })).toBeVisible();
+	// The registered file space owns this root, so external openings return there.
+	const projectSpace = fileSpaces.find((space) => space.roots.includes(directory))!;
+	await page.getByRole("button", { name: projectSpace.name, exact: true }).click();
+	await expect(page.getByRole("tab", { name: "config.json", exact: true })).toBeVisible();
+	await expect(page.getByRole("tab", { name: "config.xml", exact: true })).toBeVisible();
 	await page.getByTestId("dashboard-nav").click();
 	const idleSummaries = summaryCalls;
 	const idleLists = projectListCalls;

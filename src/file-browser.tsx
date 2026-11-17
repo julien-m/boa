@@ -163,16 +163,23 @@ export function FileBrowser({
 	}, [root]);
 	useEffect(() => {
 		const reveal = (e: Event) => {
-			const detail = (e as CustomEvent<{ root: string; path: string }>).detail;
+			const detail = (e as CustomEvent<{ root: string; path: string; directory?: boolean }>).detail;
 			if (detail.root !== root) return;
-			setPath(detail.path.includes("/") ? detail.path.slice(0, detail.path.lastIndexOf("/")) : "");
+			setPath(
+				detail.directory
+					? detail.path
+					: detail.path.includes("/")
+						? detail.path.slice(0, detail.path.lastIndexOf("/"))
+						: "",
+			);
+			if (detail.directory) chooseFolder?.(root, detail.path);
 			setSearch(null);
 			select(detail.path);
 			setRevealTarget(detail.path);
 		};
 		window.addEventListener("boa:reveal-file", reveal);
 		return () => window.removeEventListener("boa:reveal-file", reveal);
-	}, [root]);
+	}, [root, chooseFolder]);
 	useEffect(() => {
 		if (!revealTarget || !browser.current) return;
 		const element = browser.current;

@@ -29,6 +29,7 @@ vi.mock("./code-viewer", () => ({
 		return <textarea aria-label="editor" />;
 	},
 	disposeReaderModel: () => {},
+	captureReaderSelection: (selection: unknown) => selection,
 }));
 vi.mock("./file-editing", () => ({ useFileEditing: () => ({ drafts: {}, draft: () => undefined }) }));
 vi.mock("./git-panel", () => ({ GitPanel: () => null }));
@@ -136,4 +137,43 @@ it("reapplies a repeated folder request after local tree navigation", async () =
 	expect(host.querySelector('[data-testid="tree-row"]')?.getAttribute("data-browse-path")).toBe("docs/local");
 	await render(browser("second"));
 	expect(host.querySelector('[data-testid="tree-row"]')?.getAttribute("data-browse-path")).toBe("docs");
+});
+
+it("reveals a linked directory itself without opening a file", async () => {
+	const open = vi.fn();
+	await render(<FileBrowser root="/fixture" onOpen={open} />);
+	await act(async () => {
+		window.dispatchEvent(
+			new CustomEvent("boa:reveal-file", {
+				detail: { root: "/fixture", path: "evidence/captures", directory: true },
+			}),
+		);
+	});
+	expect(host.querySelector('[data-testid="tree-row"]')?.getAttribute("data-browse-path")).toBe(
+		"evidence/captures",
+	);
+	expect(open).not.toHaveBeenCalled();
+});
+
+it("keeps both retained tabs when a project is unmounted and revisited", async () => {
+	const project = { path: "/session-regression", name: "Session", pinned: false, archived: false };
+	const view = (path?: string) => (
+		<ProjectView
+			project={project}
+			pending={false}
+			onRefresh={() => {}}
+			navigation={
+				path ? { project: project.path, path, keepOpen: true, navigationId: crypto.randomUUID() } : null
+			}
+		/>
+	);
+	await render(view("first.ts"));
+	await render(view("second.ts"));
+	expect(host.querySelectorAll('[role="tab"]').length).toBe(2);
+	await render(<div />);
+	await render(view());
+	expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+		"first.ts",
+		"second.ts",
+	]);
 });
