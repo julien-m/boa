@@ -75,7 +75,8 @@ export function captureReaderSelection(selection: Selection): Selection {
 	}
 	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(selection.project, selection.path)));
 	const editor = monaco.editor.getEditors().find((item) => item.getModel() === model);
-	const position = editor?.getPosition();
+	const saved = model ? readerViewStates.get(model) : undefined;
+	const position = editor?.getPosition() ?? saved?.cursorState[0]?.position;
 	return {
 		...selection,
 		receiptId: undefined,
@@ -84,15 +85,14 @@ export function captureReaderSelection(selection: Selection): Selection {
 		endLine: undefined,
 		anchor: undefined,
 		navigationId: crypto.randomUUID(),
-		restorePosition:
-			editor && position
-				? {
-						line: position.lineNumber,
-						column: position.column,
-						scrollTop: editor.getScrollTop(),
-						scrollLeft: editor.getScrollLeft(),
-					}
-				: undefined,
+		restorePosition: position
+			? {
+					line: position.lineNumber,
+					column: position.column,
+					scrollTop: editor?.getScrollTop() ?? saved?.viewState.scrollTop ?? 0,
+					scrollLeft: editor?.getScrollLeft() ?? saved?.viewState.scrollLeft ?? 0,
+				}
+			: selection.restorePosition,
 	};
 }
 export const readerModelPath = (project: string, path: string): string =>
@@ -619,11 +619,32 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 									setNotice({ key: "viewer.linkCopied" });
 									return;
 								}
-								const inside = !selection.absolutePath && link.file.startsWith(`${selection.project}/`);
+								// Native navigation inspects only the target, independent of parent-directory listing limits.
+								const resolved = await api.navigate(link.file);
+								const directory = resolved.path.endsWith("/");
+								const inside =
+									!selection.absolutePath &&
+									(link.file === selection.project || link.file.startsWith(`${selection.project}/`));
 								const target = inside
-									? { project: selection.project, path: link.file.slice(selection.project.length + 1) }
-									: await api.navigate(link.file);
-								const next = { ...target, anchor: link.anchor, navigationId: crypto.randomUUID() };
+									? {
+											project: selection.project,
+											path: link.file.slice(selection.project.length + 1).replace(/\/+$/, ""),
+										}
+									: { ...resolved, path: directory ? resolved.path.slice(0, -1) : resolved.path };
+								// Folder links reveal the tree while preserving the current document and its reading position.
+								if (directory) {
+									window.dispatchEvent(
+										new CustomEvent("boa:reveal-file", {
+											detail: { root: target.project, path: target.path, directory: true },
+										}),
+									);
+									return;
+								}
+								const next = {
+									...target,
+									anchor: link.anchor,
+									navigationId: crypto.randomUUID(),
+								};
 								if (onOpen) onOpen(next);
 								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: next }));
 							})().catch((error: unknown) => setNotice({ key: "viewer.rawError", error: String(error) }));

@@ -41,3 +41,9 @@ describe("BOA navigation", () => {
 			expect(() => parseNavigation(url)).toThrow();
 	});
 });
+
+it("round-trips dropped native paths without interpreting percent signs, hashes or Unicode as URL syntax", async () => {
+	const { localFileUrl } = await import("./navigation");
+	for (const file of ["/workspace/100%/image #1.png", "/workspace/été/captures", "/workspace/a?b.md"])
+		expect(parseNavigation(localFileUrl(file))).toMatchObject({ file, document: true });
+});

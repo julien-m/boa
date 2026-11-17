@@ -25,6 +25,7 @@ import { GitPanel } from "./git-panel";
 import { useGuidedReading } from "./guided-reading";
 import type { Layout, Project, Selection, Summary } from "./models";
 import { PanelResizer } from "./panel-resizer";
+import { useReaderSession } from "./use-reader-session";
 
 export function ProjectView({
 	project,
@@ -60,11 +61,7 @@ export function ProjectView({
 	const [expandGuidedGit, setExpandGuidedGit] = useState(false);
 	const [forceContextFiles, setForceContextFiles] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const [files, setFiles] = useState<{
-		tabs: Selection[];
-		preview: string | null;
-		selection: Selection | null;
-	}>({ tabs: [], preview: null, selection: null });
+	const [files, setFiles] = useReaderSession(`project:${project.path}`);
 	const { tabs, preview, selection } = files;
 	const openPaths = useRef(new Set<string>());
 	useEffect(() => {
@@ -170,7 +167,7 @@ export function ProjectView({
 					path: navigation.path.slice(0, -1),
 					requestId: navigation.navigationId ?? crypto.randomUUID(),
 				});
-			else openFile(navigation, Boolean(navigation.contextRef), false);
+			else openFile(navigation, Boolean(navigation.keepOpen || navigation.contextRef), false);
 			setForceContextFiles(Boolean(navigation.contextRef));
 			if (!navigation.contextRef) setLayout("files");
 		}

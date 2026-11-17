@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ContextCollectionProvider, useContextCollection } from "./context-collection";
 import { collectionApi } from "./context-collection-api";
 import { emptyCollection } from "./context-collection-model";
+import { WindowCloseGuard } from "./window-close";
 import "./i18n";
 
 vi.mock("./context-collection-api", () => ({
@@ -45,6 +46,7 @@ async function render() {
 		root.render(
 			<ContextCollectionProvider>
 				<Probe />
+				<WindowCloseGuard />
 			</ContextCollectionProvider>,
 		),
 	);
@@ -113,12 +115,18 @@ it("retains the current draft on save failure, exposes retry and protects it unt
 	await act(async () => c.addText(context("a.ts"), "Retain me", false));
 	expect(c.error).toBe("Error: Disk full");
 	expect(c.draft.items).toHaveLength(1);
+	const blocked = vi.fn();
+	await act(async () => close.listener?.({ preventDefault: blocked }));
+	expect(blocked).toHaveBeenCalledOnce();
 	await act(async () => c.retry());
 	expect(c.error).toBe("");
 	expect(c.draft.items).toHaveLength(1);
 	const event = new Event("beforeunload", { cancelable: true });
 	window.dispatchEvent(event);
 	expect(event.defaultPrevented).toBe(false);
+	blocked.mockClear();
+	await act(async () => close.listener?.({ preventDefault: blocked }));
+	expect(blocked).not.toHaveBeenCalled();
 });
 
 it("does not overwrite an invalid restored draft and can reload after repair", async () => {

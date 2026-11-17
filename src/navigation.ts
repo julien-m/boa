@@ -36,3 +36,10 @@ export function parseNavigation(raw: string): NavigationRequest {
 		source: ["Codex", "Claude", "Cursor", "CLI"].includes(source) ? source : "CLI",
 	};
 }
+
+/** Encode an OS-provided path as a file URL without treating percent signs or hashes as URL syntax. */
+export function localFileUrl(path: string): string {
+	const url = new URL("file:///");
+	url.pathname = path.split("/").map(encodeURIComponent).join("/");
+	return url.href;
+}

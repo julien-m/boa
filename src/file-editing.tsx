@@ -1,10 +1,10 @@
 /** Drafts survive tab/project navigation while editing stays in the existing reader. */
 import { useQueryClient } from "@tanstack/react-query";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { Preview, Selection } from "./models";
+import { useWindowCloseGuard } from "./window-close";
 
 type Draft = {
 	project: string;
@@ -37,15 +37,17 @@ export function FileEditingProvider({ children }: { children: ReactNode }) {
 	const current = useRef(drafts);
 	current.current = drafts;
 	const pending = Object.values(drafts).some((draft) => draft.saving || draft.content !== draft.original);
+	useWindowCloseGuard((event) => {
+		if (pending) {
+			event.preventDefault();
+			setWarning(true);
+		}
+	});
 	useEffect(() => {
 		if (!pending) {
 			setWarning(false);
 			return;
 		}
-		const unlisten = getCurrentWindow().onCloseRequested((event) => {
-			event.preventDefault();
-			setWarning(true);
-		});
 		const unload = (event: BeforeUnloadEvent): void => {
 			event.preventDefault();
 			event.returnValue = "";
@@ -53,7 +55,6 @@ export function FileEditingProvider({ children }: { children: ReactNode }) {
 		window.addEventListener("beforeunload", unload);
 		return () => {
 			window.removeEventListener("beforeunload", unload);
-			void unlisten.then((stop) => stop()).catch(() => {});
 		};
 	}, [pending]);
 	const patch = (key: string, values: Partial<Draft>): void => {

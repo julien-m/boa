@@ -105,6 +105,9 @@ const englishPrefixes: [string, string][] = [
 ];
 
 const frenchText: Record<string, string> = {
+	"Open at most 64 files or folders at once": "Ouvrez au maximum 64 fichiers ou dossiers à la fois",
+	"Expected an existing absolute local file or folder":
+		"Un fichier ou dossier local existant avec un chemin absolu est attendu",
 	"Expected a local file URL": "Une URL de fichier local est attendue",
 	"Expected an existing absolute local file": "Un fichier local existant avec un chemin absolu est attendu",
 	"Invalid file path": "Chemin de fichier invalide",

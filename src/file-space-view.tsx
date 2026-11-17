@@ -12,6 +12,7 @@ import { type FileSpace, spaceEntries } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { useGuidedReading } from "./guided-reading";
 import type { Selection } from "./models";
+import { useReaderSession } from "./use-reader-session";
 
 const key = (s: Selection) => JSON.stringify([s.project, s.path]);
 export function FileSpaceView({
@@ -30,11 +31,7 @@ export function FileSpaceView({
 	const entries = spaceEntries(space);
 	const editing = useFileEditing();
 	const annotation = useAnnotationMenu();
-	const [state, setState] = useState<{
-		tabs: Selection[];
-		preview: string | null;
-		selected: Selection | null;
-	}>({ tabs: [], preview: null, selected: null });
+	const [state, setState] = useReaderSession(`space:${space.id}`);
 	const opened = useRef<Selection[]>([]);
 	useEffect(() => {
 		const previous = opened.current;
@@ -64,13 +61,13 @@ export function FileSpaceView({
 							value,
 						],
 				preview: keep || editing.draft(value.project, value.path) ? null : exists ? current.preview : id,
-				selected: value,
+				selection: value,
 			};
 		});
 	};
 	const guided = useGuidedReading({
-		project: state.selected?.project ?? contextRoot,
-		selection: state.selected,
+		project: state.selection?.project ?? contextRoot,
+		selection: state.selection,
 		navigation: restoration ? null : navigation,
 		onRestore: (value, keep) => open(value, keep, false),
 	});
@@ -84,7 +81,7 @@ export function FileSpaceView({
 						requestId: navigation.navigationId ?? crypto.randomUUID(),
 					},
 				}));
-			} else open(navigation, Boolean(navigation.contextRef), false);
+			} else open(navigation, Boolean(navigation.keepOpen || navigation.contextRef), false);
 			if (navigation.contextRef) setContextRoot(navigation.project);
 		}
 	}, [navigation]);
@@ -100,7 +97,7 @@ export function FileSpaceView({
 		if (!restoration) return;
 		const visit = restoration.workspace;
 		if (visit.selection) open(visit.selection, true, false);
-		else setState((current) => ({ ...current, selected: null }));
+		else setState((current) => ({ ...current, selection: null }));
 		setFolders(
 			Object.fromEntries(
 				entries.map((root) => [
@@ -124,14 +121,15 @@ export function FileSpaceView({
 		if (draft && draft.content !== draft.original && !window.confirm(l.discardChanges)) return;
 		editing.cancel(value.project, value.path);
 		const id = key(value);
-		if (state.selected && key(state.selected) === id)
+		if (state.selection && key(state.selection) === id)
 			onVisit?.({ selection: state.tabs.filter((tab) => key(tab) !== id).at(-1) ?? null, library: null });
 		setState((current) => {
 			const tabs = current.tabs.filter((t) => key(t) !== id);
 			return {
 				...current,
 				tabs,
-				selected: current.selected && key(current.selected) === id ? (tabs.at(-1) ?? null) : current.selected,
+				selection:
+					current.selection && key(current.selection) === id ? (tabs.at(-1) ?? null) : current.selection,
 				preview: current.preview === id ? null : current.preview,
 			};
 		});
@@ -191,7 +189,7 @@ export function FileSpaceView({
 								singleFile={space.files?.includes(root)}
 								folder={folders[root]?.path ?? ""}
 								folderRequestId={folders[root]?.requestId}
-								selected={state.selected?.project === root ? state.selected.path : undefined}
+								selected={state.selection?.project === root ? state.selection.path : undefined}
 								onOpen={(value) => open(value)}
 								onKeepOpen={(value) => open(value, true)}
 							/>
@@ -205,7 +203,7 @@ export function FileSpaceView({
 						<div className="file-tabs" role="tablist" aria-label={l.files}>
 							{state.tabs.map((tab) => (
 								<div
-									className={`file-tab ${state.selected && key(state.selected) === key(tab) ? "active" : ""}`}
+									className={`file-tab ${state.selection && key(state.selection) === key(tab) ? "active" : ""}`}
 									key={key(tab)}
 									onContextMenu={(event) => annotation.open(event, fileAnnotationContext(tab))}
 									onKeyDown={(event) => {
@@ -216,11 +214,11 @@ export function FileSpaceView({
 									<button
 										type="button"
 										role="tab"
-										aria-selected={!!state.selected && key(state.selected) === key(tab)}
+										aria-selected={!!state.selection && key(state.selection) === key(tab)}
 										data-hint={`${tab.project}/${tab.path}`}
 										className={state.preview === key(tab) ? "preview-tab" : ""}
 										onClick={() => {
-											setState((s) => ({ ...s, selected: tab }));
+											setState((s) => ({ ...s, selection: tab }));
 											onVisit?.({ selection: tab, library: null });
 										}}
 										onDoubleClick={() => open(tab, true)}
@@ -249,11 +247,11 @@ export function FileSpaceView({
 							onPrevious={guided.previous}
 							onNext={guided.next}
 							onReturn={guided.returnToReading}
-							status={state.selected?.anchorStatus}
+							status={state.selection?.anchorStatus}
 							onRevealFiles={() =>
 								window.dispatchEvent(
 									new CustomEvent("boa:reveal-file", {
-										detail: { root: state.selected?.project, path: state.selected?.path },
+										detail: { root: state.selection?.project, path: state.selection?.path },
 									}),
 								)
 							}
@@ -268,7 +266,7 @@ export function FileSpaceView({
 						</div>
 					)}
 					<CodeViewer
-						selection={state.selected}
+						selection={state.selection}
 						onOpen={(value) => {
 							if (entries.includes(value.project)) open(value, true);
 							else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));

@@ -33,6 +33,9 @@ jobs:
       - name: Public source hygiene
         run: bun run check:public
       - name: Frontend quality
+        env:
+          # Keep DOM-heavy tests within their existing deadlines on shared runners.
+          VITEST_MAX_WORKERS: "1"
         run: bun run verify
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
