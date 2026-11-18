@@ -175,7 +175,8 @@ details > summary > span {
 .app-shell {
 	height: 100vh;
 	display: grid;
-	grid-template-rows: 56px minmax(0, 1fr) 26px;
+	/* Title bar, views, application-level session dock (empty when closed), status bar. */
+	grid-template-rows: 56px minmax(0, 1fr) auto 26px;
 	min-width: 800px;
 	overflow: hidden;
 }

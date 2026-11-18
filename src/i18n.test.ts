@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getLocale, i18n, setInterfaceLanguage } from "./i18n";
 import { dashboardEn, dashboardFr } from "./locales/dashboard";
 import { gitEn, gitFr } from "./locales/git";
+import { sessionsEn, sessionsFr } from "./locales/sessions";
 import { settingsEn, settingsFr } from "./locales/settings";
 import { workspaceEn, workspaceFr } from "./locales/workspace";
 
@@ -24,6 +25,7 @@ describe("bundled interface languages", () => {
 			[workspaceFr, workspaceEn],
 			[gitFr, gitEn],
 			[settingsFr, settingsEn],
+			[sessionsFr, sessionsEn],
 		]) {
 			const french = entries(fr);
 			const english = new Map(entries(en));

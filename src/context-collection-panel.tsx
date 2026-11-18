@@ -18,11 +18,14 @@ import {
 } from "./context-collection-model";
 import { useContextCollection } from "./context-collection-state";
 import { ImageMarkers } from "./image-context";
+import { ContextSessionTarget } from "./sessions/context-session-target";
+import { useOptionalSessionDock } from "./sessions/session-dock-state";
 
 export function CollectionPanel({ onClose }: { onClose: () => void }) {
 	const c = useContextCollection()!;
 	const l = useCollectionLabels();
-	const { i18n } = useTranslation();
+	const { i18n, t } = useTranslation("sessions");
+	const sessionDock = useOptionalSessionDock();
 	const id = useId();
 	const dialog = useRef<HTMLDialogElement>(null);
 	const [notice, setNotice] = useState("");
@@ -336,6 +339,15 @@ export function CollectionPanel({ onClose }: { onClose: () => void }) {
 									{prompt}
 								</pre>
 							</details>
+						)}
+						{sessionDock && c.draft.items.length > 0 && (
+							<ContextSessionTarget
+								prompt={prompt}
+								blockedReason={
+									unconfirmed ? l.unconfirmed : images.length ? t("context.imagesNotSent") : null
+								}
+								onPrepared={onClose}
+							/>
 						)}
 					</div>
 					<footer className="collection-footer">

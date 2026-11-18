@@ -35,6 +35,9 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "resources/claude-bridge.mjs": "claude-bridge.mjs"
+    },
     "macOS": {
       "infoPlist": "target/editor-integrations.plist"
     },

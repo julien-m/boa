@@ -6,6 +6,9 @@
   "permissions": [
     "core:default",
     "core:window:allow-destroy",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
     "dialog:allow-open",
     "dialog:allow-message",
     "drag:default",

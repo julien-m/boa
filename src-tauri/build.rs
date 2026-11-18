@@ -23,5 +23,27 @@ fn main() {
         std::fs::write(&temporary, bytes).expect("write macOS properties");
         std::fs::rename(temporary, path).expect("publish macOS properties");
     }
+    ensure_claude_bridge();
     tauri_build::build()
+}
+
+/// The Claude Code bridge is generated from `scripts/claude-bridge.ts` (`bun run build:bridge`,
+/// part of `bun run build`). A fresh checkout running Cargo first generates it here, because the
+/// bundle declares it as a resource. Contract: `bun build` exits 0 and writes the file.
+fn ensure_claude_bridge() {
+    let bridge = std::path::Path::new("resources/claude-bridge.mjs");
+    println!("cargo:rerun-if-changed=../scripts/claude-bridge.ts");
+    println!("cargo:rerun-if-changed=resources/claude-bridge.mjs");
+    if bridge.is_file() {
+        return;
+    }
+    let status = std::process::Command::new("bun")
+        .args(["run", "build:bridge"])
+        .current_dir("..")
+        .status();
+    if !matches!(status, Ok(status) if status.success()) || !bridge.is_file() {
+        panic!(
+            "Missing resources/claude-bridge.mjs: run `bun install && bun run build:bridge` first."
+        );
+    }
 }

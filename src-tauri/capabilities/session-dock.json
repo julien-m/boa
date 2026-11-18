@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "session-dock",
+  "description": "Detached session dock window: same commands as the main window, no extra privileges",
+  "windows": ["session-dock"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "clipboard-manager:allow-write-text"
+  ]
+}

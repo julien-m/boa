@@ -38,6 +38,16 @@ loader.config({ monaco });
 const navigationRequests = new WeakMap<monaco.editor.ITextModel, string>();
 const readerViewStates = new WeakMap<monaco.editor.ITextModel, monaco.editor.ICodeEditorViewState>();
 const readerCaptures = new Map<HTMLElement, () => Selection | null>();
+/** Selected passage (or rendered Markdown selection) of each mounted reader, for session actions. */
+const readerContexts = new Map<HTMLElement, () => CodeContext | null>();
+
+/** Current reader's file and selected text: the focused reader, else the first visible one. */
+export function captureCurrentReaderContext(): CodeContext | null {
+	const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".code-viewer");
+	const root =
+		focused ?? [...readerContexts.keys()].find((element) => element.getBoundingClientRect().height > 0);
+	return root ? (readerContexts.get(root)?.() ?? null) : null;
+}
 export function captureCurrentReaderSelection(): Selection | null {
 	const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".code-viewer");
 	const root =
@@ -219,6 +229,16 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 			label: `${query.data.label} · ${showMarkdown ? t("viewer.markdown") : t(`viewer.${sourceSide}`)}`,
 		};
 	};
+	const captureRef = useRef(capture);
+	captureRef.current = capture;
+	useLayoutEffect(() => {
+		const root = viewerElement.current;
+		if (!root) return;
+		readerContexts.set(root, () => captureRef.current());
+		return () => {
+			readerContexts.delete(root);
+		};
+	}, []);
 	useEffect(() => {
 		if (!showMarkdown) return;
 		const update = (): void => setSelectionVersion((version) => version + 1);
