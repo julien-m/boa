@@ -161,7 +161,7 @@ The red window close button closes BOA when all work is safe. A single close dec
 
 If the file changes on disk while a draft is open, BOA preserves the draft and reports the external change. Saving compares against the original file instead of silently overwriting a newer version. Inspect and reconcile the two versions before retrying. Save failures leave the draft available.
 
-Editing is restricted to existing UTF-8 files inside the registered root, up to 2 MiB, excluding Git metadata and external symlink targets. Git diffs remain read-only. On macOS, atomic saves preserve extended attributes, ACLs, owner/group and permissions; failure to preserve metadata aborts the save.
+Saving edits requires an existing UTF-8 file inside the registered root, with both the original and updated content at or below 2 MiB. Git metadata and external symlink targets are excluded. Git diffs remain read-only. On macOS, atomic saves preserve extended attributes, ACLs, owner/group and permissions; failure to preserve metadata aborts the save.
 
 ## Collect files and annotated images
 
@@ -389,7 +389,7 @@ When `--step` or `--passage` is omitted, opening uses the first available step o
 
 ### Navigation acknowledgements
 
-Use acknowledged navigation when an automation needs evidence that BOA loaded and revealed a passage. `--json` on file/context opening waits for that evidence by default; `--wait` requests the same acknowledgement without requiring `--json`. `--wait-ms 10000` sets the bounded waiting period in milliseconds; accepted values range from 100 to 15,000 ms.
+Use acknowledged navigation when an automation needs evidence that BOA loaded and revealed a passage. `--json` on file/context opening waits for that evidence by default; `--wait` requests the same acknowledgement without requiring `--json`. `--wait-ms 10000` sets the acknowledgement deadline after the initial receipt, including any status request in progress. Accepted values range from 100 to 15,000 ms. If the deadline expires, the CLI returns the last pending receipt.
 
 | Receipt status | Meaning |
 | --- | --- |

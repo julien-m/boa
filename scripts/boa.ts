@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { launchBoa } from "./mac-app";
 
@@ -246,20 +247,33 @@ function waitDuration(args: string[]): number {
 		throw new Error("--wait-ms must be between 100 and 15000");
 	return value;
 }
-async function waitForReader(reply: Reply, args: string[]): Promise<Reply> {
+/** Poll the read-only receipt within one deadline, including any in-flight status request. */
+export async function waitForReader(reply: Reply, args: string[], socketPath?: string): Promise<Reply> {
 	if (!reply.ok || !(args.includes("--wait") || args.includes("--json"))) return reply;
-	const deadline = Date.now() + waitDuration(args);
+	const signal = AbortSignal.timeout(waitDuration(args));
 	let current = reply;
-	while (
-		current.ok &&
-		(current.result as { status?: string }).status === "pending" &&
-		Date.now() < deadline
-	) {
-		await new Promise((done) => setTimeout(done, 100));
-		current = await sendRequest({
-			command: "reader-status",
-			requestId: (current.result as { requestId: string }).requestId,
-		});
+	try {
+		while (current.ok && (current.result as { status?: string }).status === "pending") {
+			// Give the reader time to render before asking again.
+			await delay(100, undefined, { signal });
+			const next = await sendRequest(
+				{
+					command: "reader-status",
+					requestId: (current.result as { requestId: string }).requestId,
+				},
+				socketPath,
+				signal,
+			);
+			signal.throwIfAborted();
+			current = next;
+		}
+	} catch (error) {
+		// Expiration preserves the last receipt. Other transport failures stay actionable.
+		if (
+			!signal.aborted ||
+			(error !== signal.reason && !(error instanceof Error && error.cause === signal.reason))
+		)
+			throw error;
 	}
 	return current;
 }
@@ -277,8 +291,13 @@ export function cliSocketPath(): string {
 	return `/tmp/boa-cli-${process.geteuid()}/rpc.sock`;
 }
 
-/** Uses the app's shared state, never edits projects.json directly. */
-export async function sendRequest(request: ProjectRequest, socketPath = cliSocketPath()): Promise<Reply> {
+/** Uses the app's shared state and closes the request socket on completion or cancellation. */
+export async function sendRequest(
+	request: ProjectRequest,
+	socketPath = cliSocketPath(),
+	signal?: AbortSignal,
+): Promise<Reply> {
+	signal?.throwIfAborted();
 	const owner = process.geteuid?.();
 	const directory = lstatSync(dirname(socketPath));
 	const socket = lstatSync(socketPath);
@@ -291,25 +310,29 @@ export async function sendRequest(request: ProjectRequest, socketPath = cliSocke
 		const chunks: Buffer[] = [];
 		let length = 0;
 		let settled = false;
-		const finish = (error?: Error, result?: Reply) => {
+		const finish = (result: { error: unknown } | { reply: Reply }) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(deadline);
+			signal?.removeEventListener("abort", abort);
 			client.destroy();
-			if (error) fail(error);
-			else done(result as Reply);
+			if ("error" in result) fail(result.error);
+			else done(result.reply);
 		};
-		const deadline = setTimeout(() => finish(new Error("Délai RPC BOA dépassé.")), 4500);
-		client.on("error", (error) => finish(error));
+		const abort = () => finish({ error: signal?.reason });
+		const deadline = setTimeout(() => finish({ error: new Error("Délai RPC BOA dépassé.") }), 4500);
+		signal?.addEventListener("abort", abort, { once: true });
+		client.on("error", (error) => finish({ error }));
 		client.on("connect", () => {
 			const encoded = `${JSON.stringify(request)}\n`;
-			if (Buffer.byteLength(encoded) > 65536) return finish(new Error("BOA request exceeds 64 KiB"));
+			if (Buffer.byteLength(encoded) > 65536)
+				return finish({ error: new Error("BOA request exceeds 64 KiB") });
 			client.write(encoded);
 		});
-		client.on("end", () => finish(new Error("Réponse RPC BOA incomplète.")));
+		client.on("end", () => finish({ error: new Error("Réponse RPC BOA incomplète.") }));
 		client.on("data", (chunk: Buffer) => {
 			length += chunk.length;
-			if (length > 2 * 1024 * 1024) return finish(new Error("Réponse RPC BOA trop grande."));
+			if (length > 2 * 1024 * 1024) return finish({ error: new Error("Réponse RPC BOA trop grande.") });
 			chunks.push(chunk);
 			const bytes = Buffer.concat(chunks);
 			const newline = bytes.indexOf(10);
@@ -318,9 +341,9 @@ export async function sendRequest(request: ProjectRequest, socketPath = cliSocke
 				const reply = JSON.parse(bytes.subarray(0, newline).toString("utf8"));
 				if (typeof reply.ok !== "boolean" || (!reply.ok && typeof reply.error !== "string"))
 					throw new Error("Réponse RPC BOA invalide.");
-				finish(undefined, reply);
+				finish({ reply });
 			} catch (error) {
-				finish(error instanceof Error ? error : new Error(String(error)));
+				finish({ error });
 			}
 		});
 	});

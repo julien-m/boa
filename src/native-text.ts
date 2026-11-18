@@ -13,6 +13,7 @@ const englishText: Record<string, string> = {
 	"Édition limitée aux fichiers du projet, hors métadonnées Git.":
 		"Editing is limited to project files, excluding Git metadata.",
 	"Ce fichier est en lecture seule.": "This file is read-only.",
+	save_file_too_large: "Saving is limited to files of 2 MiB or less.",
 	"Le fichier a changé sur le disque. Annulez puis rouvrez l’édition pour repartir de sa version actuelle.":
 		"The file changed on disk. Cancel and reopen editing to start from its current version.",
 	"Image trop volumineuse (32 Mo maximum).": "Image too large (32 MB maximum).",
@@ -105,6 +106,7 @@ const englishPrefixes: [string, string][] = [
 ];
 
 const frenchText: Record<string, string> = {
+	save_file_too_large: "La sauvegarde est limitée aux fichiers de 2 Mio maximum.",
 	"Open at most 64 files or folders at once": "Ouvrez au maximum 64 fichiers ou dossiers à la fois",
 	"Expected an existing absolute local file or folder":
 		"Un fichier ou dossier local existant avec un chemin absolu est attendu",

@@ -12,6 +12,9 @@ afterEach(() => {
 
 describe("native text localization", () => {
 	it("preserves French text and labels exactly", () => {
+		expect(localizeNativeText("save_file_too_large")).toBe(
+			"La sauvegarde est limitée aux fichiers de 2 Mio maximum.",
+		);
 		for (const value of [
 			"Fichier binaire : aperçu texte indisponible.",
 			"Lecture seule",
@@ -33,6 +36,7 @@ describe("native text localization", () => {
 		expect(localizeNativeText("Raccourcis invalides ou identiques")).toBe("Invalid or duplicate shortcuts");
 		expect(localizeNativeText("Requête de recherche invalide")).toBe("Invalid search request");
 		expect(localizeNativeText("Dossier de recherche non enregistré")).toBe("Unregistered search root");
+		expect(localizeNativeText("save_file_too_large")).toBe("Saving is limited to files of 2 MiB or less.");
 
 		expect(localizeNativeText("Lecture seule")).toBe("Read-only");
 		expect(localizeNativeText("HEAD → index")).toBe("HEAD → index");

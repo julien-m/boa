@@ -4,7 +4,6 @@ import { ArrowDown, ArrowUp, Check, Copy, Download, Trash2, X } from "lucide-rea
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useContextCollection } from "./context-collection";
 import { collectionApi } from "./context-collection-api";
 import { annotatedImage } from "./context-collection-images";
 import { useCollectionLabels } from "./context-collection-labels";
@@ -17,6 +16,7 @@ import {
 	imageExportName,
 	isAnnotationDraft,
 } from "./context-collection-model";
+import { useContextCollection } from "./context-collection-state";
 import { ImageMarkers } from "./image-context";
 
 export function CollectionPanel({ onClose }: { onClose: () => void }) {

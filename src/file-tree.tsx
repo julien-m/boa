@@ -14,7 +14,7 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
-import { orderedEntries, toggleIncluded, useTreeOptions } from "./file-browser";
+import { orderedEntries, toggleIncluded, useTreeOptions } from "./file-tree-options";
 import { useImageLibrary, useLibraryFolder } from "./file-workspace";
 import { selectedPath, visiblePath } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";

@@ -1,39 +1,21 @@
 /** One app-scoped draft; native saves are serialized and coalesce obsolete revisions. */
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
-import { type CodeContext, ContextBubbles } from "./context-bubbles";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ContextBubbles } from "./context-bubbles";
 import { collectionApi } from "./context-collection-api";
 import { useCollectionLabels } from "./context-collection-labels";
 import {
-	type Annotation,
+	type CodeContext,
 	type CollectionDraft,
-	type CollectionItem,
 	collectionLimits,
 	emptyCollection,
-	type ImageItem,
 	isCollectionDraft,
 } from "./context-collection-model";
 import { CollectionPanel } from "./context-collection-panel";
+import { type Collection, CollectionContext, useContextCollection } from "./context-collection-state";
 import { useWindowCloseGuard } from "./window-close";
 import "./context-collection.css";
 
-type Collection = {
-	draft: CollectionDraft;
-	ready: boolean;
-	saving: boolean;
-	error: string;
-	loadError: boolean;
-	annotating: boolean;
-	setAnnotating: (value: boolean) => void;
-	show: () => void;
-	annotate: (context: CodeContext, anchor?: { top: number; right: number }) => void;
-	change: (update: (draft: CollectionDraft) => CollectionDraft) => void;
-	addText: (context: CodeContext, message: string, wholeFile: boolean) => void;
-	addImage: (image: Omit<ImageItem, "id" | "kind" | "annotations">, annotation: Annotation) => void;
-	patchItem: (id: string, update: (item: CollectionItem) => CollectionItem) => void;
-	retry: () => void;
-};
-const CollectionContext = createContext<Collection | null>(null);
-export const useContextCollection = () => useContext(CollectionContext);
+export { useContextCollection } from "./context-collection-state";
 
 export function ContextCollectionProvider({ children }: { children: ReactNode }) {
 	const l = useCollectionLabels();

@@ -3,18 +3,12 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Copy, MessageSquarePlus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useContextCollection } from "./context-collection";
 import { useCollectionLabels } from "./context-collection-labels";
+import type { CodeContext } from "./context-collection-model";
+import { useContextCollection } from "./context-collection-state";
 import { i18n } from "./i18n";
 
-export interface CodeContext {
-	project: string;
-	path: string;
-	startLine: number | null;
-	endLine: number | null;
-	code: string;
-	label: string;
-}
+export type { CodeContext } from "./context-collection-model";
 
 /** A file context deliberately contains its location, never its whole content. */
 export function contextPrompt(context: CodeContext, message: string, wholeFile = false): string {

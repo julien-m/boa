@@ -11,7 +11,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { annotationStyle } from "./annotation-style";
-import { useContextCollection } from "./context-collection";
 import { imageSourceKey, snapshotImage } from "./context-collection-images";
 import { useCollectionLabels } from "./context-collection-labels";
 import {
@@ -21,6 +20,7 @@ import {
 	isAnnotationDraft,
 	pointInImage,
 } from "./context-collection-model";
+import { useContextCollection } from "./context-collection-state";
 
 export function ImageMarkers({
 	annotations,

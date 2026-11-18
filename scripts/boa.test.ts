@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openUrl, parseProjects, sendRequest } from "./boa";
+import { openUrl, parseProjects, sendRequest, waitForReader } from "./boa";
 
 const roots: string[] = [];
 function fixture() {
@@ -88,6 +88,32 @@ describe("BOA project CLI", () => {
 		chmodSync(socket, 0o600);
 		try {
 			await expect(sendRequest({ command: "list" }, socket)).rejects.toThrow("invalide");
+		} finally {
+			await new Promise<void>((done) => server.close(() => done()));
+		}
+	});
+
+	it("returns the pending receipt when a status reply outlasts the wait budget", async () => {
+		const socket = join(fixture(), "rpc.sock");
+		const requestId = crypto.randomUUID();
+		const pending = { ok: true, result: { requestId, status: "pending" } } as const;
+		let received: unknown;
+		const server = createServer((client) => {
+			client.once("data", (data) => {
+				received = JSON.parse(data.toString());
+				// Model a status reply arriving after the entire acknowledgement budget.
+				const timer = setTimeout(
+					() => client.end(`${JSON.stringify({ ok: true, result: { requestId, status: "displayed" } })}\n`),
+					600,
+				);
+				client.once("close", () => clearTimeout(timer));
+			});
+		});
+		await new Promise<void>((done) => server.listen(socket, done));
+		chmodSync(socket, 0o600);
+		try {
+			await expect(waitForReader(pending, ["--wait", "--wait-ms", "500"], socket)).resolves.toEqual(pending);
+			expect(received).toEqual({ command: "reader-status", requestId });
 		} finally {
 			await new Promise<void>((done) => server.close(() => done()));
 		}
