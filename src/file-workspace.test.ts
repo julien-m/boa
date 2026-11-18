@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { orderedEntries, toggleIncluded } from "./file-browser";
 import { sortFiles } from "./file-sort";
+import { orderedEntries, toggleIncluded } from "./file-tree-options";
 import { defaultPreferences, fileWorkspace, selectedPath, visiblePath } from "./file-workspace-api";
 import { i18n } from "./i18n";
 import { shortcutMatches, validSearchShortcuts } from "./search-shortcuts";

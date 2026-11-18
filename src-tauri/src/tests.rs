@@ -1054,6 +1054,29 @@ fn saves_existing_text_atomically_and_rejects_conflicts_and_unsafe_paths() {
     }
 }
 
+#[test]
+fn previews_large_utf8_files_and_enforces_the_smaller_save_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let name = "source.txt";
+    let path = root.path().join(name);
+    let at_limit = "é".repeat(1024 * 1024);
+    let over_limit = format!("{at_limit}x");
+    fs::write(&path, "initial").unwrap();
+    files::save(root.path(), name, "initial", &at_limit).unwrap();
+    assert_eq!(
+        files::save(root.path(), name, &at_limit, &over_limit),
+        Err("save_file_too_large".into())
+    );
+    assert!(fs::read_to_string(&path).unwrap() == at_limit);
+    fs::write(&path, &over_limit).unwrap();
+    assert!(files::text(&path).unwrap() == over_limit);
+    assert_eq!(
+        files::save(root.path(), name, &over_limit, "small"),
+        Err("save_file_too_large".into())
+    );
+    assert!(fs::read_to_string(&path).unwrap() == over_limit);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn saves_preserve_macos_xattrs_acl_owner_group_and_mode() {

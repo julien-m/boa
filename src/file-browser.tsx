@@ -1,6 +1,6 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Filter, Images, Pin, X } from "lucide-react";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { useContextCollection } from "./context-collection";
@@ -11,42 +11,14 @@ import {
 	fileMenuTarget,
 } from "./file-context-menu";
 import { FileSearchPanel } from "./file-search-panel";
-import { FileSortOptions, sortFiles } from "./file-sort";
+import { FileSortOptions } from "./file-sort";
 import { FileSpaceAdd } from "./file-space-add";
 import { FileTree } from "./file-tree";
+import { TreeOptionsContext } from "./file-tree-options";
 import { useCloseImageLibrary, useImageLibrary, useLibraryFolder } from "./file-workspace";
 import { defaultPreferences, type FilePreferences, fileWorkspace } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import type { DirectoryEntry, Selection } from "./models";
-export interface TreeOptions {
-	preferences: FilePreferences;
-	manage: boolean;
-	busy: boolean;
-	showAll: boolean;
-	reveal: string;
-	select?: (path: string) => void;
-	contextMenu?: (event: FileMenuEvent, entry: DirectoryEntry, open: () => void, keep?: () => void) => void;
-	update: (prefs: FilePreferences) => void;
-}
-const TreeOptionsContext = createContext<TreeOptions>({
-	preferences: defaultPreferences,
-	manage: false,
-	busy: false,
-	showAll: false,
-	reveal: "",
-	update: () => {},
-});
-export const useTreeOptions = () => useContext(TreeOptionsContext);
-export function toggleIncluded(prefs: FilePreferences, path: string, checked: boolean): FilePreferences {
-	// Unchecking a child of an included folder is intentionally explicit: split the selection in the chooser first.
-	return {
-		...prefs,
-		filtered: true,
-		included: checked
-			? [...prefs.included.filter((p) => !p.startsWith(`${path}/`) && p !== path), path]
-			: prefs.included.filter((p) => p !== path && !p.startsWith(`${path}/`)),
-	};
-}
 export function FileBrowser({
 	root,
 	singleFile = false,
@@ -613,7 +585,4 @@ export function FileBrowser({
 			)}
 		</div>
 	);
-}
-export function orderedEntries(entries: DirectoryEntry[], prefs: FilePreferences) {
-	return sortFiles(entries, prefs.sort);
 }

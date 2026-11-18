@@ -3,10 +3,17 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const host = process.env.TAURI_DEV_HOST;
+// Monaco 0.57 imports a bundled DOMPurify 3.4.15 copy via a relative path.
+const domPurifyAlias = { "./dompurify/dompurify.js": "dompurify" };
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
 	plugins: [react()],
+	resolve: { alias: domPurifyAlias },
+	optimizeDeps: {
+		// The dev pre-bundler has its own resolver for imports inside dependencies.
+		rolldownOptions: { resolve: { alias: domPurifyAlias } },
+	},
 
 	// Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
 	//

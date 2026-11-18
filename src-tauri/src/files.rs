@@ -9,6 +9,8 @@ use std::{
 // Bound source/form previews while allowing textual Delphi forms above 2 MiB.
 pub(crate) const FILE_LIMIT: u64 = 8 * 1024 * 1024;
 pub(crate) const IMAGE_LIMIT: u64 = 32 * 1024 * 1024;
+// Keep the documented editor limit independent of larger read-only source previews.
+const EDIT_LIMIT: usize = 2 * 1024 * 1024;
 
 pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Result<String, String> {
     let document = confined(root, document)?;
@@ -521,9 +523,14 @@ pub(crate) fn save(
     content: &str,
 ) -> Result<(), String> {
     use std::io::Write;
+    if original.len() > EDIT_LIMIT || content.len() > EDIT_LIMIT {
+        return Err("save_file_too_large".into());
+    }
+    if content.as_bytes().contains(&0) {
+        return Err("Fichier binaire : aperçu texte indisponible.".into());
+    }
     static SAVES: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = SAVES.lock().map_err(|e| e.to_string())?;
-    decode(content.as_bytes().to_vec())?;
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let target = confined(&root, relative)?;
     if !target.starts_with(&root)
@@ -533,10 +540,11 @@ pub(crate) fn save(
     {
         return Err("Édition limitée aux fichiers du projet, hors métadonnées Git.".into());
     }
-    let permissions = fs::metadata(&target)
-        .map_err(|e| e.to_string())?
-        .permissions();
-    if permissions.readonly() {
+    let metadata = fs::metadata(&target).map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
+        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+    }
+    if metadata.permissions().readonly() {
         return Err("Ce fichier est en lecture seule.".into());
     }
     let mut temp = tempfile::NamedTempFile::new_in(target.parent().ok_or("Chemin hors du projet")?)

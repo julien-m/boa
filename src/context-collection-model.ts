@@ -1,5 +1,13 @@
 /** Versioned, local-only collection snapshots and a portable Markdown representation. */
-import type { CodeContext } from "./context-bubbles";
+/** File identity and optional source excerpt carried by a text annotation. */
+export interface CodeContext {
+	project: string;
+	path: string;
+	startLine: number | null;
+	endLine: number | null;
+	code: string;
+	label: string;
+}
 
 export type Point = { x: number; y: number };
 /** Legacy comments omit confirmed; false or an empty comment is treated as a retained draft. */
