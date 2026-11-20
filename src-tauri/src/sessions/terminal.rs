@@ -153,6 +153,7 @@ impl TerminalHost {
             .iter()
             .find(|(_, t)| &t.key == key && !t.exited.load(Ordering::Relaxed))
         {
+            Self::resize_terminal(terminal, cols, rows)?;
             return Self::info(id, terminal);
         }
         terminals.retain(|_, t| &t.key != key);
@@ -233,6 +234,10 @@ impl TerminalHost {
 
     pub(crate) fn resize(&self, id: &str, cols: u16, rows: u16) -> SessionResult<()> {
         let terminal = self.get(id)?;
+        Self::resize_terminal(&terminal, cols, rows)
+    }
+
+    fn resize_terminal(terminal: &Terminal, cols: u16, rows: u16) -> SessionResult<()> {
         let master = lock(&terminal.master)?;
         let size = winsize(cols, rows);
         // SAFETY: valid open PTY master fd and a properly initialized winsize struct.
@@ -461,6 +466,16 @@ mod tests {
             seen = String::from_utf8_lossy(&bytes).into_owned();
         }
         assert!(seen.contains("hello-pty"), "echo through the PTY: {seen:?}");
+        let mut current_size = winsize(0, 0);
+        {
+            let terminal = host.get(&first.terminal_id).unwrap();
+            let master = lock(&terminal.master).unwrap();
+            // SAFETY: the open PTY and winsize buffer remain valid throughout ioctl.
+            let result =
+                unsafe { libc::ioctl(master.as_raw_fd(), libc::TIOCGWINSZ, &mut current_size) };
+            assert_eq!(result, 0);
+        }
+        assert_eq!((current_size.ws_col, current_size.ws_row), (80, 24));
         assert_eq!(
             host.running_for(&key).as_deref(),
             Some(first.terminal_id.as_str())
