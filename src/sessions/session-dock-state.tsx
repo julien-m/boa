@@ -7,7 +7,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { keyId, type SessionKey, sameKey } from "./sessions-api";
+import { keyId, type PermissionRequest, type SessionKey, sameKey, sessionsApi } from "./sessions-api";
 
 const STORAGE_KEY = "boa-session-dock";
 /** Drafts are notes in progress; 50 sessions × 100 kB keeps storage far below webview quotas. */
@@ -16,6 +16,13 @@ const MAX_DRAFT_CHARS = 100_000;
 /** Open tabs and remembered views stay small: a dock is a working set, not a history. */
 const MAX_TABS = 12;
 const MAX_VIEWS = 100;
+const PERMISSION_EVENTS = new Set([
+	"permissionRequest",
+	"permissionResolved",
+	"turnCompleted",
+	"sessionClosed",
+	"claudeBridgeClosed",
+]);
 
 export type DockView = "conversation" | "terminal";
 
@@ -120,12 +127,8 @@ function write(value: Persisted): void {
 	}
 }
 
-/** A Claude permission prompt from a BOA-driven session (summary kept in memory, never logged). */
-export type PermissionRequest = { sessionId: string; requestId: string; toolName: string; summary: string };
-
 export type DockState = Persisted & {
 	permissions: PermissionRequest[];
-	resolvePermission: (requestId: string) => void;
 	/** Opens `key` in a tab, or selects its existing tab: never a duplicate. */
 	show: (key: SessionKey) => void;
 	/** Closes the tab only: the session, its BOA terminal, draft, scroll and view stay. */
@@ -180,17 +183,36 @@ export function SessionDockProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	useEffect(() => {
-		// Pending permission prompts live at app level so they survive a closed or collapsed dock.
 		let active = true;
 		let dispose: (() => void) | null = null;
-		void listen<Record<string, unknown>>("boa:session-event", ({ payload }) => {
-			if (payload.event === "permissionRequest")
-				setPermissions((current) => [...current, payload as unknown as PermissionRequest].slice(-10));
-			if (payload.event === "turnCompleted" || payload.event === "sessionClosed")
-				setPermissions((current) => current.filter((item) => item.sessionId !== payload.sessionId));
-		})
-			.then((stop) => (active ? (dispose = stop) : stop()))
-			.catch(() => undefined);
+		let latestRefresh = 0;
+		const refresh = async () => {
+			const revision = ++latestRefresh;
+			try {
+				const prompts = await sessionsApi.pendingPermissions();
+				// A slow mount snapshot may predate an answer from the other window.
+				if (active && revision === latestRefresh) setPermissions(prompts);
+			} catch {
+				// Browser previews have no native snapshot. In BOA a failed read leaves the last view intact.
+			}
+		};
+		const subscribe = async () => {
+			try {
+				const stop = await listen<{ event: string }>("boa:session-event", ({ payload }) => {
+					if (active && PERMISSION_EVENTS.has(payload.event)) void refresh();
+				});
+				if (!active) {
+					stop();
+					return;
+				}
+				dispose = stop;
+				// Subscribe first to cover any change after the initial snapshot was taken.
+				await refresh();
+			} catch {
+				// Outside Tauri (tests without IPC and browser previews) there is no native event source.
+			}
+		};
+		void subscribe();
 		return () => {
 			active = false;
 			dispose?.();
@@ -231,8 +253,6 @@ export function SessionDockProvider({ children }: { children: ReactNode }) {
 		() => ({
 			...state,
 			permissions,
-			resolvePermission: (requestId) =>
-				setPermissions((current) => current.filter((item) => item.requestId !== requestId)),
 			show: (key) =>
 				update((current) => {
 					const exists = current.tabs.some((tab) => sameKey(tab, key));

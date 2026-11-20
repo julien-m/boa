@@ -2,12 +2,22 @@
  * Composer bound to the docked session: action buttons, draft and immediate « Envoyer ».
  * BOA never queues: the provider's own queue/steer policy handles a running session.
  */
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { captureCurrentReaderContext } from "../code-viewer";
 import { useSessionDock } from "./session-dock-state";
 import { useSessionText } from "./session-labels";
-import { type SendReceipt, type SessionKey, type SessionSummary, sameKey, sessionsApi } from "./sessions-api";
+import {
+	keyId,
+	type SendReceipt,
+	type SessionKey,
+	type SessionSummary,
+	sameKey,
+	sessionsApi,
+} from "./sessions-api";
+
+type SessionSubmission = { key: SessionKey; text: string; fromDraft: boolean };
+const sendKey = (key: SessionKey) => ["sessions", "send", keyId(key)] as const;
 
 export function SessionComposer({
 	session,
@@ -20,6 +30,9 @@ export function SessionComposer({
 }) {
 	const { t, provider, error, receipt, reason } = useSessionText();
 	const dock = useSessionDock();
+	const queryClient = useQueryClient();
+	// A collapsed dock or a tab switch can remount the composer during acknowledgement.
+	const sending = useIsMutating({ mutationKey: sendKey(session.key), exact: true }) > 0;
 	/** Feedback stays attached to the session it concerns, even if the dock switches meanwhile. */
 	const [feedback, setFeedback] = useState<{ key: SessionKey; text: string; error: boolean } | null>(null);
 	const shownFeedback = feedback && sameKey(feedback.key, session.key) ? feedback : null;
@@ -34,8 +47,8 @@ export function SessionComposer({
 	);
 	// Every mutation carries its target key from the click: callbacks never read the current view.
 	const send = useMutation({
-		mutationFn: (input: { key: SessionKey; text: string; fromDraft: boolean }) =>
-			sessionsApi.send(input.key, input.text),
+		mutationKey: sendKey(session.key),
+		mutationFn: (input: SessionSubmission) => sessionsApi.send(input.key, input.text),
 		onSuccess: (result: SendReceipt, input) => {
 			setFeedback({
 				key: input.key,
@@ -47,11 +60,15 @@ export function SessionComposer({
 		},
 		onError: (value, input) => setFeedback({ key: input.key, text: error(value), error: true }),
 	});
+	const submit = (input: SessionSubmission) => {
+		if (queryClient.isMutating({ mutationKey: sendKey(input.key), exact: true })) return;
+		send.mutate(input);
+	};
 	const runAction = useMutation({
 		mutationFn: (input: { key: SessionKey; actionId: string; file?: string; selection?: string }) =>
 			sessionsApi.renderAction(input.key, input.actionId, input.file, input.selection),
 		onSuccess: (rendered, input) => {
-			if (rendered.mode === "send") send.mutate({ key: input.key, text: rendered.text, fromDraft: false });
+			if (rendered.mode === "send") submit({ key: input.key, text: rendered.text, fromDraft: false });
 			else {
 				dock.setDraft(input.key, rendered.text);
 				setFeedback({ key: input.key, text: t("composer.prepared"), error: false });
@@ -60,6 +77,10 @@ export function SessionComposer({
 		onError: (value, input) => setFeedback({ key: input.key, text: error(value), error: true }),
 	});
 	const canSend = session.capabilities.send.available;
+	const canSubmitDraft = canSend && !sending && !runAction.isPending && draft.trim().length > 0;
+	const submitDraft = () => {
+		if (canSubmitDraft) submit({ key: session.key, text: draft, fromDraft: true });
+	};
 	/** {fichier} and {sélection} come from the reader at click time; the file names its project. */
 	const readerValues = (): { file?: string; selection?: string } => {
 		const context = captureCurrentReaderContext();
@@ -85,7 +106,7 @@ export function SessionComposer({
 								type="button"
 								key={action.id}
 								className="quiet-button"
-								disabled={runAction.isPending || send.isPending || (action.mode === "send" && !canSend)}
+								disabled={runAction.isPending || sending || (action.mode === "send" && !canSend)}
 								onClick={() => runAction.mutate({ key: session.key, actionId: action.id, ...readerValues() })}
 							>
 								{action.label}
@@ -98,7 +119,7 @@ export function SessionComposer({
 				className="session-composer-form"
 				onSubmit={(event) => {
 					event.preventDefault();
-					if (draft.trim()) send.mutate({ key: session.key, text: draft, fromDraft: true });
+					submitDraft();
 				}}
 			>
 				<textarea
@@ -110,7 +131,7 @@ export function SessionComposer({
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
 							event.preventDefault();
-							if (draft.trim() && canSend) send.mutate({ key: session.key, text: draft, fromDraft: true });
+							submitDraft();
 						}
 					}}
 				/>
@@ -118,10 +139,10 @@ export function SessionComposer({
 					type="submit"
 					className="primary-button"
 					data-testid="session-send"
-					disabled={!canSend || send.isPending || !draft.trim()}
+					disabled={!canSubmitDraft}
 					title={canSend ? t("composer.sendModeHint", { tool }) : reason(session.capabilities.send.reason)}
 				>
-					{send.isPending ? t("composer.sending") : t("composer.send")}
+					{sending ? t("composer.sending") : t("composer.send")}
 				</button>
 			</form>
 			<span className={shownFeedback?.error ? "session-feedback error" : "session-feedback"} role="status">

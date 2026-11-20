@@ -669,6 +669,18 @@ async fn sessions(
         .map_err(|e| sessions::model::SessionError::new("task_failed", e.to_string()))?
 }
 
+/// The dock's prompts are local to app webviews, outside the CLI request vocabulary.
+#[tauri::command]
+async fn sessions_pending_permissions(
+    state: NativeState<'_>,
+) -> Result<Vec<sessions::claude::PermissionPrompt>, sessions::model::SessionError> {
+    let state = state.inner().clone();
+    // Reading can wait for a concurrent bridge call to release its write lock.
+    tauri::async_runtime::spawn_blocking(move || state.sessions.claude().pending_permissions())
+        .await
+        .map_err(|e| sessions::model::SessionError::new("task_failed", e.to_string()))?
+}
+
 /// Composition: UI events for the sessions domain and the packaged Claude bridge location.
 fn wire_sessions(app: &tauri::App, state: &Arc<AppState>) {
     let handle = app.handle().clone();
@@ -784,7 +796,8 @@ pub fn run() {
             reader_pending,
             reader_status,
             reader_acknowledge,
-            sessions
+            sessions,
+            sessions_pending_permissions
         ])
         .run(tauri::generate_context!());
     if let Err(error) = app {

@@ -129,6 +129,7 @@ class OwnedSession {
 		const resolve = this.permissions.get(requestId);
 		if (!resolve) return false;
 		this.permissions.delete(requestId);
+		emit({ event: "permissionResolved", sessionId: this.sessionId, requestId });
 		resolve(allow);
 		return true;
 	}
@@ -223,17 +224,10 @@ class OwnedSession {
 	private askPermission(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
 		const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 		this.state = "awaitingInput";
-		emit({
-			event: "permissionRequest",
-			sessionId: this.sessionId,
-			requestId,
-			toolName,
-			// Only a short summary leaves the bridge; full tool input stays in Claude Code.
-			summary: JSON.stringify(input).slice(0, 300),
-		});
 		return new Promise((resolve) => {
 			const timer = setTimeout(() => {
 				if (this.permissions.delete(requestId)) {
+					emit({ event: "permissionResolved", sessionId: this.sessionId, requestId });
 					resolve({ behavior: "deny", message: "No decision from BOA in time" });
 				}
 			}, PERMISSION_TIMEOUT_MS);
@@ -245,6 +239,15 @@ class OwnedSession {
 						? { behavior: "allow", updatedInput: input }
 						: { behavior: "deny", message: "Denied from BOA" },
 				);
+			});
+			// Publish only after an explicit answer can reach the registered request.
+			emit({
+				event: "permissionRequest",
+				sessionId: this.sessionId,
+				requestId,
+				toolName,
+				// Only a short summary leaves the bridge; full tool input stays in Claude Code.
+				summary: JSON.stringify(input).slice(0, 300),
 			});
 		});
 	}

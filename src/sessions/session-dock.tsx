@@ -107,7 +107,6 @@ export function SessionDock({
 		// The request carries its own session: the answer never follows the dock's current target.
 		mutationFn: (input: { sessionId: string; requestId: string; allow: boolean }) =>
 			sessionsApi.permission({ provider: "claude", id: input.sessionId }, input.requestId, input.allow),
-		onSuccess: (_, input) => dock.resolvePermission(input.requestId),
 		onError: (value, input) =>
 			setFeedback({ key: { provider: "claude", id: input.sessionId }, text: error(value) }),
 	});

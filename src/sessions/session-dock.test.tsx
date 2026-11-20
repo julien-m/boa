@@ -6,11 +6,28 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionDock } from "./session-dock";
 import { migrateDock, SessionDockProvider, useSessionDock } from "./session-dock-state";
-import { type ConversationEntry, type SessionSummary, sessionsApi } from "./sessions-api";
+import {
+	type ConversationEntry,
+	type PermissionRequest,
+	type SessionSummary,
+	sessionsApi,
+} from "./sessions-api";
 import { SessionsView } from "./sessions-view";
 import "../i18n";
 
-vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
+type EventHandler = (event: { payload: unknown }) => void;
+const listeners = vi.hoisted(() => new Map<string, Set<EventHandler>>());
+vi.mock("@tauri-apps/api/event", () => ({
+	listen: async (name: string, handler: EventHandler) => {
+		const handlers = listeners.get(name) ?? new Set<EventHandler>();
+		handlers.add(handler);
+		listeners.set(name, handlers);
+		return () => handlers.delete(handler);
+	},
+}));
+function sessionEvent(payload: unknown) {
+	for (const handler of listeners.get("boa:session-event") ?? []) handler({ payload });
+}
 const clipboard = vi.hoisted(() => ({ writeText: vi.fn(async (_text: string) => undefined) }));
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => clipboard);
 vi.mock("@xterm/xterm", () => ({
@@ -47,6 +64,7 @@ vi.mock("./sessions-api", async (original) => {
 			"send",
 			"pin",
 			"permission",
+			"pendingPermissions",
 			"rename",
 			"closeTerminal",
 		].map((name) => [name, vi.fn()]),
@@ -141,6 +159,7 @@ beforeEach(() => {
 	api.conversation.mockImplementation(async () => conversation);
 	api.openTerminal.mockReturnValue(new Promise(() => undefined));
 	api.openTerminal.mockClear();
+	api.pendingPermissions.mockReset().mockResolvedValue([]);
 	api.rename.mockReset();
 	api.closeTerminal.mockReset().mockResolvedValue({ closed: true });
 	clipboard.writeText.mockClear();
@@ -256,6 +275,67 @@ describe("session tabs", () => {
 });
 
 describe("dock invariants", () => {
+	it("brings a pending permission into a new dock and clears both views when it is answered", async () => {
+		await render(<SessionDock projects={[]} />);
+		const primary = () => dock.permissions;
+		const session = catalog[0].key;
+		const prompt = { sessionId: session.id, requestId: "pending", toolName: "Read", summary: "notes.txt" };
+		const other = { ...prompt, sessionId: catalog[1].key.id, summary: "private.txt" };
+		const snapshot = vi.mocked(sessionsApi).pendingPermissions;
+		snapshot.mockResolvedValue([prompt, other]);
+		await act(async () => sessionEvent({ event: "permissionRequest", ...prompt }));
+		await act(async () => dock.show(session));
+		expect(primary()).toContainEqual(expect.objectContaining(prompt));
+		const detachedHost = document.createElement("div");
+		const detached = createRoot(detachedHost);
+		vi.mocked(sessionsApi.permission).mockImplementationOnce(async () => {
+			snapshot.mockResolvedValue([other]);
+			sessionEvent({ event: "permissionResolved", sessionId: session.id, requestId: prompt.requestId });
+			return { answered: true };
+		});
+		try {
+			await act(async () =>
+				detached.render(
+					<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+						<SessionDockProvider>
+							<SessionDock detachedWindow projects={[]} />
+						</SessionDockProvider>
+					</QueryClientProvider>,
+				),
+			);
+			const promptText = () => detachedHost.querySelector(".session-permission")?.textContent ?? "";
+			expect(promptText()).toContain(prompt.summary);
+			expect(detachedHost.textContent).not.toContain(other.summary);
+			const allow = [...detachedHost.querySelectorAll<HTMLButtonElement>(".session-permission button")].find(
+				(element) => element.textContent === "Autoriser",
+			);
+			await act(async () => allow?.click());
+			expect(sessionsApi.permission).toHaveBeenCalledWith(session, prompt.requestId, true);
+			expect(promptText()).toBe("");
+			expect(primary()).toEqual([other]);
+			expect(localStorage.getItem("boa-session-dock")).not.toContain(prompt.summary);
+		} finally {
+			await act(async () => detached.unmount());
+		}
+	});
+
+	it("does not revive a closed session's prompt from a delayed mount snapshot", async () => {
+		const snapshot = vi.mocked(sessionsApi).pendingPermissions;
+		const prompt = { sessionId: catalog[0].key.id, requestId: "closing", toolName: "Read", summary: "notes" };
+		let finishSnapshot: (prompts: PermissionRequest[]) => void = () => undefined;
+		snapshot.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finishSnapshot = resolve;
+			}),
+		);
+		await render(null);
+		expect(snapshot).toHaveBeenCalledTimes(1);
+		await act(async () => sessionEvent({ event: "sessionClosed", sessionId: prompt.sessionId }));
+		expect(snapshot).toHaveBeenCalledTimes(2);
+		await act(async () => finishSnapshot([prompt]));
+		expect(dock.permissions).toEqual([]);
+	});
+
 	it("never applies a rename form opened on A to B after a tab switch", async () => {
 		vi.mocked(sessionsApi.rename).mockImplementation(async (key, title) => ({ ...summary(key.id), title }));
 		await render(<SessionDock projects={[]} />);

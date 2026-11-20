@@ -11,6 +11,7 @@ use super::model::{
     SessionError, SessionResult, SessionState, StateEvidence,
 };
 use super::provider::{ProviderListing, ProviderSession, ProviderStatus, SessionProvider};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -36,10 +37,45 @@ const MAX_LINE: usize = 8 * 1024 * 1024;
 /// Receives bridge events (`sessionStarted`, `permissionRequest`, `turnCompleted`, ...).
 pub(crate) type EventSink = Arc<dyn Fn(Value) + Send + Sync>;
 
+/// The short prompt shown in BOA, retained only while this bridge awaits a decision.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PermissionPrompt {
+    session_id: String,
+    request_id: String,
+    tool_name: String,
+    summary: String,
+}
+
+fn update_permissions(prompts: &mut Vec<PermissionPrompt>, event: &Value) {
+    let session_id = event.get("sessionId").and_then(Value::as_str);
+    let request_id = event.get("requestId").and_then(Value::as_str);
+    match event.get("event").and_then(Value::as_str) {
+        Some("permissionRequest") => {
+            if let Ok(prompt) = PermissionPrompt::deserialize(event)
+                && !prompts.iter().any(|active| {
+                    active.session_id == prompt.session_id && active.request_id == prompt.request_id
+                })
+            {
+                prompts.push(prompt);
+            }
+        }
+        Some("permissionResolved") => prompts.retain(|prompt| {
+            Some(prompt.session_id.as_str()) != session_id
+                || Some(prompt.request_id.as_str()) != request_id
+        }),
+        Some("turnCompleted" | "sessionClosed") => {
+            prompts.retain(|prompt| Some(prompt.session_id.as_str()) != session_id);
+        }
+        _ => {}
+    }
+}
+
 struct Bridge {
     child: Child,
     stdin: ChildStdin,
     pending: Arc<Mutex<HashMap<u64, Sender<Value>>>>,
+    permissions: Arc<Mutex<Vec<PermissionPrompt>>>,
     next_id: u64,
 }
 
@@ -119,6 +155,8 @@ impl ClaudeProvider {
         let pending: Arc<Mutex<HashMap<u64, Sender<Value>>>> = Arc::default();
         let routes = Arc::clone(&pending);
         let events = self.events.lock().ok().and_then(|sink| sink.clone());
+        let permissions: Arc<Mutex<Vec<PermissionPrompt>>> = Arc::default();
+        let prompts = Arc::clone(&permissions);
         // Owned reader: routes responses by id and forwards events; ends with the child.
         thread::Builder::new()
             .name("boa-claude-bridge".into())
@@ -138,6 +176,11 @@ impl ClaudeProvider {
                                 }
                             }
                             None => {
+                                // Update the snapshot before notifying webviews so a late listener
+                                // can read the same state as one that saw the original event.
+                                if let Ok(mut current) = prompts.lock() {
+                                    update_permissions(&mut current, &message);
+                                }
                                 if let Some(sink) = &events {
                                     sink(message);
                                 }
@@ -149,12 +192,21 @@ impl ClaudeProvider {
                 if let Ok(mut routes) = routes.lock() {
                     routes.clear();
                 }
+                let had_permissions = prompts.lock().is_ok_and(|mut current| {
+                    let had_permissions = !current.is_empty();
+                    current.clear();
+                    had_permissions
+                });
+                if had_permissions && let Some(sink) = &events {
+                    sink(json!({"event": "claudeBridgeClosed"}));
+                }
             })
             .map_err(SessionError::io)?;
         Ok(Bridge {
             child,
             stdin,
             pending,
+            permissions,
             next_id: 0,
         })
     }
@@ -322,6 +374,22 @@ impl ClaudeProvider {
             json!({"sessionId": id, "requestId": request_id, "allow": allow}),
         )
         .map(|_| ())
+    }
+
+    /// Returns prompts for newly mounted windows without starting Claude or touching disk.
+    pub(crate) fn pending_permissions(&self) -> SessionResult<Vec<PermissionPrompt>> {
+        let bridge = self
+            .bridge
+            .lock()
+            .map_err(|_| SessionError::new("claude_unavailable", "bridge lock"))?;
+        let Some(bridge) = bridge.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let current = bridge
+            .permissions
+            .lock()
+            .map_err(|_| SessionError::new("claude_unavailable", "permission lock"))?;
+        Ok(current.clone())
     }
 }
 
@@ -534,6 +602,51 @@ impl SessionProvider for ClaudeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permission_snapshot_starts_empty_without_a_bridge() {
+        let provider = ClaudeProvider::new(None, None, String::new());
+        assert!(provider.pending_permissions().unwrap().is_empty());
+        assert!(provider.bridge.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn permission_projection_removes_only_the_answered_request_or_closed_session() {
+        let mut prompts = Vec::new();
+        let request = |session_id: &str, request_id: &str| {
+            json!({
+                "event": "permissionRequest", "sessionId": session_id, "requestId": request_id,
+                "toolName": "Read", "summary": "notes.txt"
+            })
+        };
+        let first = request("a", "shared");
+        update_permissions(&mut prompts, &first);
+        update_permissions(&mut prompts, &first);
+        update_permissions(&mut prompts, &request("a", "another"));
+        update_permissions(&mut prompts, &request("b", "shared"));
+        assert_eq!(prompts.len(), 3);
+
+        update_permissions(
+            &mut prompts,
+            &json!({"event": "permissionResolved", "sessionId": "a", "requestId": "shared"}),
+        );
+        assert_eq!(prompts.len(), 2);
+        assert_eq!(prompts[0].request_id, "another");
+        assert_eq!(prompts[1].session_id, "b");
+
+        update_permissions(
+            &mut prompts,
+            &json!({"event": "sessionClosed", "sessionId": "a"}),
+        );
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].session_id, "b");
+
+        update_permissions(
+            &mut prompts,
+            &json!({"event": "turnCompleted", "sessionId": "b"}),
+        );
+        assert!(prompts.is_empty());
+    }
 
     #[test]
     fn live_elsewhere_blocks_sending_while_owned_or_absent_sessions_can_be_driven() {

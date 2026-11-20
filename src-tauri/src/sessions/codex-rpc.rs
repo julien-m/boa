@@ -217,24 +217,17 @@ pub(crate) struct RpcClient {
 /// Distinguishes "the request may have been applied" from a clean failure.
 #[derive(Debug)]
 pub(crate) enum CallError {
-    /// The provider answered with an error, or the request was never written.
+    /// The provider rejected the request, or the transport reported a write failure.
     Failed(SessionError),
-    /// The request was written but no answer arrived in time.
-    Unknown,
-}
-
-impl From<SessionError> for CallError {
-    fn from(error: SessionError) -> Self {
-        CallError::Failed(error)
-    }
+    /// The request was written but no response was received. Carries the receive failure.
+    Unknown(SessionError),
 }
 
 impl CallError {
-    /// Collapses into a session error for read-only calls where retry is harmless.
+    /// Returns the underlying session error when the caller needs the transport diagnostic.
     pub(crate) fn into_error(self) -> SessionError {
         match self {
-            CallError::Failed(error) => error,
-            CallError::Unknown => SessionError::new("codex_timeout", "no answer in time"),
+            CallError::Failed(error) | CallError::Unknown(error) => error,
         }
     }
 }
@@ -268,11 +261,16 @@ impl RpcClient {
         self.next_id += 1;
         let id = self.next_id;
         self.transport
-            .write(&json!({"id": id, "method": method, "params": params}))?;
+            .write(&json!({"id": id, "method": method, "params": params}))
+            .map_err(CallError::Failed)?;
         let deadline = Instant::now() + CALL_TIMEOUT;
         loop {
-            let Some(message) = self.transport.read(deadline)? else {
-                return Err(CallError::Unknown);
+            // Once the transport has accepted the write, loss of the reply leaves the result unknown.
+            let Some(message) = self.transport.read(deadline).map_err(CallError::Unknown)? else {
+                return Err(CallError::Unknown(SessionError::new(
+                    "codex_timeout",
+                    "no answer in time",
+                )));
             };
             if message.get("id").and_then(Value::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
@@ -333,7 +331,7 @@ mod tests {
     use std::collections::VecDeque;
 
     struct Scripted {
-        replies: VecDeque<Value>,
+        replies: VecDeque<SessionResult<Value>>,
         written: Vec<Value>,
     }
     impl RpcTransport for Scripted {
@@ -342,18 +340,19 @@ mod tests {
             Ok(())
         }
         fn read(&mut self, _: Instant) -> SessionResult<Option<Value>> {
-            Ok(self.replies.pop_front())
+            self.replies.pop_front().transpose()
         }
     }
 
     #[test]
-    fn call_matches_ids_buffers_notifications_and_reports_unknown_on_silence() {
+    fn call_matches_responses_and_distinguishes_rejection_from_missing_replies() {
         let transport = Scripted {
             replies: VecDeque::from(vec![
-                json!({"id": 1, "result": {}}),
-                json!({"method": "thread/status/changed", "params": {}}),
-                json!({"id": 2, "result": {"ok": true}}),
-                json!({"id": 3, "error": {"message": "nope"}}),
+                Ok(json!({"id": 1, "result": {}})),
+                Ok(json!({"method": "thread/status/changed", "params": {}})),
+                Ok(json!({"id": 2, "result": {"ok": true}})),
+                Ok(json!({"id": 3, "error": {"message": "nope"}})),
+                Err(SessionError::new("codex_transport", "daemon closed")),
             ]),
             written: vec![],
         };
@@ -364,9 +363,10 @@ mod tests {
             Err(CallError::Failed(error)) => assert_eq!(error.code, "codex_rejected"),
             other => panic!("unexpected {other:?}"),
         }
-        assert!(matches!(
-            client.call("c", json!({})),
-            Err(CallError::Unknown)
-        ));
+        for (method, code) in [("c", "codex_transport"), ("d", "codex_timeout")] {
+            let error = client.call(method, json!({})).unwrap_err();
+            assert!(matches!(error, CallError::Unknown(_)), "{error:?}");
+            assert_eq!(error.into_error().code, code);
+        }
     }
 }

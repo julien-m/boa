@@ -98,6 +98,7 @@ const createdRequests: { provider: string; project: string; text: string }[] = [
 let autoPin = true;
 let actionReads = 0;
 let actionSaveGate: Promise<void> | undefined;
+let sessionSendGate: Promise<void> | undefined;
 
 function summary(session: Fake) {
 	return {
@@ -276,6 +277,8 @@ await page.exposeFunction("boaSmokeInvoke", async (command: string, args: Record
 				: { spaces: [], shortcuts: { contextual: "Mod+F", global: "Mod+Shift+F" } };
 		case "context_collection_load":
 			return null;
+		case "sessions_pending_permissions":
+			return [];
 		case "reader_pending":
 			return [];
 		case "context_views":
@@ -285,7 +288,9 @@ await page.exposeFunction("boaSmokeInvoke", async (command: string, args: Record
 		case "sessions":
 			try {
 				if (args.request.action === "changeActions") await actionSaveGate;
-				return { ok: true, value: sessionsIpc(args.request) };
+				const value = sessionsIpc(args.request);
+				if (args.request.action === "send") await sessionSendGate;
+				return { ok: true, value };
 			} catch (error) {
 				return { ok: false, value: error };
 			}
@@ -400,11 +405,44 @@ try {
 		"Applique le principe dans Cedar uniquement",
 	);
 	await page.screenshot({ path: resolve(output, "03-dock-other-project.png") });
-	await page.getByTestId("session-send").click();
+	const pendingSend = Promise.withResolvers<void>();
+	const sentBefore = sent.length;
+	sessionSendGate = pendingSend.promise;
+	try {
+		const composer = page.getByLabel("Message pour la session");
+		await composer.press("Control+Enter");
+		await expect.poll(() => sent.length).toBe(sentBefore + 1);
+		await expect(page.getByTestId("session-send")).toBeDisabled();
+		await composer.press("Control+Enter");
+		await composer.press("Meta+Enter");
+	} finally {
+		pendingSend.resolve();
+		sessionSendGate = undefined;
+	}
 	await expect(page.getByTestId("session-dock")).toContainText("Transmis au tour en cours de Claude Code");
 	await expect(page.getByLabel("Message pour la session")).toHaveValue("");
+	expect(sent).toHaveLength(sentBefore + 1);
 	expect(sent.at(-1)).toEqual({ id: "c1", text: "Applique le principe dans Cedar uniquement" });
 	await expect(page.getByRole("button", { name: /Mettre en (file|attente)/ })).toHaveCount(0);
+	const remountedSend = Promise.withResolvers<void>();
+	const sentBeforeCollapse = sent.length;
+	const composer = page.getByLabel("Message pour la session");
+	await composer.fill("Vérifie après réduction du dock");
+	sessionSendGate = remountedSend.promise;
+	try {
+		await composer.press("Control+Enter");
+		await expect.poll(() => sent.length).toBe(sentBeforeCollapse + 1);
+		await page.getByRole("button", { name: "Réduire le dock" }).click();
+		await page.getByRole("button", { name: "Afficher le dock" }).click();
+		await expect(composer).toHaveValue("Vérifie après réduction du dock");
+		await expect(page.getByTestId("session-send")).toBeDisabled();
+		await composer.press("Control+Enter");
+	} finally {
+		remountedSend.resolve();
+		sessionSendGate = undefined;
+	}
+	await expect(composer).toHaveValue("");
+	expect(sent).toHaveLength(sentBeforeCollapse + 1);
 
 	// An action in Send mode targets the docked session, with the live branch.
 	await page.getByTestId("session-dock").getByRole("button", { name: "Review", exact: true }).click();

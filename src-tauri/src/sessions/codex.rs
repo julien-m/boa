@@ -540,7 +540,7 @@ impl SessionProvider for CodexProvider {
             .call("thread/name/set", json!({"threadId": id, "name": title}))
             .map_err(|error| match error {
                 CallError::Failed(error) => error,
-                CallError::Unknown => {
+                CallError::Unknown(_) => {
                     SessionError::new("result_unknown", "rename sent without answer")
                 }
             })?;
@@ -562,7 +562,7 @@ impl SessionProvider for CodexProvider {
         let mut client = self.daemon(true)?;
         let unknown = |error: CallError| match error {
             CallError::Failed(error) => error,
-            CallError::Unknown => {
+            CallError::Unknown(_) => {
                 SessionError::new("result_unknown", "message sent without answer")
             }
         };
@@ -673,7 +673,7 @@ impl SessionProvider for CodexProvider {
                     .and_then(Value::as_str)
                     .map(str::to_string),
             },
-            Err(CallError::Unknown) => SendReceipt::Unknown,
+            Err(CallError::Unknown(_)) => SendReceipt::Unknown,
             Err(CallError::Failed(error)) => return Err(error),
         };
         Ok((id, receipt))

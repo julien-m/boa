@@ -88,6 +88,8 @@ export type ActionDef = {
 export type ResolvedAction = ActionDef & { origin: "global" | "overridden" | "project" };
 export type ActionsView = { revision: number; project: string | null; actions: ResolvedAction[] };
 export type OpenReceipt = { url: string; handler: string; requested: boolean; displayConfirmed: boolean };
+/** Short prompt from a BOA-driven Claude session. */
+export type PermissionRequest = { sessionId: string; requestId: string; toolName: string; summary: string };
 
 /** Typed failure from the native service; `code` is stable and localized by the UI. */
 export class SessionsError extends Error {
@@ -140,6 +142,8 @@ export const sessionsApi = {
 		call<{ cleared: boolean }>({ action: "clearBranchRequest", session }),
 	permission: (session: SessionKey, requestId: string, allow: boolean) =>
 		call<{ answered: boolean }>({ action: "permission", session, requestId, allow }),
+	/** Returns the app-only snapshot for a webview that may have missed earlier events. */
+	pendingPermissions: () => invoke<PermissionRequest[]>("sessions_pending_permissions"),
 	/** `attachOnly`: restore a view onto a running PTY; the backend never starts one then. */
 	openTerminal: (session: SessionKey, cols: number, rows: number, attachOnly = false) =>
 		call<{ terminalId: string; running: boolean; snapshot: string; snapshotEnd: number }>({

@@ -30,7 +30,13 @@ vi.mock("./sessions-api", async (original) => {
 	const actual = await original<typeof import("./sessions-api")>();
 	return {
 		...actual,
-		sessionsApi: { send: vi.fn(), renderAction: vi.fn(), actions: vi.fn(), list: vi.fn() },
+		sessionsApi: {
+			send: vi.fn(),
+			renderAction: vi.fn(),
+			actions: vi.fn(),
+			list: vi.fn(),
+			pendingPermissions: vi.fn(async () => []),
+		},
 	};
 });
 
@@ -84,6 +90,7 @@ beforeEach(() => {
 	localStorage.clear();
 	vi.mocked(sessionsApi.send).mockReset();
 	vi.mocked(sessionsApi.renderAction).mockReset();
+	vi.mocked(sessionsApi.pendingPermissions).mockResolvedValue([]);
 	vi.mocked(sessionsApi.actions)
 		.mockReset()
 		.mockResolvedValue({
@@ -234,13 +241,12 @@ describe("app-level dock state", () => {
 			),
 		);
 		expect(host.querySelector('[data-testid="session-attention"]')).toBeNull();
+		const prompt = { sessionId: "c9", requestId: "p1", toolName: "Bash", summary: "x" };
+		vi.mocked(sessionsApi.pendingPermissions).mockResolvedValue([prompt]);
 		await act(async () =>
 			emit("boa:session-event", {
 				event: "permissionRequest",
-				sessionId: "c9",
-				requestId: "p1",
-				toolName: "Bash",
-				summary: "x",
+				...prompt,
 			}),
 		);
 		const signal = host.querySelector<HTMLButtonElement>('[data-testid="session-attention"]');
