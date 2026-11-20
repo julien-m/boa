@@ -218,9 +218,7 @@ pub(crate) fn execute(state: &AppState, request: Request) -> SessionResult<Value
             title,
         } => {
             let project = registered_project(&scope, &project)?;
-            let (key, receipt) =
-                service.create(&scope, provider, &project, &text, title.as_deref())?;
-            json!({"session": key, "receipt": receipt})
+            to_json(&service.create(&scope, provider, &project, &text, title.as_deref())?)?
         }
         Request::Resume { session } => {
             service.resume(&scope, &session.key()?)?;

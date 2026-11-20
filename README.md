@@ -172,6 +172,8 @@ boa actions reset --project ~/code/cedar
 
 `--json` prints `{ok,result}` or `{ok:false,code,error}` with a stable error code (`codex_daemon_not_running`, `claude_session_owned_elsewhere`, `result_unknown`, `revision_conflict`…). `--revision N` refuses a settings change if the configuration changed meanwhile.
 
+When Claude accepts the first message from `boa sessions new` but BOA cannot confirm the requested title, the successful result includes the session, the message receipt and `titleWarning: "title_unconfirmed"`.
+
 **Requirements and limits.** Codex CLI (`codex`) for Codex sessions; mutations require its shared daemon, which BOA starts only when you choose **Start Codex daemon**. Claude Code (`claude`) and Node.js for Claude sessions. BOA looks for these tools in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` and `PATH` (override with `BOA_CODEX_BIN`, `BOA_CLAUDE_BIN`, `BOA_NODE_BIN`). Listings are bounded to the 200 most recent sessions per tool and conversations to the latest 200 entries. A Claude permission prompt from a BOA-driven session appears in the dock with **Allow** / **Deny**. A rename applied to a Claude session open elsewhere may keep its old name in that terminal until it restarts.
 
 ## Context menus and navigation history

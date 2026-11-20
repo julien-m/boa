@@ -2,8 +2,8 @@
 //!
 //! Adapters translate native protocols into these types; callers never branch on the provider.
 use super::model::{
-    Capabilities, ConversationEntry, Provider, SendReceipt, SessionResult, SessionState,
-    StateEvidence,
+    Capabilities, ConversationEntry, CreateSessionReceipt, Provider, SendReceipt, SessionResult,
+    SessionState, StateEvidence,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -73,7 +73,7 @@ pub(crate) trait SessionProvider: Send + Sync {
         cwd: &str,
         text: &str,
         title: Option<&str>,
-    ) -> SessionResult<(String, SendReceipt)>;
+    ) -> SessionResult<CreateSessionReceipt>;
 
     /// Explicitly resumes a native session under the shared/BOA owner.
     fn resume(&self, id: &str, cwd: &str) -> SessionResult<()>;

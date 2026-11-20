@@ -121,14 +121,15 @@ fn provider_live_codex_daemon_rename_and_follow_up_modes() {
         return;
     }
     let cwd = work.to_string_lossy().into_owned();
-    let (id, receipt) = codex
+    let created = codex
         .create(
             &cwd,
             "BOA live test session. Run `sleep 8`, then reply DONE.",
             Some("BOA live test"),
         )
         .unwrap();
-    assert!(matches!(receipt, SendReceipt::Started { .. }));
+    let id = created.session.id;
+    assert!(matches!(created.receipt, SendReceipt::Started { .. }));
     // Steer mode is the server default without a configured follow-up mode.
     let steered = codex.send(&id, &cwd, "Also say STEER.").unwrap();
     assert!(
@@ -190,17 +191,16 @@ fn provider_live_claude_sdk_create_rename_send_and_owner_guard() {
         .unwrap()
         .to_string_lossy()
         .into_owned();
-    let (id, receipt) = claude
+    let created = claude
         .create(
             &cwd,
             "BOA live test session. Reply with the single word OK.",
             Some("BOA live test"),
         )
         .unwrap();
-    assert!(
-        matches!(receipt, SendReceipt::Accepted { .. }),
-        "{receipt:?}"
-    );
+    let id = created.session.id;
+    assert!(matches!(created.receipt, SendReceipt::Accepted { .. }));
+    assert_eq!(created.title_warning, None);
     let listed = claude.list(std::slice::from_ref(&work), 20).unwrap();
     let session = listed
         .sessions
@@ -255,13 +255,15 @@ fn provider_live_claude_existing_session_keeps_its_id_through_a_fresh_bridge() {
             tools.node.clone(),
             tools.child_path.clone(),
         );
-        let (id, _) = first
+        let id = first
             .create(
                 &cwd,
                 "BOA live test session. Reply with the single word FIRST.",
                 None,
             )
-            .unwrap();
+            .unwrap()
+            .session
+            .id;
         assert!(wait_until(Duration::from_secs(60), || {
             first.conversation(&id, &cwd, 10).is_ok_and(|entries| {
                 entries

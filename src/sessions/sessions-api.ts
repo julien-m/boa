@@ -63,6 +63,11 @@ export type SendReceipt =
 	| { status: "queuedByProvider"; submissionId: string }
 	| { status: "accepted"; messageId: string }
 	| { status: "unknown" };
+export type CreatedSession = {
+	session: SessionKey;
+	receipt: SendReceipt;
+	titleWarning?: "title_unconfirmed";
+};
 export type BranchOption = { name: string; worktree: string | null };
 export type SessionBranch = {
 	current: string | null;
@@ -132,7 +137,7 @@ export const sessionsApi = {
 	rename: (session: SessionKey, title: string) => call<SessionSummary>({ action: "rename", session, title }),
 	send: (session: SessionKey, text: string) => call<SendReceipt>({ action: "send", session, text }),
 	create: (provider: Provider, project: string, text: string, title?: string) =>
-		call<{ session: SessionKey; receipt: SendReceipt }>({ action: "create", provider, project, text, title }),
+		call<CreatedSession>({ action: "create", provider, project, text, title }),
 	resume: (session: SessionKey) => call<{ resumed: boolean }>({ action: "resume", session }),
 	openInApp: (session: SessionKey) => call<OpenReceipt>({ action: "openInApp", session }),
 	branch: (session: SessionKey) => call<SessionBranch>({ action: "branch", session }),

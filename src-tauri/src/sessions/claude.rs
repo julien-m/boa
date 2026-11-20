@@ -7,8 +7,9 @@
 //! - Any other session can be resumed by BOA through `query({resume})`; BOA then owns it
 //!   until the bridge closes it, and its state is exact.
 use super::model::{
-    Capabilities, Capability, ConversationEntry, ConversationRole, Provider, SendReceipt,
-    SessionError, SessionResult, SessionState, StateEvidence,
+    Capabilities, Capability, ConversationEntry, ConversationRole, CreateSessionReceipt, Provider,
+    SendReceipt, SessionError, SessionKey, SessionResult, SessionState, StateEvidence,
+    TitleWarning,
 };
 use super::provider::{ProviderListing, ProviderSession, ProviderStatus, SessionProvider};
 use serde::{Deserialize, Serialize};
@@ -33,6 +34,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const SEND_TIMEOUT: Duration = Duration::from_secs(130);
 const AGENTS_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_LINE: usize = 8 * 1024 * 1024;
+/// Matches the rename input limit in scripts/claude-bridge.ts.
+const MAX_TITLE_UTF16: usize = 200;
 
 /// Receives bridge events (`sessionStarted`, `permissionRequest`, `turnCompleted`, ...).
 pub(crate) type EventSink = Arc<dyn Fn(Value) + Send + Sync>;
@@ -404,6 +407,21 @@ fn accepted(result: &Value) -> SessionResult<SendReceipt> {
     })
 }
 
+fn validate_title(title: &str) -> SessionResult<()> {
+    // The bridge checks String.length before trimming and uses ECMAScript whitespace.
+    if title.encode_utf16().take(MAX_TITLE_UTF16 + 1).count() > MAX_TITLE_UTF16
+        || title
+            .trim_matches(|c: char| c == '\u{feff}' || (c.is_whitespace() && c != '\u{85}'))
+            .is_empty()
+    {
+        return Err(SessionError::invalid(
+            "title",
+            "1-200 UTF-16 code units required",
+        ));
+    }
+    Ok(())
+}
+
 /// Dev/test default: the build output next to the crate. Packaged apps override it.
 fn default_bridge_script() -> Option<PathBuf> {
     std::env::var_os("BOA_CLAUDE_BRIDGE")
@@ -580,17 +598,30 @@ impl SessionProvider for ClaudeProvider {
         cwd: &str,
         text: &str,
         title: Option<&str>,
-    ) -> SessionResult<(String, SendReceipt)> {
+    ) -> SessionResult<CreateSessionReceipt> {
+        if let Some(title) = title {
+            validate_title(title)?;
+        }
         let result = self.request("send", json!({"cwd": cwd, "text": text}))?;
         let id = result
             .get("sessionId")
             .and_then(Value::as_str)
-            .ok_or_else(|| SessionError::new("claude_protocol", "missing session id"))?
-            .to_string();
-        if let Some(title) = title {
-            self.rename(&id, cwd, title)?;
-        }
-        Ok((id, accepted(&result)?))
+            .ok_or_else(|| SessionError::new("claude_protocol", "missing session id"))?;
+        let session = SessionKey::new(Provider::Claude, id)?;
+        let receipt = accepted(&result)?;
+        // Acknowledgement establishes creation before the separate, fallible rename.
+        let title_warning = if let Some(title) = title
+            && self.rename(id, cwd, title).is_err()
+        {
+            Some(TitleWarning::Unconfirmed)
+        } else {
+            None
+        };
+        Ok(CreateSessionReceipt {
+            session,
+            receipt,
+            title_warning,
+        })
     }
 
     fn resume(&self, id: &str, _cwd: &str) -> SessionResult<()> {
@@ -602,6 +633,65 @@ impl SessionProvider for ClaudeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_title_is_rejected_before_starting_the_bridge() {
+        let provider = ClaudeProvider::new(None, None, String::new());
+        // Supplementary-plane characters count as two UTF-16 code units in the bridge.
+        for title in [
+            "😀".repeat(MAX_TITLE_UTF16 / 2 + 1),
+            format!("{} ", "a".repeat(MAX_TITLE_UTF16)),
+            "\u{feff}".into(),
+        ] {
+            let error = provider
+                .create("/project", "First message", Some(&title))
+                .unwrap_err();
+            assert_eq!(error.code, "invalid_input");
+        }
+        assert!(validate_title(&"😀".repeat(MAX_TITLE_UTF16 / 2)).is_ok());
+        assert!(validate_title("\u{85}").is_ok());
+        assert!(provider.bridge.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn unconfirmed_title_preserves_the_created_session_and_accepted_message() {
+        let mut script = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            script,
+            r#"while IFS= read -r request; do
+  case "$request" in
+    *'"op":"send"'*) printf '%s\n' '{{"id":1,"ok":true,"result":{{"sessionId":"test-native-id","messageId":"test-message-id"}}}}' ;;
+    *'"op":"rename"'*) printf '%s\n' '{{"id":2,"ok":false,"error":{{"code":"rename_not_confirmed"}}}}' ;;
+    *) exit 1 ;;
+  esac
+done"#
+        )
+        .unwrap();
+        let provider = ClaudeProvider::new(
+            Some(PathBuf::from("/unused-claude")),
+            Some(PathBuf::from("/bin/sh")),
+            String::new(),
+        );
+        provider.set_bridge_script(script.path().into());
+
+        let created = provider
+            .create("/project", "First message", Some("Requested title"))
+            .unwrap();
+        assert_eq!(
+            created.session,
+            SessionKey::new(Provider::Claude, "test-native-id").unwrap()
+        );
+        assert_eq!(
+            created.receipt,
+            SendReceipt::Accepted {
+                message_id: "test-message-id".into(),
+            },
+        );
+        assert_eq!(
+            serde_json::to_value(&created).unwrap()["titleWarning"],
+            "title_unconfirmed"
+        );
+    }
 
     #[test]
     fn permission_snapshot_starts_empty_without_a_bridge() {

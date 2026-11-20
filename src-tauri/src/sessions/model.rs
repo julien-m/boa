@@ -183,6 +183,22 @@ pub(crate) enum SendReceipt {
     Unknown,
 }
 
+/// A native session and its first-message receipt, with a warning for an unconfirmed title.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateSessionReceipt {
+    pub session: SessionKey,
+    pub receipt: SendReceipt,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_warning: Option<TitleWarning>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub(crate) enum TitleWarning {
+    #[serde(rename = "title_unconfirmed")]
+    Unconfirmed,
+}
+
 /// Typed failure with a stable code for presentation-layer localization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SessionError {

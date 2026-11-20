@@ -99,6 +99,7 @@ let autoPin = true;
 let actionReads = 0;
 let actionSaveGate: Promise<void> | undefined;
 let sessionSendGate: Promise<void> | undefined;
+let creationOutcome: "started" | "unknown" | "titleWarning" = "started";
 
 function summary(session: Fake) {
 	return {
@@ -220,6 +221,14 @@ function sessionsIpc(request: Record<string, any>) {
 			};
 			sessions.push(created);
 			createdRequests.push({ provider: request.provider, project: request.project, text: request.text });
+			if (creationOutcome === "unknown") return { session: created.key, receipt: { status: "unknown" } };
+			if (creationOutcome === "titleWarning") {
+				return {
+					session: created.key,
+					receipt: { status: "accepted", messageId: "m" },
+					titleWarning: "title_unconfirmed",
+				};
+			}
 			return { session: created.key, receipt: { status: "started", turnId: "n" } };
 		}
 		case "send":
@@ -467,6 +476,51 @@ try {
 	await expect(page.getByTestId("session-dock")).toContainText(
 		"Remise annuelle : vérifier l'arrondi (suite)",
 	);
+	await dockTabs.first().click();
+	await page.getByTestId("session-dock").getByRole("button", { name: "Plus d’actions" }).click();
+	await page.getByRole("menuitem", { name: "Nouvelle session depuis un résumé" }).click();
+	creationOutcome = "unknown";
+	const summaryFormName = "Nouvelle session depuis un résumé";
+	const summaryWithWarning = page.getByRole("region", { name: summaryFormName });
+	const summaryCreateCount = createdRequests.length;
+	await page.getByRole("form", { name: summaryFormName }).getByRole("button", { name: "Envoyer" }).click();
+	await expect(summaryWithWarning).toContainText("Résultat inconnu");
+	await page.getByRole("button", { name: "Réduire le dock" }).click();
+	await page.getByRole("button", { name: "Afficher le dock" }).click();
+	await expect(summaryWithWarning).toContainText("Résultat inconnu");
+	await dockTabs.nth(1).click();
+	await dockTabs.first().click();
+	await expect(summaryWithWarning).toContainText("Résultat inconnu");
+	await summaryWithWarning.getByRole("button", { name: "Ouvrir dans le dock" }).click();
+	expect(createdRequests).toHaveLength(summaryCreateCount + 1);
+
+	// A partial creation opens the existing session only after its outcome has been shown.
+	await page.getByTestId("sessions-nav").click();
+	for (const scenario of [
+		{ outcome: "unknown", provider: "codex", warning: "Résultat inconnu" },
+		{ outcome: "titleWarning", provider: "claude", warning: "Le titre demandé n’a pas pu être confirmé" },
+	] as const) {
+		creationOutcome = scenario.outcome;
+		const title = `Confirmation ${scenario.provider}`;
+		await page.getByRole("button", { name: "Nouvelle session", exact: true }).click();
+		const newSession = page.getByRole("form", { name: "Nouvelle session" });
+		await newSession.getByRole("combobox").first().selectOption(scenario.provider);
+		await newSession.getByRole("textbox").first().fill(title);
+		await newSession.getByLabel("Message pour la session").fill("Instruction initiale de test");
+		const createCount = createdRequests.length;
+		await newSession.getByRole("button", { name: "Envoyer" }).click();
+		const outcome = page.getByRole("region", { name: "Nouvelle session" });
+		await expect(outcome.getByRole("status")).toContainText(scenario.warning);
+		const toggle = page.getByRole("button", { name: "Nouvelle session", exact: true });
+		await toggle.click();
+		await expect(outcome).toHaveCount(0);
+		await toggle.click();
+		await expect(outcome.getByRole("status")).toContainText(scenario.warning);
+		await expect(outcome.getByRole("button", { name: "Envoyer" })).toHaveCount(0);
+		await outcome.getByRole("button", { name: "Ouvrir dans le dock" }).click();
+		await expect(page.getByTestId("session-dock").getByRole("tab", { name: title })).toBeVisible();
+		expect(createdRequests).toHaveLength(createCount + 1);
+	}
 
 	// Settings: edit an action, save, then the dock shows the new label.
 	await page.getByRole("button", { name: "Réglages" }).click();

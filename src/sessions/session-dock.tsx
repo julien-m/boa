@@ -69,13 +69,12 @@ export function SessionDock({
 	const [startNow, setStartNow] = useState<SessionKey | null>(null);
 
 	const [seed, setSeed] = useState<{ source: SessionKey; seed: SessionSeed } | null>(null);
-	// Changing tab cancels the per-tab forms (rename, new from summary): they never follow.
+	// Renaming closes on a tab change. A summary form can return only on its source tab.
 	const currentId = dock.current ? keyId(dock.current) : "";
 	const [formsFor, setFormsFor] = useState(currentId);
 	if (formsFor !== currentId) {
 		setFormsFor(currentId);
 		setRenaming(null);
-		setSeed(null);
 	}
 	/** Latest agent reply (e.g. the Summarize action's output) prefills the new session. */
 	const seedFrom = (source: SessionSummary): SessionSeed => {
@@ -190,6 +189,7 @@ export function SessionDock({
 							key={`create-${keyId(seed.source)}`}
 							projects={projects}
 							seed={seed.seed}
+							sourceSession={seed.source}
 							onDone={(created) => {
 								const source = seed.source;
 								setSeed(null);

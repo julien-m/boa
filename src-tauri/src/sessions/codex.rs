@@ -8,8 +8,8 @@
 //!   so it maps to `Unknown`, never `Idle`, and sending requires an explicit resume first.
 use super::codex_rpc::{CallError, ChildTransport, DaemonTransport, RpcClient, daemon_socket};
 use super::model::{
-    Capabilities, Capability, ConversationEntry, ConversationRole, Provider, SendReceipt,
-    SessionError, SessionResult, SessionState, StateEvidence,
+    Capabilities, Capability, ConversationEntry, ConversationRole, CreateSessionReceipt, Provider,
+    SendReceipt, SessionError, SessionKey, SessionResult, SessionState, StateEvidence,
 };
 use super::provider::{ProviderListing, ProviderSession, ProviderStatus, SessionProvider};
 use serde_json::{Value, json};
@@ -646,7 +646,7 @@ impl SessionProvider for CodexProvider {
         cwd: &str,
         text: &str,
         title: Option<&str>,
-    ) -> SessionResult<(String, SendReceipt)> {
+    ) -> SessionResult<CreateSessionReceipt> {
         validate_message(text)?;
         let title = title.map(validate_title).transpose()?;
         let mut client = self.daemon(false)?;
@@ -676,7 +676,11 @@ impl SessionProvider for CodexProvider {
             Err(CallError::Unknown(_)) => SendReceipt::Unknown,
             Err(CallError::Failed(error)) => return Err(error),
         };
-        Ok((id, receipt))
+        Ok(CreateSessionReceipt {
+            session: SessionKey::new(Provider::Codex, &id)?,
+            receipt,
+            title_warning: None,
+        })
     }
 
     fn resume(&self, id: &str, _cwd: &str) -> SessionResult<()> {

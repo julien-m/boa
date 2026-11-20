@@ -4,7 +4,8 @@ use super::branch::{self, BranchFacts};
 use super::claude::ClaudeProvider;
 use super::codex::CodexProvider;
 use super::model::{
-    Provider, SendReceipt, SessionError, SessionKey, SessionResult, SessionState, SessionSummary,
+    CreateSessionReceipt, Provider, SendReceipt, SessionError, SessionKey, SessionResult,
+    SessionState, SessionSummary,
 };
 use super::provider::{ProviderStatus, SessionProvider};
 use super::store::{SessionStore, StoreData, now_ms};
@@ -621,21 +622,25 @@ impl SessionService {
         project: &str,
         text: &str,
         title: Option<&str>,
-    ) -> SessionResult<(SessionKey, SendReceipt)> {
+    ) -> SessionResult<CreateSessionReceipt> {
         let root = scope
             .roots
             .iter()
             .find(|root| root.path == Path::new(project))
             .ok_or_else(|| SessionError::new("project_not_registered", project))?;
-        let (id, receipt) =
-            self.provider(provider)
-                .create(&root.path.to_string_lossy(), text, title)?;
-        let key = SessionKey::new(provider, &id)?;
-        self.store
-            .mutate(None, |data| Ok(((), data.auto_pin_created(&key, now_ms()))))?;
-        log_event("session_created", &key, None);
+        let created = self
+            .provider(provider)
+            .create(&root.path.to_string_lossy(), text, title)?;
+        self.store.mutate(None, |data| {
+            Ok(((), data.auto_pin_created(&created.session, now_ms())))
+        })?;
+        log_event(
+            "session_created",
+            &created.session,
+            created.title_warning.map(|warning| json!(warning)),
+        );
         self.emit_changed("create");
-        Ok((key, receipt))
+        Ok(created)
     }
 
     pub(crate) fn resume(&self, scope: &ProjectScope, key: &SessionKey) -> SessionResult<()> {
