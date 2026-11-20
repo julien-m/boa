@@ -98,6 +98,7 @@ export function ReaderNavigation({
 		};
 		const find = (event: Event) => {
 			const target = (event as CustomEvent).detail?.target as HTMLElement | undefined;
+			if (target?.closest(".file-comparison")) return;
 			const chosen =
 				target?.closest(".code-viewer") ?? document.querySelector(".code-viewer:not(.empty-view)");
 			if (chosen === element) open("text");

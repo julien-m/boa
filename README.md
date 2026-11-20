@@ -75,6 +75,8 @@ Inside a project, choose **Files** for reading, **Git** for review, or **Mixed**
 
 Single-click opens a temporary preview tab. Opening another file can replace that preview; double-click retains it. Editing also retains a preview tab. Retained source tabs preserve their cursor, scroll position and undo history during the session. Closing a tab does not delete the file.
 
+Open two tabs and right-click either tab to compare it with the neighboring file on the left or right. BOA shows a read-only, side-by-side diff in tab order, including unsaved drafts. Use the arrows to jump between changes and close the comparison to go back to your reader. This works for text files in projects and file spaces, including folders outside Git.
+
 Source files use local syntax highlighting and soft wrapping. The copy controls can copy a selected passage or the complete displayed file with its location. Select a passage before using **Copy selection**. Git diffs offer before/after display and previous/next changed-block controls.
 
 Markdown files normally open as a rendered preview. **Source / Preview** switches representations; editing uses source. Markdown previews sanitize HTML and support local PNG, JPEG, GIF, WebP and SVG images. Local image references resolve relative to the document, must stay inside its registered root and are limited to 32 MiB each. HTTP(S) images and badges load from their original URLs without a referrer; unavailable images fall back to their descriptions. Scripts and active HTML are removed.

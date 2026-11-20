@@ -1,11 +1,11 @@
 import { FileCode2, Folder, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { fileAnnotationContext, useAnnotationMenu } from "./annotation-menu";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { useContextLabels } from "./context-labels";
 import { ContextExplanation, ContextSidebar } from "./context-views";
 import { FileBrowser } from "./file-browser";
+import { FileComparisonReader, useFileComparison } from "./file-comparison";
 import { useFileEditing } from "./file-editing";
 import { FileWorkspace } from "./file-workspace";
 import { type FileSpace, spaceEntries } from "./file-workspace-api";
@@ -30,8 +30,8 @@ export function FileSpaceView({
 	const contextLabels = useContextLabels();
 	const entries = spaceEntries(space);
 	const editing = useFileEditing();
-	const annotation = useAnnotationMenu();
 	const [state, setState] = useReaderSession(`space:${space.id}`);
+	const comparison = useFileComparison(state.tabs, state.selection);
 	const opened = useRef<Selection[]>([]);
 	useEffect(() => {
 		const previous = opened.current;
@@ -198,26 +198,28 @@ export function FileSpaceView({
 				}
 			>
 				<div className="file-editor">
-					{annotation.menu}
+					{comparison.menu}
 					{!!state.tabs.length && (
 						<div className="file-tabs" role="tablist" aria-label={l.files}>
 							{state.tabs.map((tab) => (
 								<div
 									className={`file-tab ${state.selection && key(state.selection) === key(tab) ? "active" : ""}`}
 									key={key(tab)}
-									onContextMenu={(event) => annotation.open(event, fileAnnotationContext(tab))}
-									onKeyDown={(event) => {
-										if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
-											annotation.open(event, fileAnnotationContext(tab));
-									}}
 								>
 									<button
 										type="button"
 										role="tab"
+										aria-haspopup="menu"
+										onContextMenu={(event) => comparison.openMenu(event, tab)}
+										onKeyDown={(event) => {
+											if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
+												comparison.openMenu(event, tab);
+										}}
 										aria-selected={!!state.selection && key(state.selection) === key(tab)}
 										data-hint={`${tab.project}/${tab.path}`}
 										className={state.preview === key(tab) ? "preview-tab" : ""}
 										onClick={() => {
+											comparison.close();
 											setState((s) => ({ ...s, selection: tab }));
 											onVisit?.({ selection: tab, library: null });
 										}}
@@ -265,13 +267,15 @@ export function FileSpaceView({
 							</button>
 						</div>
 					)}
-					<CodeViewer
-						selection={state.selection}
-						onOpen={(value) => {
-							if (entries.includes(value.project)) open(value, true);
-							else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
-						}}
-					/>
+					<FileComparisonReader comparison={comparison.pair} onClose={comparison.close}>
+						<CodeViewer
+							selection={state.selection}
+							onOpen={(value) => {
+								if (entries.includes(value.project)) open(value, true);
+								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
+							}}
+						/>
+					</FileComparisonReader>
 				</div>
 			</FileWorkspace>
 		</div>

@@ -103,6 +103,7 @@ let collectionDraft: CollectionDraft | null = null;
 let collectionExport: { prompt: string; images: { name: string; dataUrl: string }[] } | null = null;
 let cancelCollectionExport = false;
 const readerReceipts = new Map<string, { request: ReaderOpenRequest; status: string }>();
+const uiUrl = process.env.BOA_UI_URL ?? "http://localhost:1420";
 const browser = await chromium.launch({
 	channel: process.env.BOA_TEST_BROWSER === "chromium" ? undefined : "chrome",
 	headless: true,
@@ -604,7 +605,7 @@ await page.addInitScript(() => {
 	);
 });
 try {
-	await page.goto("http://localhost:1420");
+	await page.goto(uiUrl);
 	await expect(page.getByTestId("watch-notice")).toBeVisible();
 	await page.getByTestId("dismiss-watch-notice").click();
 	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
@@ -941,7 +942,7 @@ try {
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toHaveCount(0);
 	await expect(page.locator(".monaco-editor").first()).toBeVisible();
-	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
+	const moduleSource = await (await page.request.get(new URL("/src/code-viewer.tsx", uiUrl).href)).text();
 	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
 	if (!monacoPath) throw new Error("Monaco import unavailable");
 	// Source-text right-click uses the same composer as rendered Markdown and file references.
@@ -1272,6 +1273,55 @@ try {
 	expect(restoredPosition.sameModel).toBe(true);
 	expect(restoredPosition.cursor).toEqual(retainedPosition.cursor);
 	expect(restoredPosition.scroll).toBeCloseTo(retainedPosition.scroll, 0);
+	// Both contextual actions show the same left/right order and compare the actual draft.
+	await page.getByTestId("file-config.json").dblclick();
+	const sampleTab = page.getByTestId("tab-sample.ts");
+	const configTab = page.getByTestId("tab-config.json");
+	await sampleTab.click();
+	const fileComparison = page.getByTestId("file-comparison");
+	const showDiff = async () => {
+		await expect(fileComparison.getByTestId("comparison-left-file")).toContainText("sample.ts");
+		await expect(fileComparison.getByTestId("comparison-left-file")).toContainText("Brouillon");
+		await expect(fileComparison.getByTestId("comparison-right-file")).toContainText("config.json");
+		await expect(fileComparison.locator(".editor.original .line-delete").first()).toBeVisible();
+		await expect(fileComparison.locator(".editor.modified .line-insert").first()).toBeVisible();
+		await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeEnabled();
+		const sources = await page.evaluate(async (path) => {
+			const module = await import(path);
+			const [diff] = module.editor.getDiffEditors();
+			const options = module.editor.EditorOption;
+			return [diff.getOriginalEditor(), diff.getModifiedEditor()].map((editor) => ({
+				value: editor.getModel().getValue(),
+				readOnly: editor.getOption(options.readOnly),
+			}));
+		}, monacoPath);
+		expect(sources[0]).toMatchObject({ value: expect.stringContaining("// saved edit"), readOnly: true });
+		expect(sources[1]).toMatchObject({ value: expect.stringContaining('"enabled": true'), readOnly: true });
+	};
+	await sampleTab.click({ button: "right" });
+	await page.getByTestId("compare-file-right").click();
+	await showDiff();
+	if (process.env.BOA_QA_OUTPUT)
+		await fileComparison.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "file-comparison.png") });
+	await fileComparison.locator(".editor.modified").getByRole("textbox").press("ControlOrMeta+f");
+	const comparisonFind = fileComparison.locator(".editor.modified .find-widget.visible");
+	await expect(comparisonFind).toBeVisible();
+	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
+	await comparisonFind.locator(".codicon-widget-close").click();
+	await page.keyboard.press("Escape");
+	await expect(fileComparison).toHaveCount(0);
+	await expect(sampleTab).toBeFocused();
+	await configTab.press("Shift+F10");
+	await page.keyboard.press("End");
+	await expect(page.getByTestId("compare-file-left")).toBeFocused();
+	await page.keyboard.press("Enter");
+	await showDiff();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
+	await expect(fileComparison).toHaveCount(0);
+	await expect(configTab).toBeFocused();
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	expect(savedContent).toBeNull();
+	await page.getByTestId("close-tab-config.json").click();
 	await editInput.press("ControlOrMeta+z");
 	await expect
 		.poll(() =>
@@ -1808,6 +1858,27 @@ try {
 	await browsers.nth(0).getByTestId("file-sample.ts").dblclick();
 	await browsers.nth(1).getByTestId("file-sample.ts").dblclick();
 	await expect(page.getByRole("tab", { name: "sample.ts", exact: true })).toHaveCount(2);
+	// Files in separately registered folders can be compared without a Git repository.
+	const rightSpaceTab = page.getByRole("tab", { name: "sample.ts", exact: true }).last();
+	const neighboringPath = await rightSpaceTab.evaluate((tab) =>
+		tab
+			.closest(".file-tab")
+			?.previousElementSibling?.querySelector('[role="tab"]')
+			?.getAttribute("data-hint"),
+	);
+	expect(neighboringPath).toBeTruthy();
+	await rightSpaceTab.click({ button: "right" });
+	await page.getByTestId("compare-file-left").click();
+	await expect(fileComparison.getByTestId("comparison-left-file")).toHaveAttribute(
+		"title",
+		neighboringPath ?? "",
+	);
+	await expect(fileComparison.getByTestId("comparison-right-file")).toHaveAttribute(
+		"title",
+		`${directory}/second/sample.ts`,
+	);
+	await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeEnabled();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
 	// Identically named tabs in a File Space must keep their own root when annotated.
 	const firstSpaceTab = page.getByRole("tab", { name: "sample.ts", exact: true }).first();
 	const referencedPath = await firstSpaceTab.getAttribute("data-hint");

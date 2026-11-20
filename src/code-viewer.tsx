@@ -111,7 +111,17 @@ export function disposeReaderModel(project: string, path: string): void {
 	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(project, path)));
 	if (model && !monaco.editor.getEditors().some((editor) => editor.getModel() === model)) model.dispose();
 }
-const options: monaco.editor.IStandaloneEditorConstructionOptions = {
+/** Releases temporary diff models only after Monaco detaches the editor from them. */
+export function disposeDiffModelsAfterEditor(editor: monaco.editor.IStandaloneDiffEditor): void {
+	const models = editor.getModel();
+	editor.onDidDispose(() => {
+		queueMicrotask(() => {
+			models?.original.dispose();
+			models?.modified.dispose();
+		});
+	});
+}
+export const monacoReaderOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
 	readOnly: true,
 	domReadOnly: true,
 	minimap: { enabled: false },
@@ -125,7 +135,7 @@ const options: monaco.editor.IStandaloneEditorConstructionOptions = {
 	fontFamily: "SF Mono, Menlo, monospace",
 };
 
-const language = createSourceLanguageResolver(monaco.languages.getLanguages());
+export const resolveMonacoLanguage = createSourceLanguageResolver(monaco.languages.getLanguages());
 
 interface CodeViewerProps {
 	selection: Selection | null;
@@ -835,9 +845,9 @@ function MonacoContent({
 					keepCurrentModifiedModel
 					original={preview.original}
 					modified={preview.modified}
-					language={language(preview.path)}
+					language={resolveMonacoLanguage(preview.path)}
 					options={{
-						...options,
+						...monacoReaderOptions,
 						renderSideBySide: sideBySide,
 						originalEditable: false,
 						originalAriaLabel: t("viewer.originalCode"),
@@ -846,14 +856,8 @@ function MonacoContent({
 					}}
 					onMount={(editor) => {
 						onDiffEditor(editor);
-						const models = editor.getModel();
-						editor.onDidDispose(() => {
-							onDiffEditor(null);
-							queueMicrotask(() => {
-								models?.original.dispose();
-								models?.modified.dispose();
-							});
-						});
+						disposeDiffModelsAfterEditor(editor);
+						editor.onDidDispose(() => onDiffEditor(null));
 						const original = editor.getOriginalEditor();
 						const modified = editor.getModifiedEditor();
 						original.onDidFocusEditorText(() => onEditor(original, "before", false));
@@ -870,8 +874,8 @@ function MonacoContent({
 					saveViewState={false}
 					theme="vs-dark"
 					defaultValue={preview.modified}
-					language={language(preview.path)}
-					options={{ ...options, readOnly: !editable, domReadOnly: !editable }}
+					language={resolveMonacoLanguage(preview.path)}
+					options={{ ...monacoReaderOptions, readOnly: !editable, domReadOnly: !editable }}
 					onChange={(value) => {
 						if (editable) onChange(value ?? "");
 					}}

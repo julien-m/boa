@@ -12,13 +12,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { fileAnnotationContext, useAnnotationMenu } from "./annotation-menu";
 import { api } from "./api";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
 import { CodeViewer, disposeReaderModel } from "./code-viewer";
 import { useContextLabels } from "./context-labels";
 import { ContextExplanation, ContextSidebar } from "./context-views";
 import { FileBrowser } from "./file-browser";
+import { FileComparisonReader, useFileComparison } from "./file-comparison";
 import { useFileEditing } from "./file-editing";
 import { FileWorkspace } from "./file-workspace";
 import { GitPanel } from "./git-panel";
@@ -49,7 +49,6 @@ export function ProjectView({
 	const { t } = useTranslation("workspace");
 	const contextLabels = useContextLabels();
 	const editing = useFileEditing();
-	const annotation = useAnnotationMenu();
 	const [layout, setLayout] = useState<Layout>(() => {
 		const stored = localStorage.getItem("boa-layout");
 		return stored === "git" || stored === "files" ? stored : "split";
@@ -63,6 +62,7 @@ export function ProjectView({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [files, setFiles] = useReaderSession(`project:${project.path}`);
 	const { tabs, preview, selection } = files;
+	const comparison = useFileComparison(tabs, selection);
 	const openPaths = useRef(new Set<string>());
 	useEffect(() => {
 		const previous = openPaths.current;
@@ -311,27 +311,31 @@ export function ProjectView({
 					}
 				>
 					<div className="file-editor">
-						{annotation.menu}
+						{comparison.menu}
 						{tabs.length > 0 && (
 							<div className="file-tabs" role="tablist" aria-label={t("tabs.label")}>
 								{tabs.map((tab) => (
 									<div
 										key={tab.path}
-										onContextMenu={(event) => annotation.open(event, fileAnnotationContext(tab))}
-										onKeyDown={(event) => {
-											if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
-												annotation.open(event, fileAnnotationContext(tab));
-										}}
 										className={`file-tab ${!selection?.repo && selection?.path === tab.path ? "active" : ""}`}
 									>
 										<button
 											type="button"
 											role="tab"
+											aria-haspopup="menu"
+											onContextMenu={(event) => comparison.openMenu(event, tab)}
+											onKeyDown={(event) => {
+												if ((event.shiftKey && event.key === "F10") || event.key === "ContextMenu")
+													comparison.openMenu(event, tab);
+											}}
 											aria-selected={!selection?.repo && selection?.path === tab.path}
 											className={preview === tab.path ? "preview-tab" : ""}
 											data-hint={tab.path}
 											data-testid={`tab-${tab.path}`}
-											onClick={() => setSelection(tab)}
+											onClick={() => {
+												comparison.close();
+												setSelection(tab);
+											}}
 											onDoubleClick={() => openFile(tab, true)}
 										>
 											<FileCode2 size={13} />
@@ -382,16 +386,18 @@ export function ProjectView({
 								</button>
 							</div>
 						)}
-						<CodeViewer
-							selection={selection}
-							onOpen={(value) => {
-								if (value.project === project.path) {
-									setLayout("files");
-									setForceContextFiles(false);
-									openFile(value, true);
-								} else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
-							}}
-						/>
+						<FileComparisonReader comparison={comparison.pair} onClose={comparison.close}>
+							<CodeViewer
+								selection={selection}
+								onOpen={(value) => {
+									if (value.project === project.path) {
+										setLayout("files");
+										setForceContextFiles(false);
+										openFile(value, true);
+									} else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
+								}}
+							/>
+						</FileComparisonReader>
 					</div>
 				</FileWorkspace>
 			)}
