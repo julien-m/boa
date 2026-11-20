@@ -1,7 +1,7 @@
 //! Live branch facts for a session's real working tree, read at action time (never cached).
 use super::model::{SessionError, SessionResult};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// One local branch or linked worktree really present in the repository.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -23,6 +23,14 @@ pub(crate) struct BranchFacts {
 
 /// Bounded branch listing: users rarely keep more than a few hundred local branches.
 const MAX_BRANCHES: usize = 300;
+
+/// The checkout root for this cwd, distinct from Git's shared administrative directory.
+pub(crate) fn worktree_root(cwd: &Path) -> SessionResult<PathBuf> {
+    let path = crate::git::text(cwd, &["rev-parse", "--show-toplevel"])
+        .map_err(|error| SessionError::new("git_failed", error))?;
+    let path = path.strip_suffix('\n').unwrap_or(&path);
+    std::fs::canonicalize(path).map_err(SessionError::io)
+}
 
 /// Reads the live branch and the real local branches/worktrees of `cwd`'s repository.
 pub(crate) fn facts(cwd: &Path) -> SessionResult<BranchFacts> {

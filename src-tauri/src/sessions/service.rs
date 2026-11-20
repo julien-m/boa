@@ -687,6 +687,7 @@ impl SessionService {
     ) -> SessionResult<SessionBranch> {
         let session = self.get(scope, key)?;
         let facts = branch::facts(Path::new(&session.cwd))?;
+        let shared_with = self.sharing_worktree(key, &session.cwd)?;
         let mut pending = lock(&self.pending_branches)?;
         if let Some(request) = pending.get(key)
             && facts.current.as_deref() == Some(request.target.as_str())
@@ -694,7 +695,6 @@ impl SessionService {
             pending.remove(key);
             log_event("session_branch_confirmed", key, None);
         }
-        let shared_with = self.sharing_worktree(key, &session.cwd)?;
         let pending = pending.get(key).cloned().map(|mut request| {
             request.status = pending_status(now_ms() - request.requested_at, Some(session.state));
             request
@@ -718,16 +718,33 @@ impl SessionService {
     }
 
     fn sharing_worktree(&self, key: &SessionKey, cwd: &str) -> SessionResult<Vec<SessionKey>> {
-        let real = std::fs::canonicalize(cwd).unwrap_or_else(|_| PathBuf::from(cwd));
-        Ok(lock(&self.catalog)?
+        let root = branch::worktree_root(Path::new(cwd))?;
+        // Snapshot before invoking Git, which can take time on a busy filesystem.
+        let others: Vec<_> = lock(&self.catalog)?
             .values()
             .filter(|other| &other.key != key && is_live(other.state))
-            .filter(|other| {
-                std::fs::canonicalize(&other.cwd).unwrap_or_else(|_| PathBuf::from(&other.cwd))
-                    == real
-            })
-            .map(|other| other.key.clone())
-            .collect())
+            .map(|other| (other.key.clone(), other.cwd.clone()))
+            .collect();
+        let mut checked = HashMap::new();
+        let mut shared = Vec::new();
+        // Stop starting Git probes on slow filesystems. One in-flight probe is bounded by git.rs.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        for (key, cwd) in others {
+            let path = std::fs::canonicalize(&cwd).unwrap_or_else(|_| PathBuf::from(cwd));
+            if !path.starts_with(&root) {
+                continue;
+            }
+            let shares_root = checked.entry(path).or_insert_with_key(|path| {
+                // If Git cannot inspect a directory under this checkout, block the switch.
+                path == &root
+                    || std::time::Instant::now() >= deadline
+                    || branch::worktree_root(path).map_or(true, |candidate| candidate == root)
+            });
+            if *shares_root {
+                shared.push(key);
+            }
+        }
+        Ok(shared)
     }
 
     /// Asks the agent to switch branch. Refuses when another live owner shares the worktree.
@@ -1077,6 +1094,57 @@ mod tests {
             CodexProvider::new(None, String::new(), None, false),
             ClaudeProvider::new(None, None, String::new()),
         )
+    }
+
+    #[test]
+    fn live_sessions_share_a_git_worktree_across_subdirectories() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let nested = repo.join("nested");
+        let linked = repo.join("linked");
+        std::fs::create_dir_all(&nested).unwrap();
+        let git = |args: &[&str]| crate::git::text(&repo, args).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&[
+            "-c",
+            "user.name=BOA tests",
+            "-c",
+            "user.email=boa@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ]);
+        git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "linked",
+            linked.to_str().unwrap(),
+        ]);
+        let service = offline_service(temp.path());
+        let target = summary("target", false).key;
+        let mut shared = summary("shared", false);
+        shared.cwd = nested.to_str().unwrap().into();
+        let mut separate = summary("separate", false);
+        separate.cwd = linked.to_str().unwrap().into();
+        let mut inactive = summary("inactive", false);
+        inactive.cwd = nested.to_str().unwrap().into();
+        inactive.state = SessionState::Inactive;
+        let expected = shared.key.clone();
+        for entry in [shared, separate, inactive] {
+            lock(&service.catalog)
+                .unwrap()
+                .insert(entry.key.clone(), entry);
+        }
+        assert_eq!(
+            service
+                .sharing_worktree(&target, repo.to_str().unwrap())
+                .unwrap(),
+            vec![expected],
+        );
     }
 
     fn shell(script: &str) -> SessionResult<super::super::terminal::TerminalCommand> {
