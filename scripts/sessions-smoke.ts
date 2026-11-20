@@ -95,6 +95,9 @@ let actions = [
 ];
 const sent: { id: string; text: string }[] = [];
 const createdRequests: { provider: string; project: string; text: string }[] = [];
+let autoPin = true;
+let actionReads = 0;
+let actionSaveGate: Promise<void> | undefined;
 
 function summary(session: Fake) {
 	return {
@@ -127,13 +130,18 @@ function sessionsIpc(request: Record<string, any>) {
 	};
 	switch (request.action) {
 		case "settings":
+		case "setAutoPin":
 		case "setDiscovery":
 			if (request.action === "setDiscovery") discovery = request.enabled;
+			if (request.action === "setAutoPin") {
+				autoPin = request.enabled;
+				revision += 1;
+			}
 			return {
 				revision,
 				discoveryEnabled: discovery,
 				discoveryProviders: { codex: true, claude: true },
-				autoPinNew: true,
+				autoPinNew: autoPin,
 				providers: [
 					{ provider: "codex", available: true, live: true },
 					{ provider: "claude", available: true, live: true },
@@ -219,6 +227,7 @@ function sessionsIpc(request: Record<string, any>) {
 				? { status: "steered", turnId: "t1" }
 				: { status: "started", turnId: "t2" };
 		case "actions":
+			actionReads += 1;
 			return { revision, project: request.project ?? null, actions };
 		case "terminals":
 			return { terminals: [] };
@@ -275,6 +284,7 @@ await page.exposeFunction("boaSmokeInvoke", async (command: string, args: Record
 			return { integrations: [] };
 		case "sessions":
 			try {
+				if (args.request.action === "changeActions") await actionSaveGate;
 				return { ok: true, value: sessionsIpc(args.request) };
 			} catch (error) {
 				return { ok: false, value: error };
@@ -428,10 +438,36 @@ try {
 		.getByRole("button", { name: /^Tests/ })
 		.click();
 	await page.getByTestId("session-actions-settings").getByLabel("Libellé").fill("Tests rapides");
+	const actionSettings = page.getByTestId("session-actions-settings");
+	const autoPinSwitch = actionSettings.getByRole("switch", { name: /Épingler automatiquement/ });
+	const readsBefore = actionReads;
+	await autoPinSwitch.click();
+	await expect.poll(() => actionReads).toBeGreaterThan(readsBefore);
+	await expect(autoPinSwitch).not.toBeChecked();
+	await expect(actionSettings.getByLabel("Libellé")).toHaveValue("Tests rapides");
 	await page.getByTestId("session-actions-settings").getByLabel("Libellé").scrollIntoViewIfNeeded();
 	await page.screenshot({ path: resolve(output, "04-actions-settings.png") });
-	await page.getByRole("button", { name: "Enregistrer" }).click();
+	const actionSave = Promise.withResolvers<void>();
+	actionSaveGate = actionSave.promise;
+	try {
+		await page.getByRole("button", { name: "Enregistrer" }).click();
+		await expect(actionSettings.locator(".actions-layout")).toHaveAttribute("inert", "");
+	} finally {
+		actionSave.resolve();
+		actionSaveGate = undefined;
+	}
 	await expect(page.getByTestId("session-dock").getByRole("button", { name: "Tests rapides" })).toBeVisible();
+	await actionSettings.getByLabel("Libellé").fill("Brouillon local");
+	actions = actions.map((action) =>
+		action.id === "tests" ? { ...action, label: "Tests externes" } : action,
+	);
+	revision += 1;
+	await autoPinSwitch.click();
+	await expect(actionSettings.getByRole("status")).toContainText("Les réglages ont changé");
+	await expect(actionSettings.getByLabel("Libellé")).toHaveValue("Brouillon local");
+	await expect(actionSettings.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+	await actionSettings.getByRole("button", { name: "Annuler" }).click();
+	await expect(actionSettings.getByLabel("Libellé")).toHaveValue("Tests externes");
 	expect(errors).toEqual([]);
 	console.log(`Session cockpit smoke passed; screenshots in ${output}`);
 } catch (error) {

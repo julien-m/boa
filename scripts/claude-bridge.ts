@@ -79,7 +79,8 @@ class OwnedSession {
 			this.resolveReady = resolve;
 			this.rejectReady = reject;
 		});
-		void this.run(resume);
+		// Register the session and its first acknowledgement before the SDK can fail synchronously.
+		queueMicrotask(() => void this.run(resume));
 	}
 
 	private readonly acks = new Map<string, { resolve: () => void; reject: (error: BridgeError) => void }>();
@@ -298,9 +299,7 @@ async function handle(request: Request): Promise<unknown> {
 				// this streaming input instead of starting a second owner.
 				if (id) owned.set(id, session);
 			}
-			const acknowledged = session.push(content);
-			const sessionId = await session.whenReady();
-			const messageId = await acknowledged;
+			const [sessionId, messageId] = await Promise.all([session.whenReady(), session.push(content)]);
 			return { sessionId, started, messageId };
 		}
 		case "permission": {

@@ -4,14 +4,21 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, Plus } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { previewTemplate } from "./action-template";
 import { useSessionDock } from "./session-dock-state";
 import { useSessionText } from "./session-labels";
-import { type ActionDef, keyId, type Provider, type ResolvedAction, sessionsApi } from "./sessions-api";
+import {
+	type ActionDef,
+	type ActionsView,
+	keyId,
+	type Provider,
+	type ResolvedAction,
+	sessionsApi,
+} from "./sessions-api";
 import { useSessionsSettings } from "./sessions-view";
 
-type Draft = ResolvedAction[];
+type Draft = { base: ActionsView; actions: ResolvedAction[] };
 const PROVIDERS: Provider[] = ["codex", "claude"];
 
 function slug(label: string, taken: Set<string>): string {
@@ -92,27 +99,55 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 		queryKey: ["sessions", "actions", project ?? ""],
 		queryFn: () => sessionsApi.actions(project),
 	});
-	const [draft, setDraft] = useState<Draft | null>(null);
+	const [drafts, setDrafts] = useState(() => new Map<string | null, Draft>());
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [notice, setNotice] = useState("");
 	const template = useRef<HTMLTextAreaElement>(null);
-	useEffect(() => {
-		setDraft(saved.data?.actions ?? null);
-	}, [saved.data]);
-	const actions = draft ?? [];
+	const draft = drafts.get(project);
+	const actions = draft?.actions ?? saved.data?.actions ?? [];
 	const selected = actions.find((action) => action.id === selectedId) ?? actions[0] ?? null;
-	const dirty = JSON.stringify(draft) !== JSON.stringify(saved.data?.actions ?? null);
+	const conflict =
+		!!draft && !!saved.data && JSON.stringify(draft.base.actions) !== JSON.stringify(saved.data.actions);
+	const discardDraft = (scope: string | null, expected: Draft | undefined) => {
+		setDrafts((current) => {
+			if (!expected || current.get(scope) !== expected) return current;
+			const updated = new Map(current);
+			updated.delete(scope);
+			return updated;
+		});
+	};
+	const setDraft = (update: ResolvedAction[] | ((current: ResolvedAction[]) => ResolvedAction[])) => {
+		const latest = saved.data;
+		if (!latest) return;
+		setNotice("");
+		setDrafts((current) => {
+			const existing = current.get(project);
+			const base = existing?.base ?? latest;
+			const next = typeof update === "function" ? update(existing?.actions ?? base.actions) : update;
+			const updated = new Map(current);
+			if (JSON.stringify(next) === JSON.stringify(base.actions)) updated.delete(project);
+			else updated.set(project, { base, actions: next });
+			return updated;
+		});
+	};
+	const refreshActions = () =>
+		Promise.all([
+			queryClient.invalidateQueries({ queryKey: ["sessions", "actions"] }),
+			queryClient.invalidateQueries({ queryKey: ["sessions", "settings"] }),
+		]);
 	const save = useMutation({
-		mutationFn: () => sessionsApi.replaceActions(project, actions.map(strip), saved.data?.revision ?? 0),
-		onSuccess: () => {
+		mutationFn: (input: { project: string | null; draft: Draft; revision: number }) =>
+			sessionsApi.replaceActions(input.project, input.draft.actions.map(strip), input.revision),
+		onSuccess: async (_, input) => {
+			await refreshActions();
+			discardDraft(input.project, input.draft);
 			setNotice(t("actions.saved"));
-			void queryClient.invalidateQueries({ queryKey: ["sessions"] });
 		},
 		onError: (value) => setNotice(error(value)),
 	});
 	const reset = useMutation({
 		mutationFn: () => sessionsApi.resetActions(project as string, saved.data?.revision ?? 0),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+		onSuccess: refreshActions,
 		onError: (value) => setNotice(error(value)),
 	});
 	const docked = useQuery({
@@ -141,11 +176,11 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 
 	const change = (next: Partial<ActionDef>) =>
 		setDraft((current) =>
-			(current ?? []).map((action) => (action.id === selected?.id ? { ...action, ...next } : action)),
+			current.map((action) => (action.id === selected?.id ? { ...action, ...next } : action)),
 		);
 	const move = (index: number, offset: number) =>
 		setDraft((current) => {
-			const list = [...(current ?? [])];
+			const list = [...current];
 			const [item] = list.splice(index, 1);
 			list.splice(index + offset, 0, item);
 			return list;
@@ -192,6 +227,7 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 						role="tab"
 						aria-selected={project === null}
 						className={project === null ? "selected" : ""}
+						disabled={save.isPending || reset.isPending}
 						onClick={() => setProject(null)}
 					>
 						{t("actions.global")}
@@ -199,6 +235,7 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 					<select
 						aria-label={t("projectFilter")}
 						value={project ?? ""}
+						disabled={save.isPending || reset.isPending}
 						onChange={(event) => setProject(event.target.value || null)}
 					>
 						<option value="">{t("projectFilter")}…</option>
@@ -211,7 +248,7 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 				</div>
 				{project && <small className="muted">{t("actions.inherits", { project: projectName })}</small>}
 			</div>
-			<div className="actions-layout">
+			<div className="actions-layout" inert={save.isPending || reset.isPending}>
 				<div className="session-actions-settings">
 					<div className="action-list-header">
 						<span>{t("actions.buttons")}</span>
@@ -388,13 +425,15 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 			</div>
 			<div className="actions-footer">
 				<span className="session-feedback" role="status">
-					{dirty ? t("actions.unsaved") : notice}
+					{conflict && !save.isPending
+						? t("errors.revision_conflict")
+						: notice || (draft && t("actions.unsaved"))}
 				</span>
 				{project && saved.data?.actions.some((action) => action.origin !== "global") && (
 					<button
 						type="button"
 						className="quiet-button"
-						disabled={reset.isPending}
+						disabled={!!draft || reset.isPending || save.isPending}
 						onClick={() => reset.mutate()}
 					>
 						{t("actions.reset")}
@@ -404,6 +443,7 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 					<button
 						type="button"
 						className="quiet-button"
+						disabled={save.isPending || reset.isPending}
 						onClick={() => setDraft(actions.filter((action) => action.id !== selected.id))}
 					>
 						{t("actions.remove")}
@@ -412,16 +452,22 @@ export function SessionActionsSettings({ projects }: { projects: { path: string;
 				<button
 					type="button"
 					className="quiet-button"
-					disabled={!dirty || save.isPending}
-					onClick={() => setDraft(saved.data?.actions ?? null)}
+					disabled={!draft || save.isPending}
+					onClick={() => {
+						discardDraft(project, draft);
+						setNotice("");
+					}}
 				>
 					{t("actions.cancel")}
 				</button>
 				<button
 					type="button"
 					className="primary-button"
-					disabled={!dirty || save.isPending}
-					onClick={() => save.mutate()}
+					disabled={!draft || !saved.data || conflict || save.isPending || reset.isPending}
+					onClick={() => {
+						if (draft && saved.data && !conflict)
+							save.mutate({ project, draft, revision: saved.data.revision });
+					}}
 				>
 					{t("actions.save")}
 				</button>
