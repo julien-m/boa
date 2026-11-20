@@ -127,6 +127,8 @@ function write(value: Persisted): void {
 	}
 }
 
+type ComposerFeedback = { text: string; error: boolean };
+
 export type DockState = Persisted & {
 	permissions: PermissionRequest[];
 	/** Opens `key` in a tab, or selects its existing tab: never a duplicate. */
@@ -142,6 +144,8 @@ export type DockState = Persisted & {
 	setDraft: (key: SessionKey, text: string) => void;
 	/** Clears the draft of `key` only if it still equals `expected` (edited text survives). */
 	clearDraftIf: (key: SessionKey, expected: string) => void;
+	composerFeedbackFor: (key: SessionKey) => ComposerFeedback | undefined;
+	setComposerFeedback: (key: SessionKey, feedback: ComposerFeedback | null) => void;
 	scrollFor: (key: SessionKey) => number;
 	setScroll: (key: SessionKey, top: number) => void;
 };
@@ -163,6 +167,7 @@ export function SessionDockProvider({ children }: { children: ReactNode }) {
 	const [state, setState] = useState<Persisted>(read);
 	const [scrolls] = useState(() => new Map<string, number>());
 	const [permissions, setPermissions] = useState<PermissionRequest[]>([]);
+	const [composerFeedback, setComposerFeedback] = useState(() => new Map<string, ComposerFeedback>());
 	const queryClient = useQueryClient();
 
 	const update = useCallback((change: (current: Persisted) => Persisted) => {
@@ -305,12 +310,22 @@ export function SessionDockProvider({ children }: { children: ReactNode }) {
 					delete drafts[id];
 					return { ...current, drafts };
 				}),
+			composerFeedbackFor: (key) => composerFeedback.get(keyId(key)),
+			setComposerFeedback: (key, feedback) =>
+				setComposerFeedback((current) => {
+					const updated = new Map(current);
+					updated.delete(keyId(key));
+					if (feedback) updated.set(keyId(key), feedback);
+					const oldest = updated.keys().next().value;
+					if (updated.size > MAX_DRAFTS && oldest !== undefined) updated.delete(oldest);
+					return updated;
+				}),
 			scrollFor: (key) => scrolls.get(keyId(key)) ?? -1,
 			setScroll: (key, top) => {
 				scrolls.set(keyId(key), top);
 			},
 		}),
-		[state, update, scrolls, permissions],
+		[state, update, scrolls, permissions, composerFeedback],
 	);
 	return <DockContext.Provider value={value}>{children}</DockContext.Provider>;
 }

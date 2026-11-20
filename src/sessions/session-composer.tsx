@@ -3,18 +3,10 @@
  * BOA never queues: the provider's own queue/steer policy handles a running session.
  */
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { captureCurrentReaderContext } from "../code-viewer";
 import { useSessionDock } from "./session-dock-state";
 import { useSessionText } from "./session-labels";
-import {
-	keyId,
-	type SendReceipt,
-	type SessionKey,
-	type SessionSummary,
-	sameKey,
-	sessionsApi,
-} from "./sessions-api";
+import { keyId, type SendReceipt, type SessionKey, type SessionSummary, sessionsApi } from "./sessions-api";
 
 type SessionSubmission = { key: SessionKey; text: string; fromDraft: boolean };
 const sendKey = (key: SessionKey) => ["sessions", "send", keyId(key)] as const;
@@ -33,9 +25,7 @@ export function SessionComposer({
 	const queryClient = useQueryClient();
 	// A collapsed dock or a tab switch can remount the composer during acknowledgement.
 	const sending = useIsMutating({ mutationKey: sendKey(session.key), exact: true }) > 0;
-	/** Feedback stays attached to the session it concerns, even if the dock switches meanwhile. */
-	const [feedback, setFeedback] = useState<{ key: SessionKey; text: string; error: boolean } | null>(null);
-	const shownFeedback = feedback && sameKey(feedback.key, session.key) ? feedback : null;
+	const shownFeedback = dock.composerFeedbackFor(session.key);
 	const draft = dock.draftFor(session.key);
 	const tool = provider(session.key.provider);
 	const actions = useQuery({
@@ -50,18 +40,18 @@ export function SessionComposer({
 		mutationKey: sendKey(session.key),
 		mutationFn: (input: SessionSubmission) => sessionsApi.send(input.key, input.text),
 		onSuccess: (result: SendReceipt, input) => {
-			setFeedback({
-				key: input.key,
+			dock.setComposerFeedback(input.key, {
 				text: receipt(result, input.key.provider),
 				error: result.status === "unknown",
 			});
 			// Only a confirmed transmission clears the draft, and only if it was not edited meanwhile.
 			if (input.fromDraft && result.status !== "unknown") dock.clearDraftIf(input.key, input.text);
 		},
-		onError: (value, input) => setFeedback({ key: input.key, text: error(value), error: true }),
+		onError: (value, input) => dock.setComposerFeedback(input.key, { text: error(value), error: true }),
 	});
 	const submit = (input: SessionSubmission) => {
 		if (queryClient.isMutating({ mutationKey: sendKey(input.key), exact: true })) return;
+		dock.setComposerFeedback(input.key, null);
 		send.mutate(input);
 	};
 	const runAction = useMutation({
@@ -71,10 +61,10 @@ export function SessionComposer({
 			if (rendered.mode === "send") submit({ key: input.key, text: rendered.text, fromDraft: false });
 			else {
 				dock.setDraft(input.key, rendered.text);
-				setFeedback({ key: input.key, text: t("composer.prepared"), error: false });
+				dock.setComposerFeedback(input.key, { text: t("composer.prepared"), error: false });
 			}
 		},
-		onError: (value, input) => setFeedback({ key: input.key, text: error(value), error: true }),
+		onError: (value, input) => dock.setComposerFeedback(input.key, { text: error(value), error: true }),
 	});
 	const canSend = session.capabilities.send.available;
 	const canSubmitDraft = canSend && !sending && !runAction.isPending && draft.trim().length > 0;

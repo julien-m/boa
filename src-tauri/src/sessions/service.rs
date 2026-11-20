@@ -938,8 +938,7 @@ fn replace_level(
     next: Vec<ActionDef>,
 ) -> SessionResult<()> {
     let Some(project) = project else {
-        config.global = next;
-        return config.validate();
+        return config.replace_global(next);
     };
     let mut level = super::actions::ProjectActions {
         order: Some(next.iter().map(|a| a.id.clone()).collect()),
@@ -1363,6 +1362,72 @@ mod tests {
             &query(Scope::All, "FEATURE/x")
         ));
         assert!(!matches(&summary("a", true), &query(Scope::All, "nothing")));
+    }
+
+    #[test]
+    fn replace_global_actions_cleans_removed_references_and_preserves_project_actions() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = offline_service(dir.path());
+        let project = "/p";
+        let action = |id: &str| ActionDef {
+            id: id.into(),
+            label: id.into(),
+            template: "Review {branch}".into(),
+            mode: ActionMode::Prepare,
+            providers: Provider::ALL.into_iter().collect(),
+            enabled: true,
+        };
+        let removed = action("review");
+        let retained = action("tests");
+        let private = action("changelog");
+        let patch = ActionPatch {
+            enabled: Some(false),
+            ..Default::default()
+        };
+        let (_, original) = service
+            .store
+            .mutate(None, |data| {
+                let actions = &mut data.actions;
+                actions.global = vec![removed.clone(), retained.clone()];
+                actions.update(Some(project), &removed.id, patch.clone())?;
+                actions.update(Some(project), &retained.id, patch.clone())?;
+                actions.add(Some(project), private.clone())?;
+                actions.reorder(
+                    Some(project),
+                    vec![private.id.clone(), removed.id.clone(), retained.id.clone()],
+                )?;
+                Ok(((), true))
+            })
+            .unwrap();
+
+        let replace = |actions| ActionChange::Replace {
+            project: None,
+            actions,
+        };
+        assert_eq!(
+            service
+                .change_actions(Some(original.revision), replace(vec![private.clone()]))
+                .unwrap_err()
+                .code,
+            "duplicate_action"
+        );
+        let unchanged = service.store.snapshot().unwrap();
+        assert_eq!(unchanged.revision, original.revision);
+        assert_eq!(unchanged.actions, original.actions);
+
+        let revision = service
+            .change_actions(Some(original.revision), replace(vec![retained.clone()]))
+            .unwrap();
+        let reloaded = offline_service(dir.path()).store.snapshot().unwrap();
+        assert_eq!(reloaded.revision, revision);
+        assert_eq!(reloaded.actions.global, vec![retained.clone()]);
+        let level = &reloaded.actions.projects[project];
+        assert_eq!(
+            level.order,
+            Some(vec![private.id.clone(), retained.id.clone()])
+        );
+        assert_eq!(level.patches, [(retained.id, patch)].into_iter().collect());
+        assert_eq!(level.added, vec![private]);
     }
 
     #[test]

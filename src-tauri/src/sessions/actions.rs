@@ -316,12 +316,7 @@ impl ActionsConfig {
                 if before == self.global.len() {
                     return Err(SessionError::new("action_not_found", id));
                 }
-                for level in self.projects.values_mut() {
-                    level.patches.remove(id);
-                    if let Some(order) = level.order.as_mut() {
-                        order.retain(|item| item != id);
-                    }
-                }
+                remove_global_references(&mut self.projects, |item| item == id);
             }
             Some(p) => {
                 let level = self
@@ -342,6 +337,24 @@ impl ActionsConfig {
             }
         }
         self.prune();
+        self.validate()
+    }
+
+    /// Replaces the global actions and drops project references to deleted global IDs.
+    /// Invalid replacements are rejected by validation before the store commits them.
+    pub(crate) fn replace_global(&mut self, next: Vec<ActionDef>) -> SessionResult<()> {
+        // Compare the old and new global IDs so project-owned actions and retained overrides survive.
+        let retained_ids: BTreeSet<_> = next.iter().map(|action| action.id.as_str()).collect();
+        let removed_ids: BTreeSet<_> = self
+            .global
+            .iter()
+            .map(|action| action.id.as_str())
+            .filter(|id| !retained_ids.contains(id))
+            .collect();
+        if !removed_ids.is_empty() {
+            remove_global_references(&mut self.projects, |id| removed_ids.contains(id));
+        }
+        self.global = next;
         self.validate()
     }
 
@@ -396,6 +409,20 @@ impl ActionsConfig {
         }
         self.projects.retain(|_, level| !level.is_empty());
     }
+}
+
+fn remove_global_references(
+    projects: &mut BTreeMap<String, ProjectActions>,
+    is_removed: impl Fn(&str) -> bool,
+) {
+    projects.retain(|_, level| {
+        let was_empty = level.is_empty();
+        level.patches.retain(|id, _| !is_removed(id));
+        if let Some(order) = &mut level.order {
+            order.retain(|id| !is_removed(id));
+        }
+        was_empty || !level.is_empty()
+    });
 }
 
 fn merge_patch(current: &mut ActionPatch, next: ActionPatch) {

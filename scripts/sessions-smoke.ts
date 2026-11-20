@@ -99,6 +99,7 @@ let autoPin = true;
 let actionReads = 0;
 let actionSaveGate: Promise<void> | undefined;
 let sessionSendGate: Promise<void> | undefined;
+let unknownNextSend = false;
 let creationOutcome: "started" | "unknown" | "titleWarning" = "started";
 
 function summary(session: Fake) {
@@ -233,6 +234,10 @@ function sessionsIpc(request: Record<string, any>) {
 		}
 		case "send":
 			sent.push({ id: request.session.id, text: request.text });
+			if (unknownNextSend) {
+				unknownNextSend = false;
+				return { status: "unknown" };
+			}
 			return find().state === "working"
 				? { status: "steered", turnId: "t1" }
 				: { status: "started", turnId: "t2" };
@@ -438,6 +443,7 @@ try {
 	const composer = page.getByLabel("Message pour la session");
 	await composer.fill("Vérifie après réduction du dock");
 	sessionSendGate = remountedSend.promise;
+	unknownNextSend = true;
 	try {
 		await composer.press("Control+Enter");
 		await expect.poll(() => sent.length).toBe(sentBeforeCollapse + 1);
@@ -450,8 +456,10 @@ try {
 		remountedSend.resolve();
 		sessionSendGate = undefined;
 	}
-	await expect(composer).toHaveValue("");
+	await expect(page.getByTestId("session-dock")).toContainText("vérifiez la conversation avant de renvoyer");
+	await expect(composer).toHaveValue("Vérifie après réduction du dock");
 	expect(sent).toHaveLength(sentBeforeCollapse + 1);
+	await composer.fill("");
 
 	// An action in Send mode targets the docked session, with the live branch.
 	await page.getByTestId("session-dock").getByRole("button", { name: "Review", exact: true }).click();
