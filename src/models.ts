@@ -39,10 +39,15 @@ export interface DirectoryEntry {
 	created?: number | null;
 	size?: number | null;
 }
+export interface ImageFileDates {
+	created: number | null;
+	modified: number | null;
+}
 export interface Preview {
 	kind?: "text" | "image" | "unsupported";
 	dataUrl?: string;
 	reason?: string;
+	imageFileDates?: ImageFileDates;
 	original: string;
 	modified: string;
 	path: string;

@@ -2348,6 +2348,11 @@ span.markdown-expandable {
 	color: var(--muted);
 	flex-shrink: 0;
 }
+.image-facts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px var(--space-md);
+}
 .image-sample {
 	color: var(--blue);
 }

@@ -105,7 +105,7 @@ Image previews and individually expanded Markdown images share the same controls
 | Eyedropper | Sample an intrinsic image pixel and copy HEX, including alpha when needed, with an RGBA confirmation |
 | Pixel grid | At 400% and above, show a grid with crisp pixels for inspection |
 
-Numeric zoom is independent of window size. Fit recalculates when its viewport changes. The fullscreen view shares zoom/Fit with the reader. Dimensions and file size are shown; remote images without reliable size metadata show that size as unavailable. Browser restrictions can prevent eyedropper access to remote pixels; BOA reports the limitation instead of inventing a color. These tools change only the view, never the file's dimensions, pixels or metadata.
+Numeric zoom is independent of window size. Fit recalculates when its viewport changes. The fullscreen view shares zoom/Fit with the reader. Dimensions and file size are shown; remote images without reliable size metadata show that size as unavailable. For local image files opened in Files or Library, the preview also shows the file's creation and modification dates when available. These dates come from the filesystem. Browser restrictions can prevent eyedropper access to remote pixels; BOA reports the limitation instead of inventing a color. These tools change only the view, never the file's dimensions, pixels or metadata.
 
 ### Browse a folder's image library
 

@@ -17,8 +17,19 @@ import { useTranslation } from "react-i18next";
 import { consumeImageAction } from "./image-actions";
 import { ImageComparison } from "./image-comparison";
 import { useImageContext } from "./image-context";
+import type { ImageFileDates } from "./models";
 
 type ImageLocation = { project: string; path: string };
+type ImageViewerProps = {
+	src: string;
+	alt: string;
+	onError: () => void;
+	actions?: ReactNode;
+	fileBytes?: number;
+	location?: ImageLocation;
+};
+/** Keep dates current when a fullscreen view retains the image element captured at opening. */
+export const ImageFileDatesContext = createContext<ImageFileDates | undefined>(undefined);
 type ImageBackground = { mode: "default" | "checkerboard" | "white" | "black" | "custom"; color: string };
 const defaultBackground: ImageBackground = { mode: "default", color: "#ffffff" };
 export function imageByteSize(src: string): number | undefined {
@@ -140,22 +151,9 @@ export function ZoomControls({
 	);
 }
 
-function ImageContent({
-	src,
-	alt,
-	onError,
-	actions,
-	fileBytes,
-	location,
-}: {
-	src: string;
-	alt: string;
-	onError: () => void;
-	actions?: ReactNode;
-	fileBytes?: number;
-	location?: ImageLocation;
-}) {
+function ImageContent({ src, alt, onError, actions, fileBytes, location }: ImageViewerProps) {
 	const { t, i18n } = useTranslation("workspace");
+	const imageFileDates = useContext(ImageFileDatesContext);
 	const [failed, setFailed] = useState(false);
 	const viewport = useRef<HTMLDivElement>(null);
 	const container = useRef<HTMLDivElement>(null);
@@ -384,8 +382,27 @@ function ImageContent({
 				}}
 			/>
 			{natural && (
-				<small className="image-facts">
-					{natural.width} × {natural.height} px · {weight}
+				<small className="image-facts" data-testid="image-facts">
+					<span>
+						{natural.width} × {natural.height} px · {weight}
+					</span>
+					{imageFileDates &&
+						(["created", "modified"] as const).map((field) => {
+							const timestamp = imageFileDates[field];
+							const date = timestamp == null ? null : new Date(timestamp);
+							return (
+								<span key={field} data-testid={`image-file-date-${field}`}>
+									{t(`imageTools.${field}`)}{" "}
+									{date && Number.isFinite(date.getTime()) ? (
+										<time dateTime={date.toISOString()}>
+											{date.toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" })}
+										</time>
+									) : (
+										t("imageTools.dateUnavailable")
+									)}
+								</span>
+							);
+						})}
 				</small>
 			)}
 			{(picking || sample) && (
@@ -454,13 +471,6 @@ function ImageContent({
 	);
 }
 
-export function ImageViewer(props: {
-	src: string;
-	alt: string;
-	onError: () => void;
-	actions?: ReactNode;
-	fileBytes?: number;
-	location?: ImageLocation;
-}) {
+export function ImageViewer(props: ImageViewerProps) {
 	return <ImageContent key={props.src} {...props} />;
 }

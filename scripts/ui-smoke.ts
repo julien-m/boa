@@ -89,6 +89,9 @@ const openedRepositories: string[] = [];
 let clipboard = "";
 const comparisonRequests: Record<string, unknown>[] = [];
 const finderRequests: Record<string, unknown>[] = [];
+let previewModified = Date.now();
+const previewCreated = previewModified - 86_400_000;
+const secondPreviewModified = previewModified + 86_400_000;
 let savedContent: string | null = null;
 let markdownExtra = "";
 let saveConflict = false;
@@ -432,6 +435,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 					label: "Lecture seule",
 					kind: "image",
 					dataUrl: source,
+					imageFileDates:
+						args.path === "preview-second.png"
+							? { created: null, modified: secondPreviewModified }
+							: { created: previewCreated, modified: previewModified },
 				};
 			}
 			return {
@@ -1874,6 +1881,35 @@ try {
 	await expect(lightbox).toBeVisible();
 	await expect(page.locator(".workspace-reader")).toBeHidden();
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	const creation = lightbox.getByTestId("image-file-date-created");
+	const modification = lightbox.getByTestId("image-file-date-modified");
+	const expectImageDates = async (path: string) => {
+		const unavailable = path === "preview-second.png";
+		await expect(creation).toContainText("Création");
+		if (unavailable) {
+			await expect(creation).toHaveText("Création non renseignée");
+			await expect(creation.locator("time")).toHaveCount(0);
+		} else {
+			await expect(creation.locator("time")).toHaveAttribute(
+				"datetime",
+				new Date(previewCreated).toISOString(),
+			);
+		}
+		await expect(modification.locator("time")).toHaveAttribute(
+			"datetime",
+			new Date(unavailable ? secondPreviewModified : previewModified).toISOString(),
+		);
+	};
+	await expectImageDates(libraryPath);
+	await page.setViewportSize({ width: 880, height: 650 });
+	await expect(creation).toBeInViewport();
+	await expect(modification).toBeInViewport();
+	expect(
+		await lightbox.getByTestId("image-facts").evaluate((facts) => facts.scrollWidth <= facts.clientWidth),
+	).toBe(true);
+	if (process.env.BOA_QA_OUTPUT)
+		await lightbox.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-file-details.png") });
+	await page.setViewportSize({ width: 1440, height: 940 });
 	await expect
 		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
@@ -1932,6 +1968,7 @@ try {
 	});
 	await page.keyboard.press("ArrowRight");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", nextLibraryPath);
+	await expectImageDates(nextLibraryPath);
 	await expect(lightbox).toHaveClass(/fullscreen/);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await page.evaluate(
@@ -1940,7 +1977,8 @@ try {
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
-	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
+	await expect(lightbox.getByTestId("image-facts")).toContainText("32 × 32 px · 100 o");
+	await expectImageDates(libraryPath);
 	const frames = await page.evaluate(async () => {
 		await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
 		const frames = Reflect.get(window, "boaScaleFrames");
@@ -2170,8 +2208,32 @@ try {
 	await page.getByRole("menuitem", { name: "Plein écran", exact: true }).click();
 	const fullscreenImage = page.getByRole("dialog", { name: "preview.png", exact: true });
 	await expect(fullscreenImage).toBeVisible();
+	const fullscreenCreation = fullscreenImage.getByTestId("image-file-date-created");
+	await expect(fullscreenCreation.locator("time")).toHaveAttribute(
+		"datetime",
+		new Date(previewCreated).toISOString(),
+	);
+	await page.evaluate(async () => (await import("/src/i18n.ts")).setInterfaceLanguage("en"));
+	await expect(fullscreenCreation).toContainText("Created");
+	await expect(fullscreenImage.getByTestId("image-file-date-modified")).toContainText("Modified");
+	await page.evaluate(async () => (await import("/src/i18n.ts")).setInterfaceLanguage("fr"));
 	await fullscreenImage.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
 	await fullscreenImage.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
+	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
+	// Refresh a changed timestamp with the same image bytes while the expanded view stays open.
+	previewModified += 3_600_000;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		`${directory}/second`,
+	);
+	await expect(fullscreenImage.getByTestId("image-file-date-modified").locator("time")).toHaveAttribute(
+		"datetime",
+		new Date(previewModified).toISOString(),
+	);
 	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
 	await page.keyboard.press("Escape");
 	await expect(fullscreenImage).toHaveCount(0);

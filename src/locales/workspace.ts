@@ -21,6 +21,9 @@ export const workspaceFr = {
 		kib: "Kio",
 		mib: "Mio",
 		unknownSize: "Poids indisponible",
+		created: "Création",
+		modified: "Modification",
+		dateUnavailable: "non renseignée",
 	},
 
 	edit: {
@@ -189,6 +192,9 @@ export const workspaceEn = {
 		kib: "KiB",
 		mib: "MiB",
 		unknownSize: "Size unavailable",
+		created: "Created",
+		modified: "Modified",
+		dateUnavailable: "unavailable",
 	},
 
 	edit: {

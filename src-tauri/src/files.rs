@@ -28,18 +28,23 @@ pub(crate) fn markdown_image(root: &Path, document: &str, source: &str) -> Resul
     if !path.starts_with(root.canonicalize().map_err(|e| e.to_string())?) {
         return Err("Chemin hors du projet".into());
     }
-    image_data(&path)
+    image_data(&path).map(|(data, _)| data)
 }
 
-fn image_data(path: &Path) -> Result<String, String> {
+fn image_data(path: &Path) -> Result<(String, fs::Metadata), String> {
     use base64::Engine;
+    // Check before opening to avoid blocking on nonregular files.
     if !fs::metadata(path).map_err(|e| e.to_string())?.is_file() {
         return Err("Ce chemin ne désigne pas un fichier régulier".into());
     }
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    // Use the opened file's metadata even if another writer replaces the path.
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
+        return Err("Ce chemin ne désigne pas un fichier régulier".into());
+    }
     let mut bytes = Vec::new();
-    fs::File::open(path)
-        .map_err(|e| e.to_string())?
-        .take(IMAGE_LIMIT + 1)
+    file.take(IMAGE_LIMIT + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > IMAGE_LIMIT {
@@ -62,9 +67,12 @@ fn image_data(path: &Path) -> Result<String, String> {
     } else {
         return Err("Format d’image non pris en charge.".into());
     };
-    Ok(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
+    Ok((
+        format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ),
+        metadata,
     ))
 }
 
@@ -290,6 +298,14 @@ pub(crate) struct FilePreview {
     pub data_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_file_dates: Option<ImageFileDates>,
+}
+
+#[derive(Serialize)]
+struct ImageFileDates {
+    created: Option<u64>,
+    modified: Option<u64>,
 }
 
 pub(crate) fn regular_file(root: &Path, relative: &str) -> Result<PathBuf, String> {
@@ -321,6 +337,7 @@ pub(crate) fn file_preview(root: &Path, relative: &str) -> Result<FilePreview, S
         kind: "unsupported",
         data_url: None,
         reason: None,
+        image_file_dates: None,
     };
     // Known binary formats are handed to macOS without loading their bytes.
     if matches!(
@@ -348,9 +365,17 @@ pub(crate) fn file_preview(root: &Path, relative: &str) -> Result<FilePreview, S
     }
     if image {
         match image_data(&path) {
-            Ok(data) => {
+            Ok((data, metadata)) => {
                 result.kind = "image";
                 result.data_url = Some(data);
+                result.image_file_dates = Some(ImageFileDates {
+                    created: created_time(&metadata),
+                    modified: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|time| time.as_millis() as u64),
+                });
                 // SVG retains its explicit source/editing path within the text limit.
                 if extension == "svg" {
                     result.preview.modified = text(&path).unwrap_or_default();
