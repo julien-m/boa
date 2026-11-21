@@ -8,7 +8,7 @@ import { api } from "./api";
 import type { LibraryImage } from "./file-workspace-api";
 import { useFileLabels } from "./file-workspace-labels";
 import { useFinderContextMenu } from "./finder-context-menu";
-import { ImageViewer, ImageZoom, useImageZoomSession } from "./image-viewer";
+import { ImageFileDatesContext, ImageViewer, ImageZoom, useImageZoomSession } from "./image-viewer";
 import { createImageTabNavigation, createImageWheelNavigation } from "./image-wheel";
 import { useImageWheelPreferences } from "./use-image-wheel-preferences";
 
@@ -42,7 +42,7 @@ export function ImageLibraryPreview({
 	const [fullscreen, setFullscreen] = useState(false);
 	const [failed, setFailed] = useState(false);
 	const query = useQuery({
-		queryKey: ["library-preview", root, image.path, image.modified, image.size],
+		queryKey: ["library-preview", root, image.path, image.created, image.modified, image.size],
 		queryFn: () => api.preview({ project: root, path: image.path }),
 		retry: false,
 		gcTime: 0,
@@ -91,7 +91,7 @@ export function ImageLibraryPreview({
 	}, [wheelNavigation]);
 	useEffect(() => {
 		setFailed(false);
-	}, [image.path, image.modified, image.size]);
+	}, [image.path, image.created, image.modified, image.size]);
 	useEffect(() => {
 		const element = dialog.current;
 		element?.showModal();
@@ -218,25 +218,27 @@ export function ImageLibraryPreview({
 						{l.loading}
 					</p>
 				) : query.data?.kind === "image" && query.data.dataUrl && !failed ? (
-					<ImageViewer
-						src={query.data.dataUrl}
-						fileBytes={image.size}
-						location={{ project: root, path: image.path }}
-						alt={image.name}
-						onError={() => setFailed(true)}
-						actions={
-							<button
-								type="button"
-								className="icon-button"
-								data-image-fullscreen
-								aria-label={fullscreen ? l.leaveFullscreen : l.fullscreen}
-								data-hint={fullscreen ? l.leaveFullscreen : l.fullscreen}
-								onClick={() => setFullscreen(!fullscreen)}
-							>
-								{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-							</button>
-						}
-					/>
+					<ImageFileDatesContext.Provider value={query.data.imageFileDates}>
+						<ImageViewer
+							src={query.data.dataUrl}
+							fileBytes={image.size}
+							location={{ project: root, path: image.path }}
+							alt={image.name}
+							onError={() => setFailed(true)}
+							actions={
+								<button
+									type="button"
+									className="icon-button"
+									data-image-fullscreen
+									aria-label={fullscreen ? l.leaveFullscreen : l.fullscreen}
+									data-hint={fullscreen ? l.leaveFullscreen : l.fullscreen}
+									onClick={() => setFullscreen(!fullscreen)}
+								>
+									{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+								</button>
+							}
+						/>
+					</ImageFileDatesContext.Provider>
 				) : (
 					<div className="file-asset-message" role="status">
 						<p>{t("asset.imageFailed")}</p>

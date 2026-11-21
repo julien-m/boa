@@ -23,7 +23,7 @@ import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { FileAssetPreview } from "./file-asset-preview";
 import { useFileEditing } from "./file-editing";
 import { localMarkdownLink } from "./markdown-links";
-import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
+import { lastMarkdownBookmark, type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
 import { ReaderNavigation } from "./reader-navigation";
 import { relocateLine } from "./reading-position";
@@ -65,7 +65,15 @@ export function captureReaderSelection(selection: Selection): Selection {
 		const block = [...container.querySelectorAll<HTMLElement>("[data-source-line]")].find(
 			(element) => element.getBoundingClientRect().bottom > top,
 		);
-		if (block)
+		const bookmark = block
+			? {
+					text: block.textContent ?? "",
+					tag: block.tagName,
+					offset: block.getBoundingClientRect().top - top,
+					scrollTop: container.scrollTop,
+				}
+			: lastMarkdownBookmark(container);
+		if (bookmark)
 			return {
 				...selection,
 				receiptId: undefined,
@@ -75,12 +83,7 @@ export function captureReaderSelection(selection: Selection): Selection {
 				anchor: undefined,
 				restorePosition: undefined,
 				navigationId: crypto.randomUUID(),
-				markdownRestore: {
-					text: block.textContent ?? "",
-					tag: block.tagName,
-					offset: block.getBoundingClientRect().top - top,
-					scrollTop: container.scrollTop,
-				},
+				markdownRestore: bookmark,
 			};
 	}
 	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(selection.project, selection.path)));
@@ -111,7 +114,17 @@ export function disposeReaderModel(project: string, path: string): void {
 	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(project, path)));
 	if (model && !monaco.editor.getEditors().some((editor) => editor.getModel() === model)) model.dispose();
 }
-const options: monaco.editor.IStandaloneEditorConstructionOptions = {
+/** Releases temporary diff models only after Monaco detaches the editor from them. */
+export function disposeDiffModelsAfterEditor(editor: monaco.editor.IStandaloneDiffEditor): void {
+	const models = editor.getModel();
+	editor.onDidDispose(() => {
+		queueMicrotask(() => {
+			models?.original.dispose();
+			models?.modified.dispose();
+		});
+	});
+}
+export const monacoReaderOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
 	readOnly: true,
 	domReadOnly: true,
 	minimap: { enabled: false },
@@ -125,14 +138,15 @@ const options: monaco.editor.IStandaloneEditorConstructionOptions = {
 	fontFamily: "SF Mono, Menlo, monospace",
 };
 
-const language = createSourceLanguageResolver(monaco.languages.getLanguages());
+export const resolveMonacoLanguage = createSourceLanguageResolver(monaco.languages.getLanguages());
 
 interface CodeViewerProps {
 	selection: Selection | null;
 	compact?: boolean;
+	visible?: boolean;
 	onOpen?: (selection: Selection) => void;
 }
-export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerProps) {
+export function CodeViewer({ selection, compact = false, visible = true, onOpen }: CodeViewerProps) {
 	const { t, i18n } = useTranslation("workspace");
 	const editing = useFileEditing();
 	const annotationMenu = useAnnotationMenu();
@@ -618,6 +632,7 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 						project={selection.project}
 						path={selection.path}
 						content={query.data.modified}
+						visible={visible}
 						navigation={selection.line || selection.anchor !== undefined ? selection : undefined}
 						onReveal={(displayed) => {
 							const id = selection.receiptId;
@@ -835,9 +850,9 @@ function MonacoContent({
 					keepCurrentModifiedModel
 					original={preview.original}
 					modified={preview.modified}
-					language={language(preview.path)}
+					language={resolveMonacoLanguage(preview.path)}
 					options={{
-						...options,
+						...monacoReaderOptions,
 						renderSideBySide: sideBySide,
 						originalEditable: false,
 						originalAriaLabel: t("viewer.originalCode"),
@@ -846,14 +861,8 @@ function MonacoContent({
 					}}
 					onMount={(editor) => {
 						onDiffEditor(editor);
-						const models = editor.getModel();
-						editor.onDidDispose(() => {
-							onDiffEditor(null);
-							queueMicrotask(() => {
-								models?.original.dispose();
-								models?.modified.dispose();
-							});
-						});
+						disposeDiffModelsAfterEditor(editor);
+						editor.onDidDispose(() => onDiffEditor(null));
 						const original = editor.getOriginalEditor();
 						const modified = editor.getModifiedEditor();
 						original.onDidFocusEditorText(() => onEditor(original, "before", false));
@@ -870,8 +879,8 @@ function MonacoContent({
 					saveViewState={false}
 					theme="vs-dark"
 					defaultValue={preview.modified}
-					language={language(preview.path)}
-					options={{ ...options, readOnly: !editable, domReadOnly: !editable }}
+					language={resolveMonacoLanguage(preview.path)}
+					options={{ ...monacoReaderOptions, readOnly: !editable, domReadOnly: !editable }}
 					onChange={(value) => {
 						if (editable) onChange(value ?? "");
 					}}

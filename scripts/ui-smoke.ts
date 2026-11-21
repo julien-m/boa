@@ -89,6 +89,9 @@ const openedRepositories: string[] = [];
 let clipboard = "";
 const comparisonRequests: Record<string, unknown>[] = [];
 const finderRequests: Record<string, unknown>[] = [];
+let previewModified = Date.now();
+const previewCreated = previewModified - 86_400_000;
+const secondPreviewModified = previewModified + 86_400_000;
 let savedContent: string | null = null;
 let markdownExtra = "";
 let saveConflict = false;
@@ -100,6 +103,7 @@ let collectionDraft: CollectionDraft | null = null;
 let collectionExport: { prompt: string; images: { name: string; dataUrl: string }[] } | null = null;
 let cancelCollectionExport = false;
 const readerReceipts = new Map<string, { request: ReaderOpenRequest; status: string }>();
+const uiUrl = process.env.BOA_UI_URL ?? "http://localhost:1420";
 const browser = await chromium.launch({
 	channel: process.env.BOA_TEST_BROWSER === "chromium" ? undefined : "chrome",
 	headless: true,
@@ -381,6 +385,8 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				"config.yaml",
 				"wrangler.toml",
 				"wrangler.jsonc",
+				"lf.txt",
+				"crlf.txt",
 				"preview.png",
 				"preview-second.png",
 				"captures",
@@ -397,6 +403,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
+			if (args.path === "lf.txt" || args.path === "crlf.txt") {
+				const eol = args.path === "lf.txt" ? "\n" : "\r\n";
+				return { original: "", modified: `première ligne${eol}seconde ligne${eol}`, path: args.path };
+			}
 			if (args.path === "folder-links.md")
 				return {
 					original: "",
@@ -432,6 +442,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 					label: "Lecture seule",
 					kind: "image",
 					dataUrl: source,
+					imageFileDates:
+						args.path === "preview-second.png"
+							? { created: null, modified: secondPreviewModified }
+							: { created: previewCreated, modified: previewModified },
 				};
 			}
 			return {
@@ -597,7 +611,7 @@ await page.addInitScript(() => {
 	);
 });
 try {
-	await page.goto("http://localhost:1420");
+	await page.goto(uiUrl);
 	await expect(page.getByTestId("watch-notice")).toBeVisible();
 	await page.getByTestId("dismiss-watch-notice").click();
 	await expect(page.getByTestId("watch-notice")).toHaveCount(0);
@@ -934,7 +948,7 @@ try {
 	await page.getByTestId("markdown-toggle").click();
 	await expect(page.getByTestId("markdown-preview")).toHaveCount(0);
 	await expect(page.locator(".monaco-editor").first()).toBeVisible();
-	const moduleSource = await (await page.request.get("http://localhost:1420/src/code-viewer.tsx")).text();
+	const moduleSource = await (await page.request.get(new URL("/src/code-viewer.tsx", uiUrl).href)).text();
 	const monacoPath = moduleSource.match(/import \* as monaco from "([^"]+)"/u)?.[1];
 	if (!monacoPath) throw new Error("Monaco import unavailable");
 	// Source-text right-click uses the same composer as rendered Markdown and file references.
@@ -1175,11 +1189,16 @@ try {
 			}, monacoPath),
 		)
 		.toBe(false);
-	await page.getByTestId("file-README.md").click();
+	await page.getByTestId("file-README.md").dblclick();
+	await page.getByTestId("file-lf.txt").dblclick();
+	await page.getByTestId("tab-README.md").click();
 	await page.getByRole("heading", { name: "Mon document" }).scrollIntoViewIfNeeded();
 	const headingBefore = await page
 		.getByRole("heading", { name: "Mon document" })
 		.evaluate((e) => e.getBoundingClientRect().top);
+	await page.getByTestId("tab-README.md").click({ button: "right" });
+	await page.getByTestId("compare-file-left").or(page.getByTestId("compare-file-right")).first().click();
+	await expect(page.getByTestId("file-comparison")).toBeVisible();
 	markdownExtra = "# Inserted before\n\n" + "An extra paragraph.\n\n".repeat(20);
 	await page.evaluate(
 		(project) =>
@@ -1189,7 +1208,8 @@ try {
 			)({ discovery: false, settings: false, projects: [project] }),
 		directory,
 	);
-	await expect(page.getByRole("heading", { name: "Inserted before" })).toBeAttached();
+	await expect(page.getByRole("heading", { name: "Inserted before", includeHidden: true })).toBeAttached();
+	await page.getByRole("button", { name: "Fermer la comparaison" }).click();
 	expect(
 		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
 	).toBeCloseTo(headingBefore, -1);
@@ -1201,6 +1221,33 @@ try {
 	expect(
 		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
 	).toBeCloseTo(headingBefore, -1);
+	const insertedHeading = page.getByRole("heading", { name: "Inserted before" });
+	await page.getByTestId("markdown-preview").evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await expect(insertedHeading).toBeInViewport();
+	const switchedBookmarkTop = await insertedHeading.evaluate((e) => e.getBoundingClientRect().top);
+	await page.getByTestId("tab-README.md").click({ button: "right" });
+	await page.getByTestId("compare-file-left").or(page.getByTestId("compare-file-right")).first().click();
+	markdownExtra = `# A second insertion\n\n${"Another paragraph.\n\n".repeat(15)}${markdownExtra}`;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByRole("heading", { name: "A second insertion", includeHidden: true })).toBeAttached();
+	await page.getByTestId("tab-lf.txt").click();
+	await expect(page.getByTestId("file-comparison")).toHaveCount(0);
+	await page.getByTestId("tab-README.md").click();
+	await expect(insertedHeading).toBeInViewport();
+	expect(await insertedHeading.evaluate((e) => e.getBoundingClientRect().top)).toBeCloseTo(
+		switchedBookmarkTop,
+		-1,
+	);
+	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("file-sample.ts").click();
 	const originalReader = await page.evaluate(async (path) => {
 		const module = await import(path);
@@ -1265,6 +1312,59 @@ try {
 	expect(restoredPosition.sameModel).toBe(true);
 	expect(restoredPosition.cursor).toEqual(retainedPosition.cursor);
 	expect(restoredPosition.scroll).toBeCloseTo(retainedPosition.scroll, 0);
+	// Both contextual actions show the same left/right order and compare the actual draft.
+	await page.getByTestId("file-config.json").dblclick();
+	const sampleTab = page.getByTestId("tab-sample.ts");
+	const configTab = page.getByTestId("tab-config.json");
+	await sampleTab.click();
+	const fileComparison = page.getByTestId("file-comparison");
+	const showDiff = async () => {
+		await expect(fileComparison.getByTestId("comparison-left-file")).toContainText("sample.ts");
+		await expect(fileComparison.getByTestId("comparison-left-file")).toContainText("Brouillon");
+		await expect(fileComparison.getByTestId("comparison-right-file")).toContainText("config.json");
+		await expect(fileComparison.locator(".editor.original .line-delete").first()).toBeVisible();
+		await expect(fileComparison.locator(".editor.modified .line-insert").first()).toBeVisible();
+		await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeEnabled();
+		const sources = await page.evaluate(async (path) => {
+			const module = await import(path);
+			const [diff] = module.editor.getDiffEditors();
+			const options = module.editor.EditorOption;
+			return [diff.getOriginalEditor(), diff.getModifiedEditor()].map((editor) => ({
+				value: editor.getModel().getValue(),
+				readOnly: editor.getOption(options.readOnly),
+			}));
+		}, monacoPath);
+		expect(sources[0]).toMatchObject({ value: expect.stringContaining("// saved edit"), readOnly: true });
+		expect(sources[1]).toMatchObject({ value: expect.stringContaining('"enabled": true'), readOnly: true });
+	};
+	await sampleTab.click({ button: "right" });
+	await page.getByTestId("compare-file-right").click();
+	await showDiff();
+	if (process.env.BOA_QA_OUTPUT)
+		await fileComparison.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "file-comparison.png") });
+	await fileComparison.locator(".editor.modified").getByRole("textbox").press("ControlOrMeta+f");
+	const comparisonFind = fileComparison.locator(".editor.modified .find-widget.visible");
+	await expect(comparisonFind).toBeVisible();
+	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
+	await comparisonFind.locator(".codicon-widget-close").click();
+	await sampleTab.press("ControlOrMeta+f");
+	await expect(comparisonFind).toBeVisible();
+	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
+	await comparisonFind.locator(".codicon-widget-close").click();
+	await page.keyboard.press("Escape");
+	await expect(fileComparison).toHaveCount(0);
+	await expect(sampleTab).toBeFocused();
+	await configTab.press("Shift+F10");
+	await page.keyboard.press("End");
+	await expect(page.getByTestId("compare-file-left")).toBeFocused();
+	await page.keyboard.press("Enter");
+	await showDiff();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
+	await expect(fileComparison).toHaveCount(0);
+	await expect(configTab).toBeFocused();
+	await expect(page.getByTestId("edit-dirty")).toBeVisible();
+	expect(savedContent).toBeNull();
+	await page.getByTestId("close-tab-config.json").click();
 	await editInput.press("ControlOrMeta+z");
 	await expect
 		.poll(() =>
@@ -1277,6 +1377,15 @@ try {
 			page.evaluate(() => Reflect.get(window, "boaRetainedModel").getValue().includes("// saved edit")),
 		)
 		.toBe(true);
+	await page.getByTestId("file-lf.txt").dblclick();
+	await page.getByTestId("file-crlf.txt").dblclick();
+	await page.getByTestId("tab-crlf.txt").click({ button: "right" });
+	await page.getByTestId("compare-file-left").click();
+	await expect(fileComparison.getByRole("status")).toContainText("Seules les fins de ligne");
+	await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeDisabled();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
+	await page.getByTestId("close-tab-crlf.txt").click();
+	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("file-README.md").click();
 	await page.getByTestId("draft-indicator").locator("summary").click();
 	await page.getByTestId("draft-indicator").getByRole("button", { name: "sample.ts", exact: true }).click();
@@ -1801,6 +1910,27 @@ try {
 	await browsers.nth(0).getByTestId("file-sample.ts").dblclick();
 	await browsers.nth(1).getByTestId("file-sample.ts").dblclick();
 	await expect(page.getByRole("tab", { name: "sample.ts", exact: true })).toHaveCount(2);
+	// Files in separately registered folders can be compared without a Git repository.
+	const rightSpaceTab = page.getByRole("tab", { name: "sample.ts", exact: true }).last();
+	const neighboringPath = await rightSpaceTab.evaluate((tab) =>
+		tab
+			.closest(".file-tab")
+			?.previousElementSibling?.querySelector('[role="tab"]')
+			?.getAttribute("data-hint"),
+	);
+	expect(neighboringPath).toBeTruthy();
+	await rightSpaceTab.click({ button: "right" });
+	await page.getByTestId("compare-file-left").click();
+	await expect(fileComparison.getByTestId("comparison-left-file")).toHaveAttribute(
+		"title",
+		neighboringPath ?? "",
+	);
+	await expect(fileComparison.getByTestId("comparison-right-file")).toHaveAttribute(
+		"title",
+		`${directory}/second/sample.ts`,
+	);
+	await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeEnabled();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
 	// Identically named tabs in a File Space must keep their own root when annotated.
 	const firstSpaceTab = page.getByRole("tab", { name: "sample.ts", exact: true }).first();
 	const referencedPath = await firstSpaceTab.getAttribute("data-hint");
@@ -1874,6 +2004,35 @@ try {
 	await expect(lightbox).toBeVisible();
 	await expect(page.locator(".workspace-reader")).toBeHidden();
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
+	const creation = lightbox.getByTestId("image-file-date-created");
+	const modification = lightbox.getByTestId("image-file-date-modified");
+	const expectImageDates = async (path: string) => {
+		const unavailable = path === "preview-second.png";
+		await expect(creation).toContainText("Création");
+		if (unavailable) {
+			await expect(creation).toHaveText("Création non renseignée");
+			await expect(creation.locator("time")).toHaveCount(0);
+		} else {
+			await expect(creation.locator("time")).toHaveAttribute(
+				"datetime",
+				new Date(previewCreated).toISOString(),
+			);
+		}
+		await expect(modification.locator("time")).toHaveAttribute(
+			"datetime",
+			new Date(unavailable ? secondPreviewModified : previewModified).toISOString(),
+		);
+	};
+	await expectImageDates(libraryPath);
+	await page.setViewportSize({ width: 880, height: 650 });
+	await expect(creation).toBeInViewport();
+	await expect(modification).toBeInViewport();
+	expect(
+		await lightbox.getByTestId("image-facts").evaluate((facts) => facts.scrollWidth <= facts.clientWidth),
+	).toBe(true);
+	if (process.env.BOA_QA_OUTPUT)
+		await lightbox.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "image-file-details.png") });
+	await page.setViewportSize({ width: 1440, height: 940 });
 	await expect
 		.poll(() => lightbox.locator(".image-viewport").evaluate((node) => node.getBoundingClientRect().height))
 		.toBeGreaterThan(150);
@@ -1932,6 +2091,7 @@ try {
 	});
 	await page.keyboard.press("ArrowRight");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", nextLibraryPath);
+	await expectImageDates(nextLibraryPath);
 	await expect(lightbox).toHaveClass(/fullscreen/);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
 	await page.evaluate(
@@ -1940,7 +2100,8 @@ try {
 	await page.keyboard.press("PageUp");
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	await expect(lightbox.locator("img")).toHaveCSS("width", "40px");
-	await expect(lightbox.locator(".image-facts")).toHaveText("32 × 32 px · 100 o");
+	await expect(lightbox.getByTestId("image-facts")).toContainText("32 × 32 px · 100 o");
+	await expectImageDates(libraryPath);
 	const frames = await page.evaluate(async () => {
 		await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
 		const frames = Reflect.get(window, "boaScaleFrames");
@@ -2170,8 +2331,32 @@ try {
 	await page.getByRole("menuitem", { name: "Plein écran", exact: true }).click();
 	const fullscreenImage = page.getByRole("dialog", { name: "preview.png", exact: true });
 	await expect(fullscreenImage).toBeVisible();
+	const fullscreenCreation = fullscreenImage.getByTestId("image-file-date-created");
+	await expect(fullscreenCreation.locator("time")).toHaveAttribute(
+		"datetime",
+		new Date(previewCreated).toISOString(),
+	);
+	await page.evaluate(async () => (await import("/src/i18n.ts")).setInterfaceLanguage("en"));
+	await expect(fullscreenCreation).toContainText("Created");
+	await expect(fullscreenImage.getByTestId("image-file-date-modified")).toContainText("Modified");
+	await page.evaluate(async () => (await import("/src/i18n.ts")).setInterfaceLanguage("fr"));
 	await fullscreenImage.getByRole("button", { name: "Taille réelle (100 %)", exact: true }).click();
 	await fullscreenImage.getByRole("button", { name: "Agrandir l’image", exact: true }).click();
+	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
+	// Refresh a changed timestamp with the same image bytes while the expanded view stays open.
+	previewModified += 3_600_000;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		`${directory}/second`,
+	);
+	await expect(fullscreenImage.getByTestId("image-file-date-modified").locator("time")).toHaveAttribute(
+		"datetime",
+		new Date(previewModified).toISOString(),
+	);
 	await expect(fullscreenImage.locator("img")).toHaveCSS("width", "40px");
 	await page.keyboard.press("Escape");
 	await expect(fullscreenImage).toHaveCount(0);

@@ -21,6 +21,9 @@ export const workspaceFr = {
 		kib: "Kio",
 		mib: "Mio",
 		unknownSize: "Poids indisponible",
+		created: "Création",
+		modified: "Modification",
+		dateUnavailable: "non renseignée",
 	},
 
 	edit: {
@@ -40,6 +43,20 @@ export const workspaceFr = {
 		closeWarning: "Enregistrez ou annulez l’édition avant de fermer BOA.",
 	},
 	tabs: { label: "Fichiers ouverts", close: "Fermer {{path}}" },
+	comparison: {
+		fileActions: "Actions du fichier",
+		leftAction: "Comparer avec le fichier à gauche · {{name}}",
+		rightAction: "Comparer avec le fichier à droite · {{name}}",
+		title: "Comparaison de fichiers",
+		leftFile: "Fichier de gauche",
+		rightFile: "Fichier de droite",
+		close: "Fermer la comparaison",
+		readError: "Impossible de lire {{path}}.",
+		unsupported: "{{path}} ne peut pas être comparé comme texte.",
+		identical: "Les fichiers ont le même contenu.",
+		formattingOnly: "Seules les fins de ligne ou la marque UTF-8 (BOM) diffèrent.",
+		draft: "Brouillon",
+	},
 	project: {
 		openFolder: "Ouvrir dans le Finder",
 		layout: "Disposition",
@@ -189,6 +206,9 @@ export const workspaceEn = {
 		kib: "KiB",
 		mib: "MiB",
 		unknownSize: "Size unavailable",
+		created: "Created",
+		modified: "Modified",
+		dateUnavailable: "unavailable",
 	},
 
 	edit: {
@@ -208,6 +228,20 @@ export const workspaceEn = {
 		closeWarning: "Save or cancel editing before closing BOA.",
 	},
 	tabs: { label: "Open files", close: "Close {{path}}" },
+	comparison: {
+		fileActions: "File actions",
+		leftAction: "Compare with file on the left · {{name}}",
+		rightAction: "Compare with file on the right · {{name}}",
+		title: "File comparison",
+		leftFile: "Left file",
+		rightFile: "Right file",
+		close: "Close comparison",
+		readError: "Unable to read {{path}}.",
+		unsupported: "{{path}} cannot be compared as text.",
+		identical: "The files have identical content.",
+		formattingOnly: "Only line endings or the UTF-8 byte order mark differ.",
+		draft: "Draft",
+	},
 	project: {
 		openFolder: "Open in Finder",
 		layout: "Layout",

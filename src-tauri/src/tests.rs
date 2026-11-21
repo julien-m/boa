@@ -1158,6 +1158,12 @@ fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() 
     let root = tempfile::tempdir().unwrap();
     let png = root.path().join("plan.PNG");
     fs::write(&png, b"\x89PNG\r\n\x1a\n\0example").unwrap();
+    let modified = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    fs::File::open(&png)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let metadata = fs::metadata(&png).unwrap();
     // The old text-only route rejects the same selection.
     assert!(files::text(&png).is_err());
     let preview = files::file_preview(root.path(), "plan.PNG").unwrap();
@@ -1172,6 +1178,29 @@ fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() 
     let json = serde_json::to_value(preview).unwrap();
     assert!(json["dataUrl"].is_string());
     assert_eq!(json["path"], "plan.PNG");
+    let millis = |time: std::time::SystemTime| {
+        time.duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    };
+    assert_eq!(
+        json["imageFileDates"]["created"],
+        serde_json::json!(metadata.created().ok().map(millis))
+    );
+    assert_eq!(
+        json["imageFileDates"]["modified"],
+        serde_json::json!(millis(metadata.modified().unwrap()))
+    );
+    let before_epoch = std::time::UNIX_EPOCH - std::time::Duration::from_secs(31_536_000);
+    fs::File::open(&png)
+        .unwrap()
+        .set_modified(before_epoch)
+        .unwrap();
+    let preview = files::file_preview(root.path(), "plan.PNG").unwrap();
+    assert_eq!(
+        serde_json::to_value(preview).unwrap()["imageFileDates"]["modified"],
+        serde_json::json!(-31_536_000_000i64)
+    );
     fs::write(
         root.path().join("plan.svg"),
         "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
@@ -1184,6 +1213,12 @@ fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() 
     let video = files::file_preview(root.path(), "video.mov").unwrap();
     assert_eq!(video.kind, "unsupported");
     assert!(video.data_url.is_none());
+    assert!(
+        serde_json::to_value(video)
+            .unwrap()
+            .get("imageFileDates")
+            .is_none()
+    );
     fs::write(root.path().join("notes.unknown"), "Readable text").unwrap();
     assert_eq!(
         files::file_preview(root.path(), "notes.unknown")
