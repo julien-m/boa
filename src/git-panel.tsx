@@ -8,7 +8,6 @@ import {
 	FolderGit2,
 	GitBranch,
 	GitCommitHorizontal,
-	GitFork,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -101,10 +100,6 @@ export function GitPanel({
 	return (
 		<section className={`git-panel ${expanded ? "expanded" : ""}`} data-testid="git-panel">
 			<div className="git-toolbar">
-				<span className="git-label">
-					<GitFork size={15} />
-					Git
-				</span>
 				<button
 					type="button"
 					data-testid="git-changes-tab"

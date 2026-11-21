@@ -139,7 +139,9 @@ BOA lists the coding-agent sessions of your registered projects, keeps one docke
 
 **States.** Working, waiting for you, inactive, error or unknown. Each state shows its source ("shared Codex daemon", "no process", "driven by BOA"…). BOA never infers activity from file timestamps. A Codex session not loaded in the shared daemon shows as unknown; use **Resume session** before sending to it.
 
-**Pins.** The Sessions view opens on **Pinned**. New sessions are pinned automatically (Settings → Session actions; on by default). Unpinning only hides a session from that view: it is never stopped, archived or deleted. **All sessions** and the search field find it again. Session pins are separate from project pins.
+**Sessions in a project.** Open the **Sessions** tab next to **Git** at the bottom of a project to see its Codex and Claude Code sessions, including its Git worktrees. The tab starts on **All sessions**. Double-click a session title or press Enter to open it in the dock while keeping the project in view.
+
+**Pins.** The global Sessions view opens on **Pinned**. New sessions are pinned automatically (Settings → Session actions; on by default). Unpinning only hides a session from that view: it is never stopped, archived or deleted. **All sessions** and the search field find it again. Session pins are separate from project pins.
 
 **Sort.** Click a column header (**Session**, **Project**, **State**, **Last activity**) to sort by it; click it again to reverse. The arrow and the screen-reader sort state show the active column. The default shows the latest activity first; sessions with the same time are ordered by attention: waiting for you, error, working, idle, inactive, unknown. **State** sorts by that attention order, then by latest activity; **Session** and **Project** sort alphabetically. **Group by project** is an option on top of the chosen sort. BOA remembers both locally. Sorting never changes the selection, the filters or the dock tabs. The state label and its color appear together.
 

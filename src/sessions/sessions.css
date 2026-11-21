@@ -7,6 +7,17 @@
 	gap: var(--space-base);
 	max-width: none;
 }
+.project-sessions-view {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: var(--space-md) var(--space-base);
+	gap: var(--space-sm);
+}
+.project-sessions-view .session-columns,
+.project-sessions-view .session-row {
+	grid-template-columns: minmax(0, 1fr) minmax(120px, 25%) minmax(100px, 20%) 28px;
+}
 .sessions-header {
 	display: flex;
 	align-items: center;

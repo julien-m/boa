@@ -1,16 +1,16 @@
 /** WebStorm-inspired workspace with persisted Files/Git/combined layouts. */
 import {
 	ChevronDown,
-	ChevronUp,
 	Columns2,
 	FileCode2,
 	FolderOpen,
 	GitBranch,
 	GitFork,
+	MessagesSquare,
 	RefreshCw,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "./api";
 import type { HistoryRestoration, RecordVisit } from "./app-history";
@@ -25,7 +25,11 @@ import { GitPanel } from "./git-panel";
 import { useGuidedReading } from "./guided-reading";
 import type { Layout, Project, Selection, Summary } from "./models";
 import { PanelResizer } from "./panel-resizer";
+import { SessionsView } from "./sessions/sessions-view";
 import { useReaderSession } from "./use-reader-session";
+
+const PROJECT_TOOLS = ["git", "sessions"] as const;
+type ProjectTool = (typeof PROJECT_TOOLS)[number];
 
 export function ProjectView({
 	project,
@@ -47,6 +51,13 @@ export function ProjectView({
 	onRefresh: () => void;
 }) {
 	const { t } = useTranslation("workspace");
+	const { t: sessionText } = useTranslation("sessions");
+	const toolsId = useId();
+	const [tool, setTool] = useState<ProjectTool>("git");
+	const sessionProjects = useMemo(
+		() => [{ path: project.path, name: project.name }],
+		[project.path, project.name],
+	);
 	const contextLabels = useContextLabels();
 	const editing = useFileEditing();
 	const [layout, setLayout] = useState<Layout>(() => {
@@ -131,6 +142,9 @@ export function ProjectView({
 	const guiding = Boolean(guided.active);
 	const effectiveLayout = forceContextFiles && guiding && layout === "git" ? "split" : layout;
 	const dockGit = guiding && effectiveLayout === "split" && !expandGuidedGit;
+	const showGit = tool === "git" && effectiveLayout !== "files" && !dockGit;
+	const showSessions = tool === "sessions";
+	const showTools = showGit || showSessions;
 	const closeFile = (path: string): void => {
 		if (!selection?.repo && selection?.path === path) {
 			const next = tabs.filter((tab) => tab.path !== path);
@@ -184,15 +198,23 @@ export function ProjectView({
 	const repos = summary?.repos ?? [];
 	const root = repos.find((repo) => repo.path === project.path) ?? repos[0];
 	const handleLayout = (value: Layout): void => {
+		setTool("git");
 		setForceContextFiles(false);
 		setLayout(value);
 		onVisit?.({ layout: value });
 		localStorage.setItem("boa-layout", value);
 	};
+	const openTool = (next: ProjectTool): void => {
+		if (next === "git") {
+			if (effectiveLayout === "files") handleLayout("split");
+			if (dockGit) setExpandGuidedGit(true);
+		}
+		setTool(next);
+	};
 	return (
 		<div
 			ref={containerRef}
-			className={`project-view layout-${effectiveLayout} ${dockGit ? "context-git-docked" : ""}`}
+			className={`project-view layout-${effectiveLayout} ${showSessions ? "project-sessions-open" : ""}`}
 			data-testid="project-view"
 		>
 			<header className="project-header">
@@ -402,27 +424,87 @@ export function ProjectView({
 					</div>
 				</FileWorkspace>
 			)}
-			{effectiveLayout === "split" && !dockGit && <PanelResizer container={containerRef} />}
-			{guiding && effectiveLayout === "split" && (
-				<button
-					type="button"
-					className="context-git-toggle"
-					onClick={() => setExpandGuidedGit(!expandGuidedGit)}
+			{showTools && effectiveLayout !== "git" && <PanelResizer container={containerRef} />}
+			<section
+				className={`project-tools ${showTools ? "open" : ""} ${effectiveLayout === "git" ? "expanded" : ""}`}
+			>
+				<div className="project-tools-bar">
+					<div className="project-tools-tabs" role="tablist" aria-label={t("project.tools")}>
+						{PROJECT_TOOLS.map((item, index) => {
+							const Icon = item === "git" ? GitFork : MessagesSquare;
+							return (
+								<button
+									key={item}
+									id={`${toolsId}-${item}`}
+									className="git-tab"
+									type="button"
+									role="tab"
+									tabIndex={item === tool ? 0 : -1}
+									aria-selected={item === "git" ? showGit : showSessions}
+									onClick={() => openTool(item)}
+									onKeyDown={(event) => {
+										const target =
+											event.key === "Home"
+												? PROJECT_TOOLS[0]
+												: event.key === "End"
+													? PROJECT_TOOLS[1]
+													: event.key === "ArrowLeft" || event.key === "ArrowRight"
+														? PROJECT_TOOLS[1 - index]
+														: undefined;
+										if (!target) return;
+										event.preventDefault();
+										document.getElementById(`${toolsId}-${target}`)?.focus();
+									}}
+								>
+									<Icon size={14} aria-hidden="true" />
+									{item === "git" ? t("project.git") : sessionText("title")}
+								</button>
+							);
+						})}
+					</div>
+					{guiding && effectiveLayout === "split" && showGit && (
+						<button
+							type="button"
+							className="icon-button"
+							aria-label={t("project.collapseGit")}
+							data-hint={t("project.collapseGit")}
+							onClick={() => {
+								setExpandGuidedGit(false);
+								document.getElementById(`${toolsId}-git`)?.focus();
+							}}
+						>
+							<ChevronDown size={14} aria-hidden="true" />
+						</button>
+					)}
+				</div>
+				<div
+					className="project-tool-pane"
+					role="tabpanel"
+					aria-labelledby={`${toolsId}-git`}
+					hidden={!showGit}
 				>
-					{dockGit ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Git
-				</button>
-			)}
-			{effectiveLayout !== "files" && !dockGit && (
-				<GitPanel
-					project={project}
-					repos={repos}
-					expanded={effectiveLayout === "git"}
-					selection={selection}
-					onSelect={setSelection}
-					onAutoSelect={autoSelection}
-					autoSelect={!restoration}
-				/>
-			)}
+					{effectiveLayout !== "files" && !dockGit && (
+						<GitPanel
+							project={project}
+							repos={repos}
+							expanded={effectiveLayout === "git"}
+							selection={selection}
+							onSelect={setSelection}
+							onAutoSelect={autoSelection}
+							autoSelect={showGit && !restoration}
+						/>
+					)}
+				</div>
+				<div
+					className="project-tool-pane"
+					role="tabpanel"
+					aria-labelledby={`${toolsId}-sessions`}
+					tabIndex={showSessions ? 0 : undefined}
+					hidden={!showSessions}
+				>
+					{showSessions && <SessionsView projects={sessionProjects} projectPath={project.path} />}
+				</div>
+			</section>
 		</div>
 	);
 }

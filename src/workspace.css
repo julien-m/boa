@@ -888,17 +888,58 @@ h2 {
 	padding: 8px;
 	text-align: left;
 }
-.git-panel {
-	border-top: 1px solid var(--line);
+.project-tools {
 	display: flex;
 	flex-direction: column;
-	min-height: 180px;
-	flex: 0 0 var(--git-size, 39%);
-	overflow: hidden;
+	border-top: 1px solid var(--line);
+	flex: none;
+	min-height: 0;
 }
-.git-panel.expanded {
+.project-tools.open {
+	flex: 0 0 var(--git-size, 39%);
+	min-height: 180px;
+}
+.dock-expanded .project-sessions-open .file-workspace,
+.dock-expanded .project-sessions-open .project-tools.open {
+	min-height: 0;
+}
+.project-tools.expanded {
 	flex: 1;
 	min-height: 0;
+}
+.project-tools-bar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-md);
+	padding-inline: var(--space-base);
+	background: var(--sidebar);
+	border-bottom: 1px solid var(--line);
+	flex: none;
+}
+.project-tools-tabs {
+	display: flex;
+	gap: var(--space-base);
+	height: 32px;
+}
+.project-tools-tabs .git-tab {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
+}
+.project-tools-tabs .git-tab[aria-selected="true"] {
+	border-color: var(--blue);
+	color: var(--text);
+}
+.project-tool-pane:not([hidden]),
+.git-panel {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+}
+.git-panel {
+	overflow: hidden;
 }
 .git-toolbar {
 	display: flex;
@@ -909,13 +950,6 @@ h2 {
 	border-bottom: 1px solid var(--line);
 	height: 40px;
 	flex-shrink: 0;
-}
-.git-label {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	font-size: 11px;
-	font-weight: 500;
 }
 .git-tab {
 	height: 100%;

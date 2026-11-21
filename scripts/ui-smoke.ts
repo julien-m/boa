@@ -1062,12 +1062,12 @@ try {
 		await page.locator('[data-testid^="close-tab-"]').first().click();
 	await page.getByTestId("file-sample.ts").click();
 	// Temporary previews replace each other; retained tabs survive and close independently.
-	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(page.locator(".file-tabs").getByRole("tab")).toHaveCount(1);
 	await page.getByTestId("file-README.md").click();
 	await expect(page.getByTestId("tab-sample.ts")).toHaveCount(0);
 	await page.getByTestId("file-README.md").dblclick();
 	await page.getByTestId("file-sample.ts").click();
-	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.locator(".file-tabs").getByRole("tab")).toHaveCount(2);
 	await page.getByTestId("file-sample.ts").dblclick();
 	await page.getByTestId("tab-README.md").click();
 	await expect(page.getByTestId("markdown-preview")).toBeVisible();
@@ -2656,7 +2656,7 @@ try {
 		}),
 	);
 	await expect(page.getByTestId("file-space-view")).toBeVisible();
-	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.locator(".file-tabs").getByRole("tab")).toHaveCount(0);
 	await expect(page.getByTestId("directory-root")).toBeVisible();
 	expect(fileSpaces.find((space) => space.roots.includes("/external/captures"))?.roots).toEqual([
 		"/external/captures",
