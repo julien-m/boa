@@ -1,4 +1,4 @@
-/** Global Sessions view: sortable table, optional project grouping, rows open in the dock. */
+/** Global and project Sessions catalog: sortable table, optional project grouping, rows open in the dock. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { useSessionText } from "./session-labels";
 import { SessionRow } from "./session-row";
 import {
 	ATTENTION,
+	DEFAULT_SORT,
 	nextSort,
 	readGrouping,
 	readSort,
@@ -90,15 +91,19 @@ function CodexDaemonNotice() {
 	);
 }
 
-export function SessionsView({ projects }: { projects: ProjectRef[] }) {
-	const { t, provider, reason } = useSessionText();
-	const [scope, setScope] = useState<ListQuery["scope"]>("pinned");
+export function SessionsView({ projects, projectPath }: { projects: ProjectRef[]; projectPath?: string }) {
+	const scoped = projectPath !== undefined;
+	const { t, provider, reason, error } = useSessionText();
+	const [scope, setScope] = useState<ListQuery["scope"]>(scoped ? "all" : "pinned");
 	const [search, setSearch] = useState("");
 	const [tool, setTool] = useState<Provider | "">("");
 	const [project, setProject] = useState("");
 	const [stateFilter, setStateFilter] = useState<SessionState | "">("");
-	const [sort, setSort] = useState<SessionSort>(readSort);
-	const [grouped, setGrouped] = useState(readGrouping);
+	const [sort, setSort] = useState<SessionSort>(() => {
+		const saved = readSort();
+		return scoped && saved.column === "project" ? DEFAULT_SORT : saved;
+	});
+	const [grouped, setGrouped] = useState(() => !scoped && readGrouping());
 	const [selected, setSelected] = useState<SessionKey | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [message, setMessage] = useState("");
@@ -107,7 +112,7 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 		scope,
 		search: search.trim() || undefined,
 		provider: tool || undefined,
-		project: project || undefined,
+		project: projectPath ?? (project || undefined),
 		state: stateFilter || undefined,
 	};
 	const listing = useQuery({
@@ -167,6 +172,7 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 			key={keyId(session.key)}
 			session={session}
 			projectName={projectName(session.project)}
+			showProject={!scoped}
 			selected={sameKey(selected, session.key)}
 			onSelect={() => setSelected(session.key)}
 			onMessage={setMessage}
@@ -174,9 +180,12 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 	);
 
 	return (
-		<div className="dashboard sessions-view" data-testid="sessions-view">
+		<div
+			className={scoped ? "sessions-view project-sessions-view" : "dashboard sessions-view"}
+			data-testid={scoped ? "project-sessions-view" : "sessions-view"}
+		>
 			<header className="sessions-header">
-				<h1>{t("title")}</h1>
+				{!scoped && <h1>{t("title")}</h1>}
 				{settings.data?.discoveryEnabled && (
 					<>
 						<div className="segmented" role="group" aria-label={t("scopeLabel")}>
@@ -189,9 +198,13 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 									onClick={() => setScope(value)}
 								>
 									{value === "pinned" ? t("pinnedTab") : t("allTab")}
-									<span className="count-badge">
-										{value === "pinned" ? (listing.data?.pinnedCount ?? 0) : (listing.data?.totalCount ?? 0)}
-									</span>
+									{!scoped && (
+										<span className="count-badge">
+											{value === "pinned"
+												? (listing.data?.pinnedCount ?? 0)
+												: (listing.data?.totalCount ?? 0)}
+										</span>
+									)}
 								</button>
 							))}
 						</div>
@@ -218,6 +231,12 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 					{t("newSession")}
 				</button>
 			</header>
+			{settings.isLoading && <p className="muted">{t("loading")}</p>}
+			{settings.isError && (
+				<p className="session-feedback error" role="alert">
+					{error(settings.error)}
+				</p>
+			)}
 			{settings.data && !settings.data.discoveryEnabled && <DiscoveryCard />}
 			{daemonMissing && <CodexDaemonNotice />}
 			{creating && (
@@ -241,17 +260,19 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 									<option value="claude">{provider("claude")}</option>
 								</select>
 							</label>
-							<label className="sessions-filter">
-								<span>{t("projectFilter")}</span>
-								<select value={project} onChange={(event) => setProject(event.target.value)}>
-									<option value="">{t("all")}</option>
-									{projects.map((item) => (
-										<option key={item.path} value={item.path}>
-											{item.name}
-										</option>
-									))}
-								</select>
-							</label>
+							{!scoped && (
+								<label className="sessions-filter">
+									<span>{t("projectFilter")}</span>
+									<select value={project} onChange={(event) => setProject(event.target.value)}>
+										<option value="">{t("all")}</option>
+										{projects.map((item) => (
+											<option key={item.path} value={item.path}>
+												{item.name}
+											</option>
+										))}
+									</select>
+								</label>
+							)}
 							<label className="sessions-filter">
 								<span>{t("stateFilter")}</span>
 								<select
@@ -266,18 +287,20 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 									))}
 								</select>
 							</label>
-							<label className="sessions-group-toggle">
-								<input
-									type="checkbox"
-									data-testid="sessions-group"
-									checked={grouped}
-									onChange={(event) => {
-										writeGrouping(event.target.checked);
-										setGrouped(event.target.checked);
-									}}
-								/>
-								{t("groupByProject")}
-							</label>
+							{!scoped && (
+								<label className="sessions-group-toggle">
+									<input
+										type="checkbox"
+										data-testid="sessions-group"
+										checked={grouped}
+										onChange={(event) => {
+											writeGrouping(event.target.checked);
+											setGrouped(event.target.checked);
+										}}
+									/>
+									{t("groupByProject")}
+								</label>
+							)}
 							<button
 								type="button"
 								className="icon-button"
@@ -300,7 +323,7 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 					<div className="sessions-table" role="table" aria-label={t("title")}>
 						<div className="session-columns" role="row">
 							{header("title")}
-							{header("project")}
+							{!scoped && header("project")}
 							{header("state")}
 							{header("activity")}
 							<span role="columnheader" className="sr-only">
@@ -308,6 +331,11 @@ export function SessionsView({ projects }: { projects: ProjectRef[] }) {
 							</span>
 						</div>
 						{listing.isLoading && <p className="muted">{t("loading")}</p>}
+						{listing.isError && (
+							<p className="session-feedback error" role="alert">
+								{error(listing.error)}
+							</p>
+						)}
 						{listing.data && sessions.length === 0 && (
 							<p className="muted">{scope === "pinned" && !search ? t("noPinned") : t("noResult")}</p>
 						)}

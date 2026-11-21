@@ -58,6 +58,8 @@ export const workspaceFr = {
 		draft: "Brouillon",
 	},
 	project: {
+		tools: "Panneaux du projet",
+		collapseGit: "Replier Git",
 		openFolder: "Ouvrir dans le Finder",
 		layout: "Disposition",
 		filesAndGit: "Fichiers et Git",
@@ -243,6 +245,8 @@ export const workspaceEn = {
 		draft: "Draft",
 	},
 	project: {
+		tools: "Project panels",
+		collapseGit: "Collapse Git",
 		openFolder: "Open in Finder",
 		layout: "Layout",
 		filesAndGit: "Files and Git",

@@ -29,12 +29,14 @@ export function StateBadge({ session, compact = false }: { session: SessionSumma
 export function SessionRow({
 	session,
 	projectName,
+	showProject = true,
 	selected,
 	onSelect,
 	onMessage,
 }: {
 	session: SessionSummary;
 	projectName?: string | null;
+	showProject?: boolean;
 	selected: boolean;
 	onSelect: () => void;
 	onMessage: (text: string) => void;
@@ -106,9 +108,11 @@ export function SessionRow({
 					</button>
 				)}
 			</div>
-			<span className="session-project" role="cell">
-				{projectName ?? (session.project ? session.project.split("/").pop() : t("outsideProjects"))}
-			</span>
+			{showProject && (
+				<span className="session-project" role="cell">
+					{projectName ?? (session.project ? session.project.split("/").pop() : t("outsideProjects"))}
+				</span>
+			)}
 			<StateBadge session={session} compact />
 			<span className="session-activity" role="cell" title={activity?.absolute}>
 				{activity?.relative ?? t("activityNever")}

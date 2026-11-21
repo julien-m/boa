@@ -169,10 +169,10 @@ it("keeps both retained tabs when a project is unmounted and revisited", async (
 	);
 	await render(view("first.ts"));
 	await render(view("second.ts"));
-	expect(host.querySelectorAll('[role="tab"]').length).toBe(2);
+	expect(host.querySelectorAll('.file-tabs [role="tab"]').length).toBe(2);
 	await render(<div />);
 	await render(view());
-	expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+	expect([...host.querySelectorAll('.file-tabs [role="tab"]')].map((tab) => tab.textContent)).toEqual([
 		"first.ts",
 		"second.ts",
 	]);

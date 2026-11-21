@@ -329,7 +329,6 @@
 	background: var(--selected);
 	color: var(--blue);
 }
-.context-git-toggle,
 .context-unavailable {
 	display: flex;
 	flex-shrink: 0;

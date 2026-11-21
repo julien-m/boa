@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { chromium, expect } from "@playwright/test";
+import tauriConfig from "../src-tauri/tauri.conf.json";
 
 const output = process.env.BOA_SMOKE_OUT ?? resolve(tmpdir(), "boa-sessions-smoke");
 mkdirSync(output, { recursive: true });
@@ -157,6 +158,7 @@ function sessionsIpc(request: Record<string, any>) {
 			const filtered = all.filter(
 				(s) =>
 					(query.scope === "all" || s.pinned) &&
+					(!query.project || query.project === s.project) &&
 					(!query.search || s.title.toLowerCase().includes(String(query.search).toLowerCase())),
 			);
 			return {
@@ -332,6 +334,17 @@ await page.addInitScript(() => {
 });
 try {
 	await page.goto(process.env.BOA_DEMO_URL ?? "http://localhost:1420");
+	await page.getByTestId("nav-project-Cedar").click();
+	const projectTabs = page.getByRole("tablist", { name: "Panneaux du projet" });
+	const projectSessionsTab = projectTabs.getByRole("tab", { name: "Sessions" });
+	const projectGitTab = projectTabs.getByRole("tab", { name: "Git" });
+	await expect(projectGitTab).toHaveAttribute("aria-selected", "true");
+	await projectGitTab.focus();
+	await page.keyboard.press("ArrowRight");
+	await expect(projectSessionsTab).toBeFocused();
+	await page.keyboard.press("Enter");
+	const projectSessions = page.getByTestId("project-sessions-view");
+	await expect(projectSessions.getByTestId("enable-session-discovery")).toBeVisible();
 	await page.getByTestId("sessions-nav").click();
 	await expect(page.getByTestId("enable-session-discovery")).toBeVisible();
 	await page.screenshot({ path: resolve(output, "01-opt-in.png") });
@@ -363,6 +376,45 @@ try {
 	await page.getByTestId("sort-activity").click();
 	await expect(header("activity")).toHaveAttribute("aria-sort", "descending");
 	await page.screenshot({ path: resolve(output, "02-sessions-pinned.png") });
+
+	// The lower panel keeps the reader in place and scopes every list to the current project.
+	await page.getByTestId("nav-project-Cedar").click();
+	await projectSessionsTab.click();
+	await expect(projectSessions.getByTestId(/^session-row-/)).toHaveCount(2);
+	await expect(projectSessions.getByTestId("session-row-c1")).toContainText("Claude Code");
+	await expect(projectSessions.getByTestId("session-row-x1")).toContainText("Codex");
+	await expect(page.getByTestId("git-panel")).toBeHidden();
+	await expect(page.getByTestId("project-view").locator(".file-workspace")).toBeVisible();
+	await page.screenshot({ path: resolve(output, "07-project-sessions.png") });
+
+	// The project tab and its scroller must remain above the conversation at native minimum size.
+	const viewport = page.viewportSize();
+	const { minWidth, minHeight } = tauriConfig.app.windows[0];
+	await page.setViewportSize({ width: minWidth, height: minHeight });
+	await projectSessions
+		.getByTestId("session-row-c1")
+		.getByRole("button", { name: /Remise annuelle/ })
+		.dblclick();
+	const projectDock = page.getByTestId("session-dock");
+	await expect(projectDock).toBeVisible();
+	await expect(projectSessionsTab).toBeInViewport({ ratio: 1 });
+	const sessionPane = await projectSessions.boundingBox();
+	const dockBounds = await projectDock.boundingBox();
+	expect(sessionPane).not.toBeNull();
+	expect(dockBounds).not.toBeNull();
+	expect(sessionPane!.y + sessionPane!.height).toBeLessThanOrEqual(dockBounds!.y);
+	await page.getByTestId("close-session-tab-c1").click();
+	if (viewport) await page.setViewportSize(viewport);
+	await projectGitTab.click();
+	await expect(page.getByTestId("git-panel")).toBeVisible();
+	await page.getByTestId("nav-project-Nimbus").click();
+	await page.getByTestId("layout-files").click();
+	await projectSessionsTab.click();
+	await expect(projectSessions.getByTestId(/^session-row-/)).toHaveCount(1);
+	await expect(projectSessions.getByTestId("session-row-x2")).toBeVisible();
+	await page.getByTestId("layout-split").click();
+	await page.getByTestId("sessions-nav").click();
+	await expect(page.getByTestId("session-row-x2")).toHaveCount(0);
 
 	// Unpin hides from Pinned only; All + search finds and re-pins it.
 	await page.getByTestId("session-row-c2").getByRole("button", { name: "Plus d’actions" }).click();
