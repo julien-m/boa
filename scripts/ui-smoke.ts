@@ -1213,7 +1213,6 @@ try {
 	expect(
 		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
 	).toBeCloseTo(headingBefore, -1);
-	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("read-only-toggle").click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");
@@ -1222,6 +1221,33 @@ try {
 	expect(
 		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
 	).toBeCloseTo(headingBefore, -1);
+	const insertedHeading = page.getByRole("heading", { name: "Inserted before" });
+	await page.getByTestId("markdown-preview").evaluate((element) => {
+		element.scrollTop = 0;
+	});
+	await expect(insertedHeading).toBeInViewport();
+	const switchedBookmarkTop = await insertedHeading.evaluate((e) => e.getBoundingClientRect().top);
+	await page.getByTestId("tab-README.md").click({ button: "right" });
+	await page.getByTestId("compare-file-left").or(page.getByTestId("compare-file-right")).first().click();
+	markdownExtra = `# A second insertion\n\n${"Another paragraph.\n\n".repeat(15)}${markdownExtra}`;
+	await page.evaluate(
+		(project) =>
+			Reflect.get(
+				window,
+				"boaTestFilesystemChanged",
+			)({ discovery: false, settings: false, projects: [project] }),
+		directory,
+	);
+	await expect(page.getByRole("heading", { name: "A second insertion", includeHidden: true })).toBeAttached();
+	await page.getByTestId("tab-lf.txt").click();
+	await expect(page.getByTestId("file-comparison")).toHaveCount(0);
+	await page.getByTestId("tab-README.md").click();
+	await expect(insertedHeading).toBeInViewport();
+	expect(await insertedHeading.evaluate((e) => e.getBoundingClientRect().top)).toBeCloseTo(
+		switchedBookmarkTop,
+		-1,
+	);
+	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("file-sample.ts").click();
 	const originalReader = await page.evaluate(async (path) => {
 		const module = await import(path);

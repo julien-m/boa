@@ -23,7 +23,7 @@ import { type CodeContext, ContextBubbles } from "./context-bubbles";
 import { FileAssetPreview } from "./file-asset-preview";
 import { useFileEditing } from "./file-editing";
 import { localMarkdownLink } from "./markdown-links";
-import { type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
+import { lastMarkdownBookmark, type MarkdownBookmark, MarkdownPreview } from "./markdown-preview";
 import type { Preview, Selection } from "./models";
 import { ReaderNavigation } from "./reader-navigation";
 import { relocateLine } from "./reading-position";
@@ -65,7 +65,15 @@ export function captureReaderSelection(selection: Selection): Selection {
 		const block = [...container.querySelectorAll<HTMLElement>("[data-source-line]")].find(
 			(element) => element.getBoundingClientRect().bottom > top,
 		);
-		if (block)
+		const bookmark = block
+			? {
+					text: block.textContent ?? "",
+					tag: block.tagName,
+					offset: block.getBoundingClientRect().top - top,
+					scrollTop: container.scrollTop,
+				}
+			: lastMarkdownBookmark(container);
+		if (bookmark)
 			return {
 				...selection,
 				receiptId: undefined,
@@ -75,12 +83,7 @@ export function captureReaderSelection(selection: Selection): Selection {
 				anchor: undefined,
 				restorePosition: undefined,
 				navigationId: crypto.randomUUID(),
-				markdownRestore: {
-					text: block.textContent ?? "",
-					tag: block.tagName,
-					offset: block.getBoundingClientRect().top - top,
-					scrollTop: container.scrollTop,
-				},
+				markdownRestore: bookmark,
 			};
 	}
 	const model = monaco.editor.getModel(monaco.Uri.parse(readerModelPath(selection.project, selection.path)));

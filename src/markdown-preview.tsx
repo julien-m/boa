@@ -160,6 +160,13 @@ function MarkdownCodeBlock({
 }
 
 export type MarkdownBookmark = { text: string; tag: string; offset: number; scrollTop: number };
+
+const markdownBookmarks = new WeakMap<HTMLElement, MarkdownBookmark>();
+
+/** Keeps the last visible measurement available when the containing reader is hidden. */
+export function lastMarkdownBookmark(container: HTMLElement): MarkdownBookmark | undefined {
+	return markdownBookmarks.get(container);
+}
 const sourceBlocks = Object.fromEntries(
 	["h1", "h2", "h3", "h4", "h5", "h6", "p", "tr", "li", "blockquote", "hr"].map((tag) => [
 		tag,
@@ -259,6 +266,8 @@ export function MarkdownPreview({
 					scrollTop: container.scrollTop,
 				}
 			: null;
+		if (anchor.current) markdownBookmarks.set(container, anchor.current);
+		else markdownBookmarks.delete(container);
 	};
 	useLayoutEffect(() => {
 		// A hidden reader has no layout. Keep the last visible bookmark until it returns.
