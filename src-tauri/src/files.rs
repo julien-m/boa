@@ -304,8 +304,16 @@ pub(crate) struct FilePreview {
 
 #[derive(Serialize)]
 struct ImageFileDates {
-    created: Option<u64>,
-    modified: Option<u64>,
+    created: Option<i64>,
+    modified: Option<i64>,
+}
+
+fn image_timestamp(time: std::time::SystemTime) -> Option<i64> {
+    let millis = match time.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as i128,
+        Err(error) => -(error.duration().as_millis() as i128),
+    };
+    i64::try_from(millis).ok()
 }
 
 pub(crate) fn regular_file(root: &Path, relative: &str) -> Result<PathBuf, String> {
@@ -369,12 +377,8 @@ pub(crate) fn file_preview(root: &Path, relative: &str) -> Result<FilePreview, S
                 result.kind = "image";
                 result.data_url = Some(data);
                 result.image_file_dates = Some(ImageFileDates {
-                    created: created_time(&metadata),
-                    modified: metadata
-                        .modified()
-                        .ok()
-                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|time| time.as_millis() as u64),
+                    created: metadata.created().ok().and_then(image_timestamp),
+                    modified: metadata.modified().ok().and_then(image_timestamp),
                 });
                 // SVG retains its explicit source/editing path within the text limit.
                 if extension == "svg" {

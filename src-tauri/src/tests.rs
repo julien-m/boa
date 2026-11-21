@@ -1191,6 +1191,16 @@ fn file_previews_render_images_keep_svg_source_and_identify_unsupported_files() 
         json["imageFileDates"]["modified"],
         serde_json::json!(millis(metadata.modified().unwrap()))
     );
+    let before_epoch = std::time::UNIX_EPOCH - std::time::Duration::from_secs(31_536_000);
+    fs::File::open(&png)
+        .unwrap()
+        .set_modified(before_epoch)
+        .unwrap();
+    let preview = files::file_preview(root.path(), "plan.PNG").unwrap();
+    assert_eq!(
+        serde_json::to_value(preview).unwrap()["imageFileDates"]["modified"],
+        serde_json::json!(-31_536_000_000i64)
+    );
     fs::write(
         root.path().join("plan.svg"),
         "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",

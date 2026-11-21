@@ -98,9 +98,10 @@ export function ReaderNavigation({
 		};
 		const find = (event: Event) => {
 			const target = (event as CustomEvent).detail?.target as HTMLElement | undefined;
-			if (target?.closest(".file-comparison")) return;
+			if (element.closest("[hidden]") || target?.closest(".file-comparison")) return;
 			const chosen =
-				target?.closest(".code-viewer") ?? document.querySelector(".code-viewer:not(.empty-view)");
+				target?.closest(".code-viewer:not([hidden] *)") ??
+				document.querySelector(".code-viewer:not(.empty-view, [hidden] *)");
 			if (chosen === element) open("text");
 		};
 		element.addEventListener("keydown", onKey, true);

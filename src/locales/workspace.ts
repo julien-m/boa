@@ -54,6 +54,7 @@ export const workspaceFr = {
 		readError: "Impossible de lire {{path}}.",
 		unsupported: "{{path}} ne peut pas être comparé comme texte.",
 		identical: "Les fichiers ont le même contenu.",
+		formattingOnly: "Seules les fins de ligne ou la marque UTF-8 (BOM) diffèrent.",
 		draft: "Brouillon",
 	},
 	project: {
@@ -238,6 +239,7 @@ export const workspaceEn = {
 		readError: "Unable to read {{path}}.",
 		unsupported: "{{path}} cannot be compared as text.",
 		identical: "The files have identical content.",
+		formattingOnly: "Only line endings or the UTF-8 byte order mark differ.",
 		draft: "Draft",
 	},
 	project: {

@@ -385,6 +385,8 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 				"config.yaml",
 				"wrangler.toml",
 				"wrangler.jsonc",
+				"lf.txt",
+				"crlf.txt",
 				"preview.png",
 				"preview-second.png",
 				"captures",
@@ -401,6 +403,10 @@ await page.exposeFunction("boaTestInvoke", async (command: string, args: Record<
 			savedContent = String(args.content);
 			return null;
 		case "read_file":
+			if (args.path === "lf.txt" || args.path === "crlf.txt") {
+				const eol = args.path === "lf.txt" ? "\n" : "\r\n";
+				return { original: "", modified: `première ligne${eol}seconde ligne${eol}`, path: args.path };
+			}
 			if (args.path === "folder-links.md")
 				return {
 					original: "",
@@ -1308,6 +1314,10 @@ try {
 	await expect(comparisonFind).toBeVisible();
 	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
 	await comparisonFind.locator(".codicon-widget-close").click();
+	await sampleTab.press("ControlOrMeta+f");
+	await expect(comparisonFind).toBeVisible();
+	await expect(page.getByTestId("reader-navigation")).toHaveCount(0);
+	await comparisonFind.locator(".codicon-widget-close").click();
 	await page.keyboard.press("Escape");
 	await expect(fileComparison).toHaveCount(0);
 	await expect(sampleTab).toBeFocused();
@@ -1334,6 +1344,15 @@ try {
 			page.evaluate(() => Reflect.get(window, "boaRetainedModel").getValue().includes("// saved edit")),
 		)
 		.toBe(true);
+	await page.getByTestId("file-lf.txt").dblclick();
+	await page.getByTestId("file-crlf.txt").dblclick();
+	await page.getByTestId("tab-crlf.txt").click({ button: "right" });
+	await page.getByTestId("compare-file-left").click();
+	await expect(fileComparison.getByRole("status")).toContainText("Seules les fins de ligne");
+	await expect(fileComparison.getByRole("button", { name: "Différence suivante" })).toBeDisabled();
+	await fileComparison.getByRole("button", { name: "Fermer la comparaison" }).click();
+	await page.getByTestId("close-tab-crlf.txt").click();
+	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("file-README.md").click();
 	await page.getByTestId("draft-indicator").locator("summary").click();
 	await page.getByTestId("draft-indicator").getByRole("button", { name: "sample.ts", exact: true }).click();

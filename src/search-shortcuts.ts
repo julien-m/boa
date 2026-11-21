@@ -34,7 +34,11 @@ export function installSearchShortcuts(shortcuts = defaultShortcuts) {
 						detail: { root: target.closest<HTMLElement>("[data-file-browser]")?.dataset.fileBrowser },
 					}),
 				);
-			else window.dispatchEvent(new CustomEvent("boa:find", { detail: { target } }));
+			else {
+				const comparison = target?.closest(".file-editor")?.querySelector(".file-comparison");
+				const findTarget = comparison && !comparison.contains(target) ? comparison : target;
+				window.dispatchEvent(new CustomEvent("boa:find", { detail: { target: findTarget } }));
+			}
 		}
 	};
 	window.addEventListener("keydown", listener, true);

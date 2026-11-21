@@ -32,6 +32,7 @@ interface OpenComparison {
 }
 
 const sameFile = (a: Selection, b: Selection) => a.project === b.project && a.path === b.path;
+const comparableLines = (text: string) => text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 
 /** Exposes contextual comparison actions in the order of the visible file tabs. */
 export function useFileComparison(tabs: readonly Selection[], selection: Selection | null) {
@@ -166,6 +167,11 @@ function FileComparison({ pair, onClose }: { pair: FilePair; onClose: () => void
 		return [];
 	});
 	const identical = left.kind === "text" && right.kind === "text" && left.content === right.content;
+	const formattingOnly =
+		!identical &&
+		left.kind === "text" &&
+		right.kind === "text" &&
+		comparableLines(left.content) === comparableLines(right.content);
 	return (
 		<section
 			ref={container}
@@ -182,6 +188,7 @@ function FileComparison({ pair, onClose }: { pair: FilePair; onClose: () => void
 			<div className="editor-toolbar file-comparison-toolbar">
 				<strong>{t("comparison.title")}</strong>
 				{identical && <span role="status">{t("comparison.identical")}</span>}
+				{formattingOnly && <span role="status">{t("comparison.formattingOnly")}</span>}
 				<div className="toolbar-actions">
 					<button
 						type="button"
