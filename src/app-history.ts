@@ -8,7 +8,7 @@ export interface WorkspaceVisit {
 	library?: { root: string; folder: string } | null;
 }
 export interface AppLocation {
-	view: "overview" | "project" | "space" | "settings" | "archives";
+	view: "overview" | "project" | "space" | "settings" | "archives" | "sessions";
 	root?: string;
 	space?: string;
 	workspace?: WorkspaceVisit;

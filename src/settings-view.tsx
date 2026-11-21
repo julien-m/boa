@@ -1,5 +1,6 @@
 /** Explicit opt-in to automatic local project discovery. */
 
+import { useQuery } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Languages, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -9,6 +10,7 @@ import { EditorIntegrations } from "./editor-integrations";
 import { FileWorkspaceSettings } from "./file-workspace-settings";
 import { setInterfaceLanguage } from "./i18n";
 import { ImageWheelSettings } from "./image-wheel-settings";
+import { SessionActionsSettings } from "./sessions/session-actions-settings";
 
 export function SettingsView({
 	settings,
@@ -18,6 +20,7 @@ export function SettingsView({
 	onChanged: (settings: ProjectSettings) => Promise<void>;
 }) {
 	const { t } = useTranslation("settings");
+	const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const changeDirectory = async (choose: boolean): Promise<void> => {
@@ -153,6 +156,11 @@ export function SettingsView({
 			<ImageWheelSettings />
 			<EditorIntegrations />
 			<FileWorkspaceSettings />
+			<SessionActionsSettings
+				projects={(projects.data ?? [])
+					.filter((project) => !project.archived)
+					.map((project) => ({ path: project.path, name: project.name }))}
+			/>
 		</div>
 	);
 }

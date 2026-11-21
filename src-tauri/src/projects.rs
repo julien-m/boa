@@ -207,6 +207,7 @@ pub(crate) struct AppState {
     watch_error: Mutex<Option<String>>,
     watch_service_error: Mutex<Option<String>>,
     pub watch_control: Mutex<Option<crate::watch::Control>>,
+    pub sessions: crate::sessions::SessionService,
 }
 
 impl AppState {
@@ -219,7 +220,9 @@ impl AppState {
         };
         normalize_projects(&mut config);
         config.projects.sort_by_key(|p| p.name.to_lowercase());
+        let sessions = crate::sessions::compose(&config_path, &config.language)?;
         let state = Self {
+            sessions,
             config: Mutex::new(config),
             context_views: Mutex::new(crate::context_views::load(
                 &config_path.with_file_name("context-views.json"),

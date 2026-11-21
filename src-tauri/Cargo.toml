@@ -42,11 +42,12 @@ tauri-plugin-clipboard-manager = "2.5.0"
 notify = "8.2"
 tempfile = "3.27.0"
 toml_edit = "0.20.2"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSWindow", "NSApplication", "NSWorkspace", "objc2-uniform-type-identifiers"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSWindow", "NSApplication", "NSWorkspace", "NSRunningApplication", "objc2-uniform-type-identifiers"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL", "NSError", "NSObject", "NSBundle"] }
 objc2-uniform-type-identifiers = { version = "0.3.2", default-features = false, features = ["std", "UTType"] }
 

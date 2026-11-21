@@ -26,6 +26,7 @@ mod mac_file_handlers;
 mod navigation;
 mod projects;
 mod search;
+mod sessions;
 #[cfg(test)]
 mod tests;
 mod watch;
@@ -656,6 +657,60 @@ fn reader_acknowledge(
     context_views::acknowledge(&state, &request_id, &status, message)
 }
 
+#[tauri::command]
+async fn sessions(
+    state: NativeState<'_>,
+    request: sessions::rpc::Request,
+) -> Result<serde_json::Value, sessions::model::SessionError> {
+    let state = state.inner().clone();
+    // Provider calls can take seconds; they run outside the bounded file-work pool.
+    tauri::async_runtime::spawn_blocking(move || sessions::rpc::execute(&state, request))
+        .await
+        .map_err(|e| sessions::model::SessionError::new("task_failed", e.to_string()))?
+}
+
+/// The dock's prompts are local to app webviews, outside the CLI request vocabulary.
+#[tauri::command]
+async fn sessions_pending_permissions(
+    state: NativeState<'_>,
+) -> Result<Vec<sessions::claude::PermissionPrompt>, sessions::model::SessionError> {
+    let state = state.inner().clone();
+    // Reading can wait for a concurrent bridge call to release its write lock.
+    tauri::async_runtime::spawn_blocking(move || state.sessions.claude().pending_permissions())
+        .await
+        .map_err(|e| sessions::model::SessionError::new("task_failed", e.to_string()))?
+}
+
+/// Composition: UI events for the sessions domain and the packaged Claude bridge location.
+fn wire_sessions(app: &tauri::App, state: &Arc<AppState>) {
+    let handle = app.handle().clone();
+    state
+        .sessions
+        .set_emitter(Arc::new(move |event: &str, payload: serde_json::Value| {
+            let _ = handle.emit(event, payload);
+        }));
+    let handle = app.handle().clone();
+    state
+        .sessions
+        .claude()
+        .set_event_sink(Arc::new(move |payload: serde_json::Value| {
+            let _ = handle.emit("boa:session-event", payload);
+        }));
+    let handle = app.handle().clone();
+    state
+        .sessions
+        .terminals()
+        .set_sink(Arc::new(move |payload: serde_json::Value| {
+            let _ = handle.emit("boa:terminal", payload);
+        }));
+    if let Ok(resources) = app.path().resource_dir() {
+        let packaged = resources.join("claude-bridge.mjs");
+        if packaged.is_file() {
+            state.sessions.claude().set_bridge_script(packaged);
+        }
+    }
+}
+
 /// Starts the desktop application and registers repository commands.
 pub fn run() {
     let app = tauri::Builder::default()
@@ -674,6 +729,7 @@ pub fn run() {
                 AppState::new(app.path().app_data_dir()?.join("projects.json"))
                     .map_err(std::io::Error::other)?,
             );
+            wire_sessions(app, &state);
             cli::start(app.handle().clone(), state.clone()).map_err(std::io::Error::other)?;
             let handle = app.handle().clone();
             let service = watch::start(state.clone(), move |update| {
@@ -739,7 +795,9 @@ pub fn run() {
             context_views,
             reader_pending,
             reader_status,
-            reader_acknowledge
+            reader_acknowledge,
+            sessions,
+            sessions_pending_permissions
         ])
         .run(tauri::generate_context!());
     if let Err(error) = app {

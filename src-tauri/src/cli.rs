@@ -54,7 +54,14 @@ enum Request {
     Unpin {
         path: String,
     },
+    Sessions {
+        request: crate::sessions::rpc::Request,
+    },
 }
+
+/// Concurrent provider-backed CLI requests; more are refused with `busy` instead of queued.
+const MAX_SESSION_WORKERS: usize = 4;
+static SESSION_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn uid() -> u32 {
     // SAFETY: geteuid has no arguments and no memory access contract.
@@ -156,15 +163,15 @@ fn execute(state: &AppState, request: Request) -> Result<(Value, bool, bool), St
         }
         Request::Pin { path } => Ok((json!(state.pin_project(&path, true)?), true)),
         Request::Unpin { path } => Ok((json!(state.pin_project(&path, false)?), true)),
+        // Routed before `execute` by `serve`; kept exhaustive for direct callers.
+        Request::Sessions { request } => crate::sessions::rpc::execute(state, request)
+            .map(|value| (value, false))
+            .map_err(|error| error.to_string()),
     }
     .map(|(value, changed)| (value, changed, context))
 }
 
-fn serve(
-    mut stream: UnixStream,
-    state: &AppState,
-    changed: impl FnOnce(&Value, bool, bool),
-) -> Result<(), String> {
+fn read_request(stream: &UnixStream) -> Result<Request, String> {
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|e| e.to_string())?;
@@ -172,19 +179,66 @@ fn serve(
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
-    let read = BufReader::new((&stream).take(MAX_REQUEST + 1)).read_until(b'\n', &mut bytes);
-    let mut document = false;
-    let result = match read {
+    match BufReader::new(stream.take(MAX_REQUEST + 1)).read_until(b'\n', &mut bytes) {
         Ok(_) if bytes.len() as u64 > MAX_REQUEST => Err("Requête RPC trop grande".into()),
         Ok(_) if bytes.last() != Some(&b'\n') => Err("Requête RPC incomplète".into()),
         Ok(_) => serde_json::from_slice::<Request>(&bytes)
-            .map_err(|e| format!("Requête RPC invalide : {e}"))
-            .and_then(|request| {
-                document = matches!(&request, Request::ReaderOpen { register: true, .. });
-                execute(state, request)
-            }),
+            .map_err(|e| format!("Requête RPC invalide : {e}")),
         Err(error) => Err(format!("Lecture RPC : {error}")),
-    };
+    }
+}
+
+fn write_response(mut stream: &UnixStream, response: &Value) -> Result<(), String> {
+    let mut encoded = serde_json::to_vec(response).map_err(|e| e.to_string())?;
+    encoded.push(b'\n');
+    stream.write_all(&encoded).map_err(|e| e.to_string())
+}
+
+/// Sessions requests answer with a stable error `code` for scripts and localized CLI output.
+fn session_response(state: &AppState, request: crate::sessions::rpc::Request) -> Value {
+    match crate::sessions::rpc::execute(state, request) {
+        Ok(value) => json!({"ok": true, "result": value}),
+        Err(error) => json!({"ok": false, "code": error.code, "error": error.message}),
+    }
+}
+
+fn serve(
+    stream: UnixStream,
+    state: &Arc<AppState>,
+    changed: impl FnOnce(&Value, bool, bool),
+) -> Result<(), String> {
+    let request = read_request(&stream);
+    if let Ok(Request::Sessions { request }) = request {
+        // Provider calls may take up to a minute: answer from a bounded worker thread so the
+        // accept loop stays responsive. The worker owns the stream and closes it when done.
+        if SESSION_WORKERS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= MAX_SESSION_WORKERS
+        {
+            SESSION_WORKERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            return write_response(
+                &stream,
+                &json!({"ok": false, "code": "busy", "error": "too many concurrent session requests"}),
+            );
+        }
+        let state = Arc::clone(state);
+        return std::thread::Builder::new()
+            .name("boa-cli-session".into())
+            .spawn(move || {
+                let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+                let response = session_response(&state, request);
+                let _ = write_response(&stream, &response);
+                SESSION_WORKERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            })
+            .map(|_| ())
+            .map_err(|e| {
+                SESSION_WORKERS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                e.to_string()
+            });
+    }
+    let mut document = false;
+    let result = request.and_then(|request| {
+        document = matches!(&request, Request::ReaderOpen { register: true, .. });
+        execute(state, request)
+    });
     let response = match result {
         Ok((value, did_change, context)) => {
             if did_change {
@@ -194,9 +248,7 @@ fn serve(
         }
         Err(error) => json!({"ok": false, "error": error}),
     };
-    let mut encoded = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
-    encoded.push(b'\n');
-    stream.write_all(&encoded).map_err(|e| e.to_string())
+    write_response(&stream, &response)
 }
 
 pub(crate) fn start(app: tauri::AppHandle, state: Arc<AppState>) -> Result<(), String> {
@@ -229,7 +281,7 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    fn rpc(state: &AppState, text: &[u8]) -> Value {
+    fn rpc(state: &Arc<AppState>, text: &[u8]) -> Value {
         let (mut client, server) = UnixStream::pair().unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -247,7 +299,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("project");
         fs::create_dir(&project).unwrap();
-        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         assert_eq!(
             rpc(&state, b"{\"command\":\"list\"}\n")["result"],
             json!([])
@@ -277,7 +329,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("projects");
         fs::create_dir(&root).unwrap();
-        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         state.set_watch_directory(Some(&root)).unwrap();
         fs::create_dir(root.join("missed-notification")).unwrap();
         for expected in [true, false] {
@@ -289,7 +341,7 @@ mod tests {
             })
             .unwrap();
             assert_eq!(changed.load(Ordering::SeqCst), expected);
-            let restored = AppState::new(temp.path().join("config.json")).unwrap();
+            let restored = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
             assert_eq!(
                 restored.config.lock().unwrap().projects[0].name,
                 "missed-notification"
@@ -300,7 +352,7 @@ mod tests {
     #[test]
     fn rpc_change_event_follows_success_and_persistence() {
         let temp = tempfile::tempdir().unwrap();
-        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         let (mut client, server) = UnixStream::pair().unwrap();
         let changed = AtomicBool::new(false);
         let request = json!({"command":"add", "path":temp.path()});
@@ -310,14 +362,14 @@ mod tests {
         })
         .unwrap();
         assert!(changed.load(Ordering::SeqCst));
-        let restored = AppState::new(temp.path().join("config.json")).unwrap();
+        let restored = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         assert_eq!(restored.config.lock().unwrap().projects.len(), 1);
     }
 
     #[test]
     fn context_rpc_routes_changes_without_project_notifications_and_receipts_start_pending() {
         let temp = tempfile::tempdir().unwrap();
-        let state = AppState::new(temp.path().join("projects.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("projects.json")).unwrap());
         state.add_project(temp.path()).unwrap();
         let request = json!({"command":"contexts","request":{"action":"save","view":{"id":"walk","project":temp.path(),"title":"Walk","description":"","kind":"walkthrough","steps":[{"id":"entry","title":"Entry","description":"","passages":[{"id":"code","path":"source.ts","startLine":1,"endLine":3}]}]},"expectedRevision":0}});
         let parsed: Request = serde_json::from_value(request.clone()).unwrap();
@@ -335,7 +387,7 @@ mod tests {
     #[test]
     fn external_reader_open_registers_only_its_document_and_notifies_the_workspace() {
         let temp = tempfile::tempdir().unwrap();
-        let state = AppState::new(temp.path().join("settings.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("settings.json")).unwrap());
         let file = temp.path().join("source.ts");
         fs::write(&file, "export const answer = 42;\n").unwrap();
         let request = json!({"command":"reader-open","file":file,"line":1,"endLine":1,"source":"Codex","register":true});
@@ -365,7 +417,7 @@ mod tests {
             vec![file.canonicalize().unwrap().to_str().unwrap()]
         );
         drop(config);
-        let restored = AppState::new(temp.path().join("settings.json")).unwrap();
+        let restored = Arc::new(AppState::new(temp.path().join("settings.json")).unwrap());
         assert_eq!(
             restored.config.lock().unwrap().file_spaces[0].files.len(),
             1
@@ -382,7 +434,7 @@ mod tests {
             0o700
         );
         assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
-        let state = AppState::new(temp.path().join("config.json")).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
         let thread = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             serve(stream, &state, |_, _, _| ()).unwrap();
@@ -414,5 +466,77 @@ mod tests {
         BufReader::new(client).read_line(&mut response).unwrap();
         assert!(response.contains("trop grande"));
         thread.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    fn call(state: &Arc<AppState>, request: Value) -> Value {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        client.write_all(format!("{request}\n").as_bytes()).unwrap();
+        serve(server, state, |_, _, _| ()).unwrap();
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response).unwrap();
+        serde_json::from_str(&response).unwrap()
+    }
+
+    #[test]
+    fn sessions_rpc_shares_the_ui_service_and_reports_typed_codes() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        fs::create_dir(&project).unwrap();
+        let state = Arc::new(AppState::new(temp.path().join("config.json")).unwrap());
+        state.add_project(&project).unwrap();
+        let listing = call(
+            &state,
+            json!({"command":"sessions","request":{"action":"list","query":{"scope":"pinned"}}}),
+        );
+        assert_eq!(
+            listing["result"]["discoveryEnabled"], false,
+            "fresh install never discovers"
+        );
+        let path = project.to_string_lossy();
+        let add = call(
+            &state,
+            json!({"command":"sessions","request":{"action":"changeActions","revision":0,
+            "change":{"change":"add","project":path,"action":{"id":"lint","label":"Lint","template":"Lint {branche}",
+            "mode":"send","providers":["codex"],"enabled":true}}}}),
+        );
+        assert_eq!(add["result"]["revision"], 1);
+        // The UI path reads the same store: the project sees the new action, globals do not.
+        let (_, project_actions) = state
+            .sessions
+            .actions(Some(
+                &std::fs::canonicalize(&project).unwrap().to_string_lossy(),
+            ))
+            .unwrap();
+        assert!(project_actions.iter().any(|a| a.action.id == "lint"));
+        assert!(
+            state
+                .sessions
+                .actions(None)
+                .unwrap()
+                .1
+                .iter()
+                .all(|a| a.action.id != "lint")
+        );
+        let stale = call(
+            &state,
+            json!({"command":"sessions","request":{"action":"setAutoPin","enabled":false,"revision":0}}),
+        );
+        assert_eq!(stale["ok"], false);
+        assert_eq!(stale["code"], "revision_conflict");
+        let unknown = call(
+            &state,
+            json!({"command":"sessions","request":{"action":"changeActions",
+            "change":{"change":"add","project":"/not/registered","action":{"id":"x","label":"X","template":"t",
+            "mode":"send","providers":["claude"],"enabled":true}}}}),
+        );
+        assert_eq!(unknown["code"], "project_not_registered");
     }
 }

@@ -16,6 +16,7 @@ import {
 	GitBranch,
 	HardDrive,
 	LayoutDashboard,
+	MessagesSquare,
 	Pin,
 	RefreshCw,
 	Search,
@@ -47,9 +48,14 @@ import { ProjectView } from "./project-view";
 import { rememberReadingReturn } from "./reading-return";
 import { SearchInput } from "./search-input";
 import { installSearchShortcuts } from "./search-shortcuts";
+import { SessionAttention } from "./sessions/session-attention";
+import { SessionDock } from "./sessions/session-dock";
+import { useSessionDock } from "./sessions/session-dock-state";
+import { SessionsView } from "./sessions/sessions-view";
 import { SettingsView } from "./settings-view";
 import "./workspace.css";
 import "./app-notices.css";
+import "./sessions/sessions.css";
 
 const DISMISSED_WATCH_ERROR_KEY = "boa-dismissed-watch-error";
 
@@ -120,6 +126,9 @@ export default function App() {
 		});
 	}, [language, client]);
 	const archivesOpen = history.location.view === "archives";
+	const sessionsOpen = history.location.view === "sessions";
+	const sessionDock = useSessionDock();
+	const shell = useRef<HTMLDivElement>(null);
 	const archived = (projects.data ?? []).filter((project) => project.archived);
 	const ordered = [...(projects.data ?? [])]
 		.filter((project) => !project.archived)
@@ -594,7 +603,10 @@ export default function App() {
 			return sort === "reverse" ? right.name.localeCompare(left.name) : left.name.localeCompare(right.name);
 		});
 	return (
-		<div className="app-shell">
+		<div
+			ref={shell}
+			className={`app-shell ${sessionDock.open && sessionDock.current && !sessionDock.collapsed && !sessionDock.detached ? "dock-expanded" : ""}`}
+		>
 			<header className="titlebar">
 				<div className="brand">
 					<span className="brand-mark">b.</span>
@@ -603,6 +615,7 @@ export default function App() {
 					<span className="muted">{t("projectSpace")}</span>
 				</div>
 				<div className="titlebar-right">
+					<SessionAttention />
 					<CollectionIndicator />
 					<DraftIndicator />
 					{navigation && navigation.source !== "BOA" && (
@@ -637,7 +650,7 @@ export default function App() {
 					<button
 						type="button"
 						data-testid="dashboard-nav"
-						className={`nav-button ${!selected && !activeSpace && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+						className={`nav-button ${!selected && !activeSpace && !settingsOpen && !archivesOpen && !sessionsOpen ? "selected" : ""}`}
 						onClick={() => {
 							visitView({ view: "overview" });
 						}}
@@ -645,12 +658,22 @@ export default function App() {
 						<LayoutDashboard size={16} />
 						{t("overview")}
 					</button>
+					<button
+						type="button"
+						data-testid="sessions-nav"
+						className={`nav-button ${sessionsOpen ? "selected" : ""}`}
+						aria-current={sessionsOpen ? "page" : undefined}
+						onClick={() => visitView({ view: "sessions" })}
+					>
+						<MessagesSquare size={16} />
+						{t("sessions:nav")}
+					</button>
 					<div className="nav-section-title">{fl.spaces}</div>
 					{(workspace.data?.spaces ?? []).map((space) => (
 						<div className="nav-space-row" key={space.id}>
 							<button
 								type="button"
-								className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen ? "selected" : ""}`}
+								className={`nav-button ${activeSpace?.id === space.id && !settingsOpen && !archivesOpen && !sessionsOpen ? "selected" : ""}`}
 								onClick={() => visitView({ view: "space", space: space.id })}
 							>
 								{space.name}
@@ -689,7 +712,7 @@ export default function App() {
 										type="button"
 										key={project.path}
 										data-testid={`nav-project-${project.name}`}
-										className={`nav-project ${!activeSpace && !settingsOpen && !archivesOpen && selected?.path === project.path ? "selected" : ""}`}
+										className={`nav-project ${!activeSpace && !settingsOpen && !archivesOpen && !sessionsOpen && selected?.path === project.path ? "selected" : ""}`}
 										onClick={() => {
 											visitView({ view: "project", root: project.path });
 										}}
@@ -842,7 +865,9 @@ export default function App() {
 							</div>
 						</div>
 					)}
-					{settingsOpen ? (
+					{sessionsOpen ? (
+						<SessionsView projects={ordered.map((project) => ({ path: project.path, name: project.name }))} />
+					) : settingsOpen ? (
 						settings.data ? (
 							<SettingsView
 								settings={settings.data}
@@ -1049,6 +1074,13 @@ export default function App() {
 						</div>
 					)}
 				</main>
+			</div>
+			<div className="session-dock-slot">
+				<SessionDock
+					projects={ordered.map((project) => ({ path: project.path, name: project.name }))}
+					onOpenProject={(root) => visitView({ view: "project", root })}
+					resizeContainer={shell}
+				/>
 			</div>
 			<footer className="statusbar">
 				<span>

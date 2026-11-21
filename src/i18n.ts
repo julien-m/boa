@@ -3,6 +3,7 @@ import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import { dashboardEn, dashboardFr } from "./locales/dashboard";
 import { gitEn, gitFr } from "./locales/git";
+import { sessionsEn, sessionsFr } from "./locales/sessions";
 import { settingsEn, settingsFr } from "./locales/settings";
 import { workspaceEn, workspaceFr } from "./locales/workspace";
 
@@ -10,8 +11,20 @@ export const i18n = i18next.createInstance();
 const cached = typeof localStorage === "undefined" ? null : localStorage.getItem("boa-language");
 void i18n.use(initReactI18next).init({
 	resources: {
-		fr: { dashboard: dashboardFr, workspace: workspaceFr, git: gitFr, settings: settingsFr },
-		en: { dashboard: dashboardEn, workspace: workspaceEn, git: gitEn, settings: settingsEn },
+		fr: {
+			dashboard: dashboardFr,
+			workspace: workspaceFr,
+			git: gitFr,
+			settings: settingsFr,
+			sessions: sessionsFr,
+		},
+		en: {
+			dashboard: dashboardEn,
+			workspace: workspaceEn,
+			git: gitEn,
+			settings: settingsEn,
+			sessions: sessionsEn,
+		},
 	},
 	lng: cached === "en" ? "en" : "fr",
 	fallbackLng: "fr",

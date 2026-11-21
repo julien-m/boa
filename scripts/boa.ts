@@ -7,6 +7,16 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { launchBoa } from "./mac-app";
+import {
+	cliLanguage,
+	describeError,
+	formatResult,
+	parseActions,
+	parseSessions,
+	SESSIONS_TIMEOUT_MS,
+	type SessionsRequest,
+	sessionsHelp,
+} from "./sessions-cli";
 
 export type ProjectRequest =
 	| { command: "contexts"; request: Record<string, unknown> }
@@ -15,8 +25,9 @@ export type ProjectRequest =
 	| { command: "workspace"; request: Record<string, unknown> }
 	| { command: "list" }
 	| { command: "add"; path: string; pin: boolean }
-	| { command: "pin" | "unpin"; path: string };
-type Reply = { ok: true; result: unknown } | { ok: false; error: string };
+	| { command: "pin" | "unpin"; path: string }
+	| SessionsRequest;
+type Reply = { ok: true; result: unknown } | { ok: false; error: string; code?: string };
 const HELP = `BOA — navigation et projets locaux
 
 boa open <file> [--line 42] [--end-line 50] [--source Codex|Claude|Cursor|CLI] [--wait] [--json] [--wait-ms 10000] [--dry-run]
@@ -48,6 +59,8 @@ boa projects list [--json]
 boa projects add <dossier> [--pin] [--json] [--dry-run]
 boa projects pin|unpin <dossier> [--json] [--dry-run]
 boa projects favorite|unfavorite <dossier> [--json] [--dry-run]
+
+Sessions Codex / Claude Code et boutons d'actions : boa sessions --help, boa actions --help (--lang en).
 
 Raccourcis : boa add|pin|unpin|favorite|unfavorite <dossier>.
 Favori et épinglé désignent la même préférence. Le CLI ouvre BOA si nécessaire.
@@ -296,6 +309,7 @@ export async function sendRequest(
 	request: ProjectRequest,
 	socketPath = cliSocketPath(),
 	signal?: AbortSignal,
+	timeoutMs = 4500,
 ): Promise<Reply> {
 	signal?.throwIfAborted();
 	const owner = process.geteuid?.();
@@ -320,7 +334,7 @@ export async function sendRequest(
 			else done(result.reply);
 		};
 		const abort = () => finish({ error: signal?.reason });
-		const deadline = setTimeout(() => finish({ error: new Error("Délai RPC BOA dépassé.") }), 4500);
+		const deadline = setTimeout(() => finish({ error: new Error("Délai RPC BOA dépassé.") }), timeoutMs);
 		signal?.addEventListener("abort", abort, { once: true });
 		client.on("error", (error) => finish({ error }));
 		client.on("connect", () => {
@@ -349,9 +363,9 @@ export async function sendRequest(
 	});
 }
 
-async function connectApp(request: ProjectRequest): Promise<Reply> {
+async function connectApp(request: ProjectRequest, timeoutMs?: number): Promise<Reply> {
 	try {
-		return await sendRequest(request);
+		return await sendRequest(request, undefined, undefined, timeoutMs);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code !== "ENOENT" && code !== "ECONNREFUSED") throw error;
@@ -360,7 +374,7 @@ async function connectApp(request: ProjectRequest): Promise<Reply> {
 	for (let attempt = 0; attempt < 50; attempt++) {
 		await new Promise((done) => setTimeout(done, 200));
 		try {
-			return await sendRequest(request);
+			return await sendRequest(request, undefined, undefined, timeoutMs);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (code !== "ENOENT" && code !== "ECONNREFUSED") throw error;
@@ -406,6 +420,26 @@ export function openUrl(args: string[]): string {
 	return url.href;
 }
 
+/** `boa sessions|actions …`: same service as the UI; errors carry a stable code. */
+async function runSessions(args: string[], json: boolean): Promise<number> {
+	const lang = cliLanguage(args);
+	const rest = args.slice(1);
+	if (rest.length === 0 || rest[0] === "--help" || rest[0] === "help") {
+		console.log(sessionsHelp(lang));
+		return 0;
+	}
+	const request = args[0] === "sessions" ? parseSessions(rest) : parseActions(rest);
+	if (args.includes("--dry-run")) {
+		console.log(JSON.stringify({ ok: true, result: request }));
+		return 0;
+	}
+	const reply = await connectApp(request, SESSIONS_TIMEOUT_MS);
+	if (json) console.log(JSON.stringify(reply));
+	else if (reply.ok) console.log(formatResult(request, reply.result, lang));
+	else console.error(describeError(reply.code, reply.error, lang));
+	return reply.ok ? 0 : 1;
+}
+
 export async function main(args: string[]): Promise<number> {
 	const json = args.includes("--json");
 	try {
@@ -447,6 +481,7 @@ export async function main(args: string[]): Promise<number> {
 			}
 			return 0;
 		}
+		if (args[0] === "sessions" || args[0] === "actions") return await runSessions(args, json);
 		const request =
 			args[0] === "contexts"
 				? parseContexts(args.slice(1))

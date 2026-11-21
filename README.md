@@ -19,6 +19,7 @@ These screenshots show BOA's actual interface with fictional projects, paths, co
 - [Projects, dashboard and layouts](#projects-dashboard-and-layouts)
 - [Read files and Markdown](#reading-files-and-markdown)
 - [Browse and inspect images](#images-library-and-comparison)
+- [Follow Codex and Claude Code sessions](#coding-sessions-codex-and-claude-code)
 - [Use context menus and navigation history](#context-menus-and-navigation-history)
 - [Find text and go to a line](#finding-text-and-going-to-a-line)
 - [Edit, save and recover a draft](#editing-saving-and-drafts)
@@ -56,7 +57,8 @@ For folders that should be browsed together without Git discovery, create a [fil
 - Type directly in a read-only reader to search text or jump to a source line, with explicit find and line shortcuts available in editing too.
 - Follow persistent context views: an ordered code walkthrough or a set of findings, with descriptions, highlighted passages and a return to the previous reading position.
 - Open the selected repository in your browser (HTTP(S) and common SSH remotes), or open the project folder in Finder. The web button prefers `origin`, then the first supported remote; it is disabled when none is available. Credentials, query strings and fragments are removed from browser URLs.
-- Prepare a small AI context: selected text plus your comment, or just the file path plus your comment. Copy it to an assistant of your choice. No conversation history, model backend or automatic AI submission.
+- Prepare a small AI context: selected text plus your comment, or just the file path plus your comment. Copy it, or send it explicitly to a Codex or Claude Code session you choose. BOA has no model backend of its own and never sends anything without your action.
+- Follow your Codex and Claude Code sessions by project, keep one docked while you browse, rename them in their own tool and trigger configurable instruction buttons. See [Coding sessions](#coding-sessions-codex-and-claude-code).
 - Let a CLI or coding agent add/pin projects and open a file at exact lines.
 
 Source files can be edited only after explicitly switching out of Read-only mode. Git views do not stage changes, commit, push or check out branches. Remote counters use existing local tracking references; BOA does not run `git fetch` automatically.
@@ -118,6 +120,61 @@ Library discovery respects visibility preferences, skips technical folders and l
 ### Compare two images
 
 Choose **Compare two images** in an image preview or its context menu, then select the second local image with the native picker. The picker starts in the current image's project folder, falling back to the project root. The second image is limited to 8 MiB. Compare side by side or with a wipe slider, using a common scale that preserves each image's aspect ratio. The comparison is a separate view; neither original is modified.
+
+## Coding sessions (Codex and Claude Code)
+
+BOA lists the coding-agent sessions of your registered projects, keeps one docked at the bottom of the window while you browse, and sends context or instructions to it. It relies only on the tools' own supported interfaces and never edits their history files.
+
+**Opt-in first.** A fresh installation reads no session history. Open **Sessions** and choose **Enable discovery**. BOA then asks each tool only about the folders of your registered projects (and their Git worktrees). Nothing is uploaded and nothing is scanned elsewhere in your home folder.
+
+| | Codex | Claude Code |
+| --- | --- | --- |
+| Catalog and history | `codex app-server` protocol (`thread/list`, `thread/items/list`). The list reads Codex's session index without rescanning every rollout file (fast and read-only even with a large history) and includes interactive CLI, IDE and Desktop sessions plus resumable `codex exec` runs; internal sub-agents are hidden | Official Agent SDK (`listSessions`, `getSessionMessages`) through a bundled Node bridge |
+| Live state | Shared app-server daemon (`codex app-server daemon start`); without it, state shows as unknown | `claude agents --json` for sessions held by another process; exact state for sessions driven by BOA |
+| Send | Through the shared daemon only. A running session follows Codex's own `[desktop] followUpQueueMode`: `steer` adds to the running turn, `queue` lets Codex queue it | Sessions not held by another live process are driven by BOA through the SDK; a session held elsewhere is refused (no second owner) |
+| Rename | `thread/name/set`, confirmed by reading the source | `renameSession`, confirmed by `getSessionInfo` |
+| Open in the app | `codex://threads/<id>` (documented link): BOA reports that the open was requested, not that the chat is displayed | No documented session link; disabled with its reason |
+
+**States.** Working, waiting for you, inactive, error or unknown. Each state shows its source ("shared Codex daemon", "no process", "driven by BOA"…). BOA never infers activity from file timestamps. A Codex session not loaded in the shared daemon shows as unknown; use **Resume session** before sending to it.
+
+**Pins.** The Sessions view opens on **Pinned**. New sessions are pinned automatically (Settings → Session actions; on by default). Unpinning only hides a session from that view: it is never stopped, archived or deleted. **All sessions** and the search field find it again. Session pins are separate from project pins.
+
+**Sort.** Click a column header (**Session**, **Project**, **State**, **Last activity**) to sort by it; click it again to reverse. The arrow and the screen-reader sort state show the active column. The default shows the latest activity first; sessions with the same time are ordered by attention: waiting for you, error, working, idle, inactive, unknown. **State** sorts by that attention order, then by latest activity; **Session** and **Project** sort alphabetically. **Group by project** is an option on top of the chosen sort. BOA remembers both locally. Sorting never changes the selection, the filters or the dock tabs. The state label and its color appear together.
+
+**Dock.** The dock belongs to the application window, not to a project. Double-click a session, or press Enter on it, to open it in a dock tab, or select its tab if it is already open; a session is never opened twice. Each tab shows the session title, then its state; the arrow keys move between tabs and Delete or the × closes one. Closing a tab only closes the view: the session keeps running, and its draft, scroll position and chosen view (**Conversation** or **Terminal**) come back when you reopen it. A BOA terminal still running behind a closed tab stays listed under **+ → In background**, even after the last tab is closed. **Stop terminal** remains a separate, explicit action. The dock keeps its tabs while you open files, other projects or settings. The **…** menu holds **Rename**, **Back to <project>**, **New session from a summary** and **Unpin**. **Detach** opens the same dock and tabs in their own window; **Reattach** brings it back. Drag the dock's top edge, or focus it and use the up/down arrow keys, to share the window height between the reader and the dock (between 18% and 70%). The displayed project is not the session's folder or branch: actions always target the selected tab.
+
+**Conversation.** Messages read as one left-aligned column, with the speaker and, when the tool records it, the time. Replies are rendered as Markdown with copyable code blocks; commands and tool calls are folded into a **technical actions** line that you can expand. History is treated as untrusted content: embedded HTML is dropped, images are not loaded and links do not navigate (their target shows in the tooltip).
+
+**Resume or start over from a summary.** **Resume session** continues the same native session. **New session from a summary** (dock … menu) is a separate path: it prefills a new session in the same project and tool with the latest agent reply (for example the result of the Summarize action), which you can edit before sending; the provider creates a new identifier and the original session stays unchanged.
+
+**Terminal.** The dock's **Terminal** view runs the tool's own interface in a pseudo-terminal owned by BOA, which keeps running while you change views and replays its recent output when you come back. For Codex it is `codex resume <id> --remote` attached to the shared daemon (no second owner). For Claude Code it is `claude --resume <id>`, offered only when no other process holds the session and BOA is not already driving it through the conversation: one owner at a time, and the reason is shown when the tab is unavailable. While BOA's terminal holds a Claude session, conversation **Send** is disabled with that reason: type in the Terminal tab. BOA never injects keystrokes into the interactive interface, where text plus Enter could answer a prompt or trigger a shortcut. Codex terminals are clients of the shared daemon, so Codex sending keeps working. **Stop terminal** ends only the processes BOA started for it.
+
+**Send.** The button always says **Send** and transmits immediately; BOA has no send queue of its own. The receipt distinguishes *received* (new turn), *passed to the running turn* (steer), *queued by the tool* and *unknown result*. An unknown result keeps your draft and is never retried automatically. **Prepare** fills the composer without sending.
+
+**Context.** In the shared **Context** panel, choose a target session (pinned first, then all sessions with search), review the exact preview and **Copy**, **Prepare message** or **Send**. Every excerpt names its project, so cross-project context keeps its source. Annotated images are not part of a text send; copy or export them separately.
+
+**Branches.** The branch shown in the dock is read live from the session's real working tree. Choosing another real branch (or a linked worktree) sends an explicit instruction to the agent; BOA never checks out itself. The label changes only once the new branch is observed in that working tree. BOA refuses the request when another live session works in the same working tree. Changing a session's branch and pushing to another branch are separate instructions.
+
+**Action buttons.** Settings → Session actions edits the buttons shown in the dock: add, rename, edit the prompt template, choose **Prepare** or **Send**, the tools concerned, show/hide and reorder. **Global values** apply everywhere; a project can override any field (marked with the project name) and **Back to global values** removes its overrides. Templates accept `{project}`, `{branch}`, `{file}` and `{selection}` (French spellings `{projet}`, `{branche}`, `{fichier}`, `{sélection}` too); the branch is the session's live branch at the time of the action. A missing value is reported instead of being left blank. Buttons only send instructions to the agent; they never run Git or a shell themselves. Review, Tests, Summarize and Commit & push are editable examples.
+
+**CLI parity.** `boa sessions …` and `boa actions …` use the same service as the interface (help: `boa sessions --help`, `--lang en`). Examples:
+
+```bash
+boa sessions discovery on
+boa sessions list --all --search arrondi --json
+boa sessions rename codex:<id> --title "Fix annual rounding"
+boa sessions send claude:<id> --file note.md
+boa sessions branch codex:<id> --switch dev
+boa actions add --id lint --label Lint --template "Run lint on {branch}" --mode send --project ~/code/cedar
+boa actions reorder --ids review,lint,tests
+boa actions reset --project ~/code/cedar
+```
+
+`--json` prints `{ok,result}` or `{ok:false,code,error}` with a stable error code (`codex_daemon_not_running`, `claude_session_owned_elsewhere`, `result_unknown`, `revision_conflict`…). `--revision N` refuses a settings change if the configuration changed meanwhile.
+
+When Claude accepts the first message from `boa sessions new` but BOA cannot confirm the requested title, the successful result includes the session, the message receipt and `titleWarning: "title_unconfirmed"`.
+
+**Requirements and limits.** Codex CLI (`codex`) for Codex sessions; mutations require its shared daemon, which BOA starts only when you choose **Start Codex daemon**. Claude Code (`claude`) and Node.js for Claude sessions. BOA looks for these tools in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin` and `PATH` (override with `BOA_CODEX_BIN`, `BOA_CLAUDE_BIN`, `BOA_NODE_BIN`). Listings are bounded to the 200 most recent sessions per tool and conversations to the latest 200 entries. A Claude permission prompt from a BOA-driven session appears in the dock with **Allow** / **Deny**. A rename applied to a Claude session open elsewhere may keep its old name in that terminal until it restarts.
 
 ## Context menus and navigation history
 
@@ -457,13 +514,13 @@ Local Markdown links to folders reveal their contents in the file tree while kee
 
 ## Local data and privacy
 
-- The project list, file spaces and folder preferences are stored in the current user's application-data directory, in `com.julienm.boa/projects.json` (on macOS: `~/Library/Application Support/com.julienm.boa/projects.json`). Persistent context views and bookmarks use the adjacent `context-views.json`. Layout preferences stay in the app's local webview storage. None of these local values are bundled with the app or committed to this repository.
+- The project list, file spaces and folder preferences are stored in the current user's application-data directory, in `com.julienm.boa/projects.json` (on macOS: `~/Library/Application Support/com.julienm.boa/projects.json`). Persistent context views and bookmarks use the adjacent `context-views.json`; session pins, discovery opt-in and action buttons use `sessions.json` (private, versioned). Session dock drafts stay in the app's local webview storage. Layout preferences stay in the app's local webview storage. None of these local values are bundled with the app or committed to this repository.
 - An empty first launch performs no project scan. BOA reads registered projects and an optional explicitly configured discovery folder. Imported configuration from an earlier BOA version remains intact.
 - At startup, saved paths resolving to the same real folder are merged. During a session, registration and discovery compare real folders to prevent new duplicates while keeping the open project’s identity and reading position unchanged. Pins are retained, and the project stays active if any entry was active. File selections and pins are combined; showing all files wins over filtering, and the real path's saved sort takes precedence. Unavailable folders remain registered. Saved context guides remain accessible; colliding guide IDs receive a unique suffix instead of overwriting a guide.
 - A selected project can contain nested repositories and external Git worktrees. Explicit symbolic links in its file tree can lead outside the project; BOA follows these when you browse them. File contents remain on the Mac until you explicitly copy and share them.
-- BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
+- BOA has no telemetry, hosted project service, embedded AI provider or credential configuration. Codex and Claude Code sessions are reached only through those tools installed on your Mac, after you enable discovery. It runs system Git with argument arrays rather than a shell. Browsing and Git review do not modify the selected repositories.
 - The macOS bundle permits HTTP loads in its webview so cleartext image URLs also work. The content security policy allows these remote loads only for images; remote scripts and other remote connections remain blocked.
-- **Annotate** prepares source selections or file references for the shared **Context**, with explicit immediate copying also available. The collection stores source excerpts, comments and image snapshots in the private `context-collection.json` file alongside the application configuration, outside Git. Explicit exports contain `context.md` and numbered image snapshots in a newly created destination subfolder. Nothing is automatically sent to an AI. Persistent **Context views** remain a separate local navigation feature. Their saved descriptions and optional anchor excerpts can contain source content; keep collection exports and CLI JSON private when the project is private. Older prototypes may have left exports in the local application-data directory; those are not distributed.
+- **Annotate** prepares source selections or file references for the shared **Context**, with explicit immediate copying also available. The collection stores source excerpts, comments and image snapshots in the private `context-collection.json` file alongside the application configuration, outside Git. Explicit exports contain `context.md` and numbered image snapshots in a newly created destination subfolder. Nothing is sent to a coding session unless you choose Send. Persistent **Context views** remain a separate local navigation feature. Their saved descriptions and optional anchor excerpts can contain source content; keep collection exports and CLI JSON private when the project is private. Older prototypes may have left exports in the local application-data directory; those are not distributed.
 
 ## Limits
 
@@ -487,9 +544,12 @@ For browser UI contracts, start `bun run dev` in another terminal, then run:
 
 ```bash
 bun run test:ui
+bun run test:sessions-ui
 ```
 
 The UI test uses Chrome by default. For a clean environment, run `bunx playwright install chromium` and `BOA_TEST_BROWSER=chromium bun run test:ui`. It uses a mocked Tauri transport with the real Monaco viewer; native Rust tests exercise real disposable Git repositories, configuration and Unix sockets. No ordinary test needs personal projects, credentials or a GitHub account.
+
+Real Codex and Claude Code adapters have opt-in tests that create identified test sessions only in disposable places (`/tmp/boa-cx-live-*` with its own Codex daemon, stopped afterwards, and `/tmp/boa-cl-live`): `BOA_PROVIDER_TESTS=1 cargo test --manifest-path src-tauri/Cargo.toml provider_live -- --ignored --test-threads=1`. Codex turn checks additionally need `BOA_TEST_CODEX_AUTH=1`, which temporarily links your Codex login into that disposable home and removes the link at the end. `BOA_TEST_CODEX_HISTORY_CWD=<dir>` (optionally `BOA_TEST_CODEX_HISTORY_ID=<thread>`) adds a read-only listing check against your default Codex home, without starting its daemon.
 
 The optional ignored live smoke test reads only a folder you explicitly provide through `BOA_SMOKE_PROJECT`. Do not use personal folders to reproduce a bug when a disposable repository is sufficient.
 

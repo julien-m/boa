@@ -1656,7 +1656,7 @@ try {
 	await page.getByRole("button", { name: "Nouvel espace", exact: true }).last().click();
 	await page.getByLabel("Nom", { exact: true }).fill("Outils QA");
 	await page.getByRole("button", { name: "Ajouter un dossier", exact: true }).click();
-	await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+	await page.locator("form").getByRole("button", { name: "Enregistrer", exact: true }).click();
 	await expect.poll(() => fileSpaces.length).toBe(1);
 	await page.getByRole("button", { name: "Outils QA", exact: true }).click();
 	await expect(page.getByTestId("file-space-view")).toBeVisible();
@@ -1783,7 +1783,7 @@ try {
 	await page.getByRole("button", { name: "Modifier l’espace", exact: true }).click();
 	folderChoice = `${directory}/second`;
 	await page.getByRole("button", { name: "Ajouter un dossier", exact: true }).click();
-	await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+	await page.locator("form").getByRole("button", { name: "Enregistrer", exact: true }).click();
 	await expect.poll(() => fileSpaces[0].roots.length).toBe(2);
 	await page.getByRole("button", { name: "Modifier l’espace", exact: true }).click();
 	const entryRemoval = page

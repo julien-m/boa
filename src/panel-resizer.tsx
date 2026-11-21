@@ -9,7 +9,7 @@ export function PanelResizer({
 }: {
 	container: RefObject<HTMLDivElement | null>;
 	vertical?: boolean;
-	panel?: "git" | "tree" | "history" | "repositories";
+	panel?: "git" | "tree" | "history" | "repositories" | "dock";
 }) {
 	const { t } = useTranslation("workspace");
 	const configuration = {
@@ -39,6 +39,19 @@ export function PanelResizer({
 			initial: 55,
 			label: "history",
 			testId: "history-resizer",
+		},
+		// Application-level session dock: bottom-anchored share of the window height. The 70%
+		// ceiling keeps the reader above usable; 18% still shows the composer. The initial 56%
+		// shows the conversation thread, not only the end of its last message; a height the
+		// user chose (stored only after a resize) is kept.
+		dock: {
+			storageKey: "boa-dock-height",
+			property: "--session-dock-size",
+			minimum: 18,
+			maximum: 70,
+			initial: 56,
+			label: "dockHeight",
+			testId: "session-dock-resizer",
 		},
 		repositories: {
 			storageKey: "boa-repository-width",

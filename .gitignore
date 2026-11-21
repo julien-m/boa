@@ -13,6 +13,7 @@ test-results/
 playwright-report/
 dist
 dist-ssr
+src-tauri/resources/claude-bridge.mjs
 *.local
 # Versioned repo-owned agent sources
 !.agent-sync.local/
