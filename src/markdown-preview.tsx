@@ -221,6 +221,7 @@ function revealAnchor(container: HTMLElement, id: string) {
 
 export function MarkdownPreview({
 	content,
+	visible = true,
 	project,
 	path,
 	onCopyLink,
@@ -233,6 +234,7 @@ export function MarkdownPreview({
 	navigation?: { line?: number; endLine?: number; navigationId?: string; anchor?: string };
 	restorePosition?: MarkdownBookmark;
 	content: string;
+	visible?: boolean;
 	project: string;
 	path: string;
 	onCopyLink: (href: string) => void;
@@ -245,20 +247,22 @@ export function MarkdownPreview({
 	const anchor = useRef<MarkdownBookmark | null>(restorePosition ?? null);
 	const capturePosition = (): void => {
 		const container = scroll.current;
-		if (!container) return;
+		if (!container || !visible) return;
 		const top = container.getBoundingClientRect().top;
 		const blocks = [...container.querySelectorAll("h1,h2,h3,h4,h5,h6,p,pre,table,li")];
-		const visible = blocks.find((block) => block.getBoundingClientRect().bottom > top);
-		anchor.current = visible
+		const visibleBlock = blocks.find((block) => block.getBoundingClientRect().bottom > top);
+		anchor.current = visibleBlock
 			? {
-					text: visible.textContent ?? "",
-					tag: visible.tagName,
-					offset: visible.getBoundingClientRect().top - top,
+					text: visibleBlock.textContent ?? "",
+					tag: visibleBlock.tagName,
+					offset: visibleBlock.getBoundingClientRect().top - top,
 					scrollTop: container.scrollTop,
 				}
 			: null;
 	};
 	useLayoutEffect(() => {
+		// A hidden reader has no layout. Keep the last visible bookmark until it returns.
+		if (!visible) return;
 		const container = scroll.current;
 		const saved = anchor.current;
 		if (container && saved) {
@@ -275,12 +279,13 @@ export function MarkdownPreview({
 			else container.scrollTop = saved.scrollTop;
 		}
 		capturePosition();
-	}, [content]);
+	}, [content, visible]);
 	const lastNavigation = useRef<string | null>(null);
 	const line = navigation?.line;
 	const endLine = navigation?.endLine ?? line;
 	const navigationId = navigation?.navigationId;
 	useLayoutEffect(() => {
+		if (!visible) return;
 		const container = scroll.current;
 		if (!container || !line || !endLine) {
 			lastNavigation.current = null;
@@ -317,10 +322,11 @@ export function MarkdownPreview({
 			cancelAnimationFrame(frame);
 			for (const target of targets) target.removeAttribute("data-navigation-target");
 		};
-	}, [line, endLine, navigationId, content, restorePosition]);
+	}, [line, endLine, navigationId, content, restorePosition, visible]);
 	const destinationAnchor = navigation?.anchor;
 	const lastAnchorNavigation = useRef<string | null>(null);
 	useLayoutEffect(() => {
+		if (!visible) return;
 		if (destinationAnchor === undefined) {
 			lastAnchorNavigation.current = null;
 			return;
@@ -331,7 +337,7 @@ export function MarkdownPreview({
 			capturePosition();
 		}
 		lastAnchorNavigation.current = request;
-	}, [destinationAnchor, navigationId, content]);
+	}, [destinationAnchor, navigationId, content, visible]);
 	const renderImage = useCallback(
 		({
 			alt,

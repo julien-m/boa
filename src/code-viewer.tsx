@@ -140,9 +140,10 @@ export const resolveMonacoLanguage = createSourceLanguageResolver(monaco.languag
 interface CodeViewerProps {
 	selection: Selection | null;
 	compact?: boolean;
+	visible?: boolean;
 	onOpen?: (selection: Selection) => void;
 }
-export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerProps) {
+export function CodeViewer({ selection, compact = false, visible = true, onOpen }: CodeViewerProps) {
 	const { t, i18n } = useTranslation("workspace");
 	const editing = useFileEditing();
 	const annotationMenu = useAnnotationMenu();
@@ -628,6 +629,7 @@ export function CodeViewer({ selection, compact = false, onOpen }: CodeViewerPro
 						project={selection.project}
 						path={selection.path}
 						content={query.data.modified}
+						visible={visible}
 						navigation={selection.line || selection.anchor !== undefined ? selection : undefined}
 						onReveal={(displayed) => {
 							const id = selection.receiptId;

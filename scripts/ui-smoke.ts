@@ -1189,11 +1189,16 @@ try {
 			}, monacoPath),
 		)
 		.toBe(false);
-	await page.getByTestId("file-README.md").click();
+	await page.getByTestId("file-README.md").dblclick();
+	await page.getByTestId("file-lf.txt").dblclick();
+	await page.getByTestId("tab-README.md").click();
 	await page.getByRole("heading", { name: "Mon document" }).scrollIntoViewIfNeeded();
 	const headingBefore = await page
 		.getByRole("heading", { name: "Mon document" })
 		.evaluate((e) => e.getBoundingClientRect().top);
+	await page.getByTestId("tab-README.md").click({ button: "right" });
+	await page.getByTestId("compare-file-left").or(page.getByTestId("compare-file-right")).first().click();
+	await expect(page.getByTestId("file-comparison")).toBeVisible();
 	markdownExtra = "# Inserted before\n\n" + "An extra paragraph.\n\n".repeat(20);
 	await page.evaluate(
 		(project) =>
@@ -1203,10 +1208,12 @@ try {
 			)({ discovery: false, settings: false, projects: [project] }),
 		directory,
 	);
-	await expect(page.getByRole("heading", { name: "Inserted before" })).toBeAttached();
+	await expect(page.getByRole("heading", { name: "Inserted before", includeHidden: true })).toBeAttached();
+	await page.getByRole("button", { name: "Fermer la comparaison" }).click();
 	expect(
 		await page.getByRole("heading", { name: "Mon document" }).evaluate((e) => e.getBoundingClientRect().top),
 	).toBeCloseTo(headingBefore, -1);
+	await page.getByTestId("close-tab-lf.txt").click();
 	await page.getByTestId("read-only-toggle").click();
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await expect(page.getByTestId("read-only-toggle")).toHaveAttribute("aria-pressed", "true");

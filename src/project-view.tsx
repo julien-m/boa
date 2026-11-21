@@ -389,6 +389,7 @@ export function ProjectView({
 						<FileComparisonReader comparison={comparison.pair} onClose={comparison.close}>
 							<CodeViewer
 								selection={selection}
+								visible={!comparison.pair}
 								onOpen={(value) => {
 									if (value.project === project.path) {
 										setLayout("files");

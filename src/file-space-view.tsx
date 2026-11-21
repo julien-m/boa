@@ -270,6 +270,7 @@ export function FileSpaceView({
 					<FileComparisonReader comparison={comparison.pair} onClose={comparison.close}>
 						<CodeViewer
 							selection={state.selection}
+							visible={!comparison.pair}
 							onOpen={(value) => {
 								if (entries.includes(value.project)) open(value, true);
 								else window.dispatchEvent(new CustomEvent("boa:open-file", { detail: value }));
