@@ -65,7 +65,8 @@ export const settingsFr = {
 		selectAll: "Tout sélectionner",
 		deselectAll: "Tout désélectionner",
 		extensions: "Extensions ({{count}})",
-		selectionHint: "BOA ouvrira les extensions cochées. Les extensions liées sont regroupées.",
+		selectionHint:
+			"Cochez pour associer les extensions à BOA. Décochez pour rétablir leur application précédente.",
 		codexDescription: "Ajoutez BOA comme éditeur pour ouvrir les fichiers depuis Codex.",
 		codexAction: "Configurer Codex",
 		codexSaved: "Configuré",
@@ -81,6 +82,8 @@ export const settingsFr = {
 		statusError: "L’état des intégrations est indisponible. Vous pouvez réessayer.",
 		actionError: "La configuration n’a pas pu être vérifiée. Réessayez avant de la considérer terminée.",
 		partialError: "Certaines modifications n’ont pas pu être appliquées. Vérifiez les états ci-dessus.",
+		restoreUnavailable:
+			"Impossible de rétablir l’application précédente pour {{types}}. Dans le Finder, choisissez une application via Lire les informations → Ouvrir avec → Tout modifier.",
 		retry: "Réessayer",
 	},
 };
@@ -148,7 +151,7 @@ export const settingsEn: typeof settingsFr = {
 		selectAll: "Select all",
 		deselectAll: "Deselect all",
 		extensions: "Extensions ({{count}})",
-		selectionHint: "BOA will open checked extensions. Linked extensions share a checkbox.",
+		selectionHint: "Check to associate file types with BOA. Uncheck to restore their previous app.",
 		codexDescription: "Add BOA as an editor to open files from Codex.",
 		codexAction: "Configure Codex",
 		codexSaved: "Configured",
@@ -164,6 +167,8 @@ export const settingsEn: typeof settingsFr = {
 		statusError: "Integration status is unavailable. You can try again.",
 		actionError: "The configuration could not be verified. Try again before considering it complete.",
 		partialError: "Some changes could not be applied. Check the states above.",
+		restoreUnavailable:
+			"The previous app for {{types}} could not be restored. Choose an app in Finder using Get Info → Open with → Change All.",
 		retry: "Try again",
 	},
 };

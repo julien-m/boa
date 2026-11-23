@@ -170,6 +170,7 @@ pub(crate) async fn execute(
     app: tauri::AppHandle,
     action: String,
     extensions: Vec<String>,
+    remove_extensions: Vec<String>,
 ) -> Result<Value, String> {
     if !matches!(action.as_str(), "status" | "system" | "codex") {
         return Err("Unknown integration action".into());
@@ -195,6 +196,7 @@ pub(crate) async fn execute(
             &bundle,
             &backup.join("file-handlers-backup.json"),
             &extensions,
+            &remove_extensions,
         )
         .await?
     };
@@ -210,6 +212,7 @@ pub(crate) async fn execute(
     _app: tauri::AppHandle,
     _action: String,
     _extensions: Vec<String>,
+    _remove_extensions: Vec<String>,
 ) -> Result<Value, String> {
     Err("Editor integrations require macOS".into())
 }
