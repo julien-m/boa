@@ -65,8 +65,15 @@ async fn editor_integrations(
     app: tauri::AppHandle,
     action: String,
     extensions: Vec<String>,
+    remove_extensions: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
-    editor_integrations::execute(app, action, extensions).await
+    editor_integrations::execute(
+        app,
+        action,
+        extensions,
+        remove_extensions.unwrap_or_default(),
+    )
+    .await
 }
 
 #[tauri::command]

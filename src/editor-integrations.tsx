@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 export interface IntegrationStatus {
 	installed: boolean;
-	system: { extensions: { extensions: string[]; configured: boolean }[] };
+	system: { extensions: { extensions: string[]; configured: boolean; partiallyConfigured?: boolean }[] };
 	codex: { available: boolean; configured: boolean };
 	claude: { available: boolean; supported: boolean };
 }
@@ -17,18 +17,40 @@ interface IntegrationResult {
 	failures: string[];
 }
 
+function assignedExtensions(status: IntegrationStatus | null): string[] {
+	return (
+		status?.system.extensions
+			.filter((group) => group.configured || group.partiallyConfigured)
+			.flatMap((group) => group.extensions) ?? []
+	);
+}
+
 export function EditorIntegrations() {
 	const { t } = useTranslation("settings");
 	const [status, setStatus] = useState<IntegrationStatus | null>(null);
 	const [selected, setSelected] = useState<string[]>([]);
+	const [editedPartial, setEditedPartial] = useState<string[]>([]);
 	const [expanded, setExpanded] = useState(false);
 	const [refresh, setRefresh] = useState(0);
 	const [busy, setBusy] = useState(true);
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
+	const [unrestoredTypes, setUnrestoredTypes] = useState<string[]>([]);
 	const groups = status?.system.extensions ?? [];
 	const extensions = groups.flatMap((group) => group.extensions);
-	const allSelected = extensions.length > 0 && extensions.every((extension) => selected.includes(extension));
+	const assigned = assignedExtensions(status);
+	const removed = assigned.filter((extension) => !selected.includes(extension));
+	const added = selected.filter(
+		(extension) => !assigned.includes(extension) || editedPartial.includes(extension),
+	);
+	const allSelected =
+		groups.length > 0 &&
+		groups.every(
+			(group) =>
+				group.extensions.every((extension) => selected.includes(extension)) &&
+				(!group.partiallyConfigured || editedPartial.includes(group.extensions[0])),
+		);
+	const canApply = !busy && status?.installed && (selected.length > 0 || removed.length > 0);
 
 	useEffect(() => {
 		let current = true;
@@ -38,9 +60,8 @@ export function EditorIntegrations() {
 			.then((value) => {
 				if (current) {
 					setStatus(value);
-					setSelected(
-						value.system.extensions.filter((item) => item.configured).flatMap((item) => item.extensions),
-					);
+					setSelected(assignedExtensions(value));
+					setEditedPartial([]);
 				}
 			})
 			.catch(() => {
@@ -61,9 +82,27 @@ export function EditorIntegrations() {
 		setBusy(true);
 		setError("");
 		setNotice("");
+		setUnrestoredTypes([]);
 		try {
-			const result = await invoke<IntegrationResult>("editor_integrations", { action, extensions: selected });
-			setStatus(result.status);
+			const result = await invoke<IntegrationResult>("editor_integrations", {
+				action,
+				extensions: action === "system" ? added : selected,
+				...(action === "system" && removed.length > 0 ? { removeExtensions: removed } : {}),
+			});
+			if (action === "system") {
+				setStatus(result.status);
+				setSelected(assignedExtensions(result.status));
+				setEditedPartial([]);
+			} else {
+				// Codex setup does not submit or rebase any file association edits.
+				setStatus((current) => ({ ...result.status, system: current?.system ?? result.status.system }));
+			}
+			const restorePrefix = "restore-unavailable:";
+			setUnrestoredTypes(
+				result.failures
+					.filter((failure) => failure.startsWith(restorePrefix))
+					.map((failure) => failure.slice(restorePrefix.length)),
+			);
 			setNotice(
 				action === "codex" && result.restartRequired
 					? "integrations.codexRestart"
@@ -118,7 +157,14 @@ export function EditorIntegrations() {
 				</button>
 			</div>
 			{expanded && (
-				<div id="integration-extension-list" className="integration-picker">
+				<form
+					id="integration-extension-list"
+					className="integration-picker"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (canApply) void configure("system");
+					}}
+				>
 					<div className="settings-actions">
 						<button
 							type="button"
@@ -128,21 +174,32 @@ export function EditorIntegrations() {
 							onClick={() => {
 								setNotice("");
 								setSelected(allSelected ? [] : extensions);
+								setEditedPartial(
+									groups.filter((group) => group.partiallyConfigured).flatMap((group) => group.extensions),
+								);
 							}}
 						>
 							{t(allSelected ? "integrations.deselectAll" : "integrations.selectAll")}
 						</button>
 					</div>
 					<div className="integration-extension-grid">
-						{groups.map(({ extensions: aliases }) => (
+						{groups.map(({ extensions: aliases, partiallyConfigured }) => (
 							<label key={aliases[0]}>
 								<input
 									type="checkbox"
+									ref={(input) => {
+										if (input)
+											input.indeterminate = Boolean(
+												partiallyConfigured && !editedPartial.includes(aliases[0]),
+											);
+									}}
 									checked={aliases.every((extension) => selected.includes(extension))}
 									disabled={busy}
 									data-extension={aliases[0]}
 									onChange={(event) => {
 										setNotice("");
+										if (partiallyConfigured)
+											setEditedPartial((items) => [...new Set([...items, ...aliases])]);
 										setSelected((items) =>
 											event.target.checked
 												? [...new Set([...items, ...aliases])]
@@ -157,16 +214,15 @@ export function EditorIntegrations() {
 					<div className="settings-actions">
 						<span className="muted small">{t("integrations.selectionHint")}</span>
 						<button
-							type="button"
+							type="submit"
 							className="quiet-button"
 							data-testid="integration-system"
-							disabled={busy || !status?.installed || selected.length === 0}
-							onClick={() => void configure("system")}
+							disabled={!canApply}
 						>
 							{t(busy ? "integrations.applying" : "integrations.systemAction")}
 						</button>
 					</div>
-				</div>
+				</form>
 			)}
 			<div className="integration-row">
 				<div>
@@ -196,9 +252,16 @@ export function EditorIntegrations() {
 				{notice && <p>{t(notice)}</p>}
 			</div>
 			{error && (
-				<p className="error" role="alert">
-					{t(error)}
-				</p>
+				<div className="error" role="alert">
+					<p>{t(error)}</p>
+					{unrestoredTypes.length > 0 && (
+						<ul>
+							{[...new Set(unrestoredTypes)].map((types) => (
+								<li key={types}>{t("integrations.restoreUnavailable", { types })}</li>
+							))}
+						</ul>
+					)}
+				</div>
 			)}
 			{error === "integrations.statusError" && (
 				<button

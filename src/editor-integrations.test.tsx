@@ -59,7 +59,7 @@ it("keeps extension changes local until Apply without refreshing or flashing loa
 	await act(async () => control<HTMLButtonElement>("system").click());
 	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", {
 		action: "system",
-		extensions: ["tsx", "ts"],
+		extensions: ["ts"],
 	});
 	expect(control("status").textContent).toContain("Associations macOS mises à jour");
 }, 2000);
@@ -109,7 +109,7 @@ it("starts collapsed and toggles all extensions locally from partial, full and e
 	await act(async () => control<HTMLButtonElement>("select-all").click());
 	expect(checkboxes().every((input) => !input.checked)).toBe(true);
 	expect(control("select-all").textContent).toBe("Tout sélectionner");
-	expect(control<HTMLButtonElement>("system").disabled).toBe(true);
+	expect(control<HTMLButtonElement>("system").disabled).toBe(false);
 	await act(async () => control<HTMLButtonElement>("select-all").click());
 	await act(async () => control<HTMLButtonElement>("extensions").click());
 	await act(async () => control<HTMLButtonElement>("extensions").click());
@@ -118,7 +118,9 @@ it("starts collapsed and toggles all extensions locally from partial, full and e
 	await act(async () => control<HTMLButtonElement>("system").click());
 	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", {
 		action: "system",
-		extensions: status.system.extensions.flatMap((item) => item.extensions),
+		extensions: status.system.extensions
+			.filter((item) => !item.configured)
+			.flatMap((item) => item.extensions),
 	});
 }, 2000);
 
@@ -159,4 +161,83 @@ it("explains an outstanding OS confirmation instead of suggesting another config
 	await act(async () => control<HTMLButtonElement>("system").click());
 	expect(host.querySelector('[role="alert"]')?.textContent).toContain("attend encore votre réponse");
 	expect(control("status").textContent).toBe("");
+}, 2000);
+
+it("removes the last configured type and reflects macOS readback", async () => {
+	status.system.extensions = [{ extensions: ["html", "htm"], configured: true }];
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	const html = host.querySelector<HTMLInputElement>('[data-extension="html"]')!;
+	await act(async () => html.click());
+	expect(mockedInvoke).toHaveBeenCalledTimes(1);
+	expect(control<HTMLButtonElement>("system").disabled).toBe(false);
+	mockedInvoke.mockResolvedValueOnce({
+		status: { ...status, system: { extensions: [{ extensions: ["html", "htm"], configured: false }] } },
+		restartRequired: false,
+		changed: 1,
+		failures: [],
+	});
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", {
+		action: "system",
+		extensions: [],
+		removeExtensions: ["html", "htm"],
+	});
+	expect(html.checked).toBe(false);
+	expect(control("status").textContent).toContain("Associations macOS mises à jour");
+}, 2000);
+
+it("shows the verified checkbox and explains a type whose previous app is unavailable", async () => {
+	status.system.extensions = [{ extensions: ["html", "htm"], configured: true }];
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	const html = host.querySelector<HTMLInputElement>('[data-extension="html"]')!;
+	await act(async () => html.click());
+	mockedInvoke.mockResolvedValueOnce({
+		status,
+		restartRequired: false,
+		changed: 0,
+		failures: ["restore-unavailable:.html / .htm"],
+	});
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(html.checked).toBe(true);
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain(".html / .htm");
+	expect(host.querySelector('[role="alert"]')?.textContent).toContain("Finder");
+}, 2000);
+
+it("does not turn an external change during Codex setup into an implicit removal", async () => {
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	mockedInvoke.mockResolvedValueOnce({
+		status: {
+			...status,
+			system: { extensions: status.system.extensions.map((type) => ({ ...type, configured: true })) },
+		},
+		restartRequired: true,
+		changed: 1,
+		failures: [],
+	});
+	await act(async () => control<HTMLButtonElement>("codex").click());
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", {
+		action: "system",
+		extensions: [],
+	});
+}, 2000);
+
+it("keeps a mixed group unchanged until the user explicitly chooses a full association", async () => {
+	status.system.extensions = [{ extensions: ["html", "htm"], configured: false, partiallyConfigured: true }];
+	await act(async () => root.render(<EditorIntegrations />));
+	await act(async () => control<HTMLButtonElement>("extensions").click());
+	const html = host.querySelector<HTMLInputElement>('[data-extension="html"]')!;
+	expect(html.indeterminate).toBe(true);
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", { action: "system", extensions: [] });
+	await act(async () => control<HTMLButtonElement>("select-all").click());
+	expect(html.indeterminate).toBe(false);
+	await act(async () => control<HTMLButtonElement>("system").click());
+	expect(mockedInvoke).toHaveBeenLastCalledWith("editor_integrations", {
+		action: "system",
+		extensions: ["html", "htm"],
+	});
 }, 2000);
