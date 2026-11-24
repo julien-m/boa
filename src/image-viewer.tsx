@@ -5,7 +5,6 @@ import { Columns2, Grid2X2, Minus, Pipette, Plus, RotateCcw } from "lucide-react
 import {
 	createContext,
 	type ReactNode,
-	useCallback,
 	useContext,
 	useEffect,
 	useLayoutEffect,
@@ -27,6 +26,7 @@ type ImageViewerProps = {
 	actions?: ReactNode;
 	fileBytes?: number;
 	location?: ImageLocation;
+	toggleFit?: boolean;
 };
 /** Keep dates current when a fullscreen view retains the image element captured at opening. */
 export const ImageFileDatesContext = createContext<ImageFileDates | undefined>(undefined);
@@ -49,33 +49,26 @@ export function imageByteSize(src: string): number | undefined {
 interface ZoomSession {
 	zoom: number | null;
 	setZoom: (value: number | null) => void;
-	onScale: (percent: number) => void;
 	background: ImageBackground;
 	setBackground: (value: ImageBackground) => void;
 	grid: boolean;
 	setGrid: (value: boolean) => void;
 }
 const ImageZoomContext = createContext<ZoomSession | null>(null);
-/** Retains even the precise ratio computed by Fit before browsing another image. */
+/** A null ratio keeps Fit active. Numeric zoom remains fixed across image changes. */
 export function useImageZoomSession() {
 	const [zoom, setZoom] = useState<number | null>(null);
 	const [background, setBackground] = useState(defaultBackground);
 	const [grid, setGrid] = useState(false);
-	const measured = useRef(100);
-	const onScale = useCallback((percent: number) => {
-		measured.current = percent;
-	}, []);
-	const retain = () => setZoom((current) => current ?? measured.current);
-	const state = useMemo(
-		() => ({ zoom, setZoom, onScale, background, setBackground, grid, setGrid }),
-		[zoom, onScale, background, grid],
+	return useMemo(
+		() => ({ zoom, setZoom, background, setBackground, grid, setGrid }),
+		[zoom, background, grid],
 	);
-	return { state, retain };
 }
 /** Shares zoom/Fit across portals and image changes when supplied a browsing session. */
 export function ImageZoom({ children, session }: { children: ReactNode; session?: ZoomSession }) {
 	const local = useImageZoomSession();
-	return <ImageZoomContext.Provider value={session ?? local.state}>{children}</ImageZoomContext.Provider>;
+	return <ImageZoomContext.Provider value={session ?? local}>{children}</ImageZoomContext.Provider>;
 }
 
 export function ZoomControls({
@@ -84,6 +77,7 @@ export function ZoomControls({
 	ready,
 	onZoom,
 	onFit,
+	toggleFit = false,
 	actions,
 }: {
 	percent: number;
@@ -91,6 +85,7 @@ export function ZoomControls({
 	ready: boolean;
 	onZoom: (percent: number) => void;
 	onFit: () => void;
+	toggleFit?: boolean;
 	actions?: ReactNode;
 }) {
 	const { t } = useTranslation("workspace");
@@ -138,8 +133,9 @@ export function ZoomControls({
 			</button>
 			<button
 				type="button"
-				className="quiet-button"
-				data-hint={t("zoom.fitHint")}
+				className={toggleFit ? "quiet-button visual-zoom-fit" : "quiet-button"}
+				data-testid="image-fit"
+				data-hint={t(toggleFit && fitting ? "zoom.freezeHint" : "zoom.fitHint")}
 				aria-pressed={fitting}
 				disabled={!ready}
 				onClick={onFit}
@@ -151,7 +147,7 @@ export function ZoomControls({
 	);
 }
 
-function ImageContent({ src, alt, onError, actions, fileBytes, location }: ImageViewerProps) {
+function ImageContent({ src, alt, onError, actions, fileBytes, location, toggleFit }: ImageViewerProps) {
 	const { t, i18n } = useTranslation("workspace");
 	const imageFileDates = useContext(ImageFileDatesContext);
 	const [failed, setFailed] = useState(false);
@@ -282,9 +278,6 @@ function ImageContent({ src, alt, onError, actions, fileBytes, location }: Image
 					)
 				: 1;
 	const percent = Math.max(1, Math.round(scale * 100));
-	useLayoutEffect(() => {
-		if (natural && bounds.width > 0 && bounds.height > 0) sharedZoom?.onScale(scale * 100);
-	}, [natural, bounds, sharedZoom, scale]);
 	const resetScroll = () => {
 		if (viewport.current) {
 			viewport.current.scrollTop = 0;
@@ -375,8 +368,13 @@ function ImageContent({ src, alt, onError, actions, fileBytes, location }: Image
 				percent={percent}
 				fitting={fitting}
 				ready={!!natural}
+				toggleFit={toggleFit}
 				onZoom={(value) => setZoom(value)}
 				onFit={() => {
+					if (toggleFit && fitting) {
+						setZoom(scale * 100);
+						return;
+					}
 					setZoom(null);
 					resetScroll();
 				}}

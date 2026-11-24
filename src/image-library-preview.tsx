@@ -65,7 +65,6 @@ export function ImageLibraryPreview({
 		setMenu(null);
 		setMenuError("");
 		close.current?.focus({ preventScroll: true });
-		zoomSession.retain();
 		onStep(direction);
 	};
 	const wheelState = useRef({ step, index, total, fetching: query.isFetching });
@@ -129,7 +128,7 @@ export function ImageLibraryPreview({
 		});
 	};
 	return createPortal(
-		<ImageZoom session={zoomSession.state}>
+		<ImageZoom session={zoomSession}>
 			<dialog
 				ref={dialog}
 				className={`library-lightbox ${fullscreen ? "fullscreen" : ""}`}
@@ -299,6 +298,7 @@ export function ImageLibraryPreview({
 					<ImageFileDatesContext.Provider value={query.data.imageFileDates}>
 						<ImageViewer
 							src={query.data.dataUrl}
+							toggleFit
 							fileBytes={image.size}
 							location={{ project: root, path: image.path }}
 							alt={image.name}

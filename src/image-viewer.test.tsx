@@ -237,11 +237,8 @@ it("consumes only the selected image action after image load and handles subsequ
 function BrowsingImage({ src }: { src: string }) {
 	const zoom = useImageZoomSession();
 	return (
-		<ImageZoom session={zoom.state}>
-			<button type="button" aria-label="Retain scale" onClick={zoom.retain}>
-				Next
-			</button>
-			<ImageViewer src={src} alt="Browsing" onError={() => {}} />
+		<ImageZoom session={zoom}>
+			<ImageViewer src={src} alt="Browsing" onError={() => {}} toggleFit />
 		</ImageZoom>
 	);
 }
@@ -251,7 +248,7 @@ it("never exposes a new image at intrinsic size before applying the retained sca
 	await act(async () => root.render(<BrowsingImage src={first} />));
 	const original = await loadImage();
 	const scale = Number.parseFloat(original.style.width) / original.naturalWidth;
-	await act(async () => button("Retain scale").click());
+	await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="image-fit"]')!.click());
 	await act(async () => root.render(<BrowsingImage src={next} />));
 	const pending = host.querySelector("img")!;
 	expect(pending.style.visibility).toBe("hidden");

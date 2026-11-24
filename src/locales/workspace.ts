@@ -153,6 +153,7 @@ export const workspaceFr = {
 		actual: "Taille réelle (100 %)",
 		fit: "Adapter",
 		fitHint: "Adapter l’image à la fenêtre sans la recadrer",
+		freezeHint: "Désactiver Adapter et conserver le zoom actuel",
 		fitted: "Adapté : {{percent}} %",
 	},
 	asset: {
@@ -340,6 +341,7 @@ export const workspaceEn = {
 		actual: "Actual size (100%)",
 		fit: "Fit",
 		fitHint: "Fit the image to the window without cropping",
+		freezeHint: "Turn off Fit and keep the current zoom",
 		fitted: "Fitted: {{percent}}%",
 	},
 	asset: {

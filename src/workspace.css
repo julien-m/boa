@@ -2132,6 +2132,9 @@ span.markdown-expandable {
 .visual-zoom [aria-pressed="true"] {
 	color: var(--blue, #8aafff);
 }
+.visual-zoom-fit[aria-pressed="true"] {
+	background: #688bca40;
+}
 .file-image-stage.image-viewport {
 	display: block;
 	padding: 0;

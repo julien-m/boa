@@ -300,7 +300,7 @@ it("keeps a clicked folder visibly selected after focus leaves the tree", async 
 	expect(file.classList.contains("selected")).toBe(true);
 	expect(folder.classList.contains("selected")).toBe(false);
 });
-it("preserves numeric zoom and the ratio computed by Fit across next and previous images", async () => {
+it("refits each image while Fit is active and preserves a fixed zoom when it is off", async () => {
 	vi.stubGlobal(
 		"ResizeObserver",
 		class {
@@ -316,6 +316,7 @@ it("preserves numeric zoom and the ratio computed by Fit across next and previou
 	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
 	await flush();
 	const dialog = document.querySelector<HTMLDialogElement>("dialog.library-lightbox")!;
+	const fit = () => dialog.querySelector<HTMLButtonElement>('[data-testid="image-fit"]')!;
 	const load = async (width: number, height: number) => {
 		const img = dialog.querySelector("img")!;
 		Object.defineProperties(img, {
@@ -326,6 +327,7 @@ it("preserves numeric zoom and the ratio computed by Fit across next and previou
 		return img;
 	};
 	await load(800, 400);
+	expect(fit().getAttribute("aria-pressed")).toBe("true");
 	await setValue(dialog.querySelector<HTMLInputElement>('input[type="range"]')!, "50");
 	await setValue(dialog.querySelector<HTMLSelectElement>(".image-background-select")!, "checkerboard");
 	await act(async () =>
@@ -333,19 +335,29 @@ it("preserves numeric zoom and the ratio computed by Fit across next and previou
 	);
 	await flush();
 	expect((await load(1000, 500)).style.width).toBe("500px");
+	expect(fit().getAttribute("aria-pressed")).toBe("false");
 	expect(dialog.querySelector<HTMLSelectElement>(".image-background-select")?.value).toBe("checkerboard");
-	await act(async () =>
-		[...dialog.querySelectorAll<HTMLButtonElement>("button")]
-			.find((b) => b.textContent === "Adapter")!
-			.click(),
-	);
-	expect(dialog.querySelector("img")?.style.width).toBe("1600px");
+	await act(async () => fit().click());
+	const secondFitPercent = dialog.querySelector(".visual-zoom-value")?.textContent;
+	expect(fit().getAttribute("aria-pressed")).toBe("true");
 	await act(async () =>
 		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image précédente"]')!.click(),
 	);
 	await flush();
-	expect((await load(800, 400)).style.width).toBe("1280px");
-	expect(dialog.querySelector(".visual-zoom-value")?.textContent).toBe("160 %");
+	const first = await load(800, 400);
+	const firstFitPercent = dialog.querySelector(".visual-zoom-value")?.textContent;
+	expect(fit().getAttribute("aria-pressed")).toBe("true");
+	expect(firstFitPercent).not.toBe(secondFitPercent);
+	const fittedWidth = Number.parseFloat(first.style.width);
+	await act(async () => fit().click());
+	expect(fit().getAttribute("aria-pressed")).toBe("false");
+	expect(first.style.width).toBe(`${fittedWidth}px`);
+	await act(async () =>
+		dialog.querySelector<HTMLButtonElement>('button[aria-label="Image suivante"]')!.click(),
+	);
+	await flush();
+	expect(Number.parseFloat((await load(1000, 500)).style.width)).toBeCloseTo((fittedWidth * 1000) / 800);
+	expect(dialog.querySelector(".visual-zoom-value")?.textContent).toBe(firstFitPercent);
 });
 
 it("revealing an already open file clears a selection in another root", async () => {

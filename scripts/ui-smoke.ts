@@ -2005,6 +2005,12 @@ try {
 	await expect(page.locator(".workspace-reader")).toBeHidden();
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	const creation = lightbox.getByTestId("image-file-date-created");
+	const fitImage = lightbox.getByTestId("image-fit");
+	await expect(fitImage).toHaveAttribute("aria-pressed", "true");
+	await fitImage.click();
+	await expect(fitImage).toHaveAttribute("aria-pressed", "false");
+	await fitImage.click();
+	await expect(fitImage).toHaveAttribute("aria-pressed", "true");
 	const modification = lightbox.getByTestId("image-file-date-modified");
 	const expectImageDates = async (path: string) => {
 		const unavailable = path === "preview-second.png";
