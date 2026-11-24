@@ -1,6 +1,6 @@
 [package]
 name = "boa"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cockpit local de projets et de revue Git"
 authors = ["Julien M."]
 license = "MIT"

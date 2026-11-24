@@ -120,7 +120,12 @@ function assertNotRunning(app: string) {
 		throw new Error("Quit BOA before installing an update; unsaved drafts must be preserved.");
 	if (result.status !== 1) throw new Error("Unable to check whether BOA is running.");
 }
-export function installBundle(source: string, destination: string, identity: string) {
+export function installBundle(
+	source: string,
+	destination: string,
+	identity: string,
+	signStaged?: (app: string, identity: string) => void,
+) {
 	source = realpathSync(source);
 	destination = resolve(destination);
 	appMetadata(source);
@@ -140,16 +145,18 @@ export function installBundle(source: string, destination: string, identity: str
 	let installed = false;
 	try {
 		run("/usr/bin/ditto", [source, staged]);
-		run("/usr/bin/codesign", [
-			"--force",
-			"--sign",
-			identity,
-			"--timestamp=none",
-			"--identifier",
-			bundleId,
-			"--preserve-metadata=entitlements,flags,runtime",
-			staged,
-		]);
+		if (signStaged) signStaged(staged, identity);
+		else
+			run("/usr/bin/codesign", [
+				"--force",
+				"--sign",
+				identity,
+				"--timestamp=none",
+				"--identifier",
+				bundleId,
+				"--preserve-metadata=entitlements,flags,runtime",
+				staged,
+			]);
 		verify(staged);
 		if (/\bcdhash\b/.test(requirement(staged)))
 			throw new Error("A stable certificate signature is required for installation.");
@@ -196,19 +203,49 @@ async function main(args: string[]) {
 	if (process.platform !== "darwin") throw new Error("Local app signing requires macOS.");
 	const [command, ...raw] = args;
 	const options = raw[0] === "--" ? raw.slice(1) : raw;
+	if (
+		command === "configure" &&
+		["prepare", "provision", "doctor", "acceptance", "activate"].includes(options[0])
+	) {
+		// Management commands are loaded only on this explicit path; importing installer tests never touches Keychain.
+		const { sessionCommand } = await import("./mac-signing-session");
+		return sessionCommand(options[0], options.slice(1));
+	}
 	if (command === "configure" && options.length === 1) return configure(options[0]);
 	if (command === "build" && (options.length === 0 || (options.length === 1 && options[0] === "--adhoc"))) {
-		const identity = options[0] === "--adhoc" ? "-" : localIdentity();
-		const child = Bun.spawn(["bunx", "tauri", "build", "--bundles", "app"], {
-			env: { ...process.env, APPLE_SIGNING_IDENTITY: identity },
-			stdout: "inherit",
-			stderr: "inherit",
-		});
+		const { readAutonomous, autonomousSign } = await import("./mac-signing-session");
+		const profile = options[0] === "--adhoc" ? undefined : readAutonomous();
+		if (profile && !profile.enabled) throw new Error("AUTONOMOUS_SIGNING_NOT_ACTIVATED");
+		const identity = options[0] === "--adhoc" ? "-" : (profile?.identity ?? localIdentity());
+		const child = Bun.spawn(
+			["bunx", "tauri", "build", "--bundles", "app", ...(profile ? ["--no-sign"] : [])],
+			{
+				env: profile
+					? Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("APPLE_")))
+					: { ...process.env, APPLE_SIGNING_IDENTITY: identity },
+				stdout: "inherit",
+				stderr: "inherit",
+			},
+		);
 		process.exitCode = await child.exited;
+		if (process.exitCode === 0 && profile) autonomousSign(builtApp, profile);
 		return;
 	}
 	if (command === "install" && options.length <= 1) {
-		const expression = installBundle(options[0] ?? builtApp, installationDestination(), localIdentity());
+		const destination = installationDestination();
+		const { readAutonomous, autonomousSign } = await import("./mac-signing-session");
+		const profile = readAutonomous();
+		if (profile && !profile.enabled) throw new Error("AUTONOMOUS_SIGNING_NOT_ACTIVATED");
+		const expression = installBundle(
+			options[0] ?? builtApp,
+			destination,
+			profile?.identity ?? localIdentity(),
+			profile
+				? (app) => {
+						autonomousSign(app, profile);
+					}
+				: undefined,
+		);
 		console.log(`Installed BOA with stable identity. Designated requirement: ${expression}`);
 		return;
 	}

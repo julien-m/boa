@@ -45,13 +45,21 @@ fn parse(input: &str) -> Result<Target, String> {
         .and_then(Value::as_str)
         .ok_or("Expected an absolute local file path")?;
     let path = Path::new(file);
+    let invalid_path = "Expected an existing absolute local file or folder";
     if !path.is_absolute()
         || file.contains('\0')
         || path.components().any(|p| matches!(p, Component::ParentDir))
-        || (!path.is_file() && !path.is_dir())
     {
-        return Err("Expected an existing absolute local file or folder".into());
+        return Err(invalid_path.into());
     }
+    let file = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() || metadata.is_dir() => file,
+        Ok(metadata) if metadata.is_symlink() && (path.is_file() || path.is_dir()) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            recover_codex_absolute_path(file).ok_or(invalid_path)?
+        }
+        _ => return Err(invalid_path.into()),
+    };
     let line = match object.get("location").filter(|value| !value.is_null()) {
         None => 1,
         Some(location) => location
@@ -66,6 +74,15 @@ fn parse(input: &str) -> Result<Target, String> {
         file: file.to_string(),
         line,
     })
+}
+
+fn recover_codex_absolute_path(file: &str) -> Option<&str> {
+    // Codex can prepend the chat directory when a link starts with U+200B.
+    let separator = file.find("/\u{200b}/")?;
+    let (workspace, marked_path) = file.split_at(separator + 1);
+    let absolute = marked_path.strip_prefix('\u{200b}')?;
+    let path = Path::new(absolute);
+    (Path::new(workspace).is_dir() && (path.is_file() || path.is_dir())).then_some(absolute)
 }
 
 /// A directly invoked installed executable must launch its own bundle, never a name lookup.
@@ -290,7 +307,10 @@ pub fn codex_open_entry() -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{os::unix::fs::PermissionsExt, os::unix::net::UnixListener};
+    use std::{
+        os::unix::fs::{PermissionsExt, symlink},
+        os::unix::net::UnixListener,
+    };
 
     #[test]
     fn native_payload_preserves_line_and_defaults_null_locations() {
@@ -323,6 +343,37 @@ mod tests {
             temp.path()
         );
         assert!(parse(&json!({"path":temp.path().join("missing")}).to_string()).is_err());
+    }
+
+    #[test]
+    fn native_payload_recovers_marked_absolute_paths_only_when_needed() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace = temp.path().join("chat");
+        fs::create_dir(&workspace).unwrap();
+        let file = temp.path().join("notes.md");
+        fs::write(&file, "# Notes\n").unwrap();
+        let marked = format!("{}/\u{200b}{}", workspace.display(), file.display());
+        let payload = json!({"path":marked,"location":{"line":3}});
+        let target = parse(&payload.to_string()).unwrap();
+        assert_eq!(Path::new(&target.file), file);
+        assert_eq!(target.line, 3);
+        let unmarked = format!("{}{}", workspace.display(), file.display());
+        let traversal = format!("{}/../chat/\u{200b}{}", workspace.display(), file.display());
+        for path in [unmarked, traversal, format!("{marked}.missing")] {
+            assert!(parse(&json!({"path":path}).to_string()).is_err());
+        }
+        assert!(parse(&json!({"path":marked,"remotePath":"/remote"}).to_string()).is_err());
+
+        let literal = Path::new(&marked);
+        fs::create_dir_all(literal.parent().unwrap()).unwrap();
+        symlink(file.with_extension("missing"), literal).unwrap();
+        assert!(parse(&payload.to_string()).is_err());
+        fs::remove_file(literal).unwrap();
+        symlink(&file, literal).unwrap();
+        assert_eq!(parse(&payload.to_string()).unwrap().file, marked);
+        fs::remove_file(literal).unwrap();
+        fs::write(literal, "# Local notes\n").unwrap();
+        assert_eq!(parse(&payload.to_string()).unwrap().file, marked);
     }
 
     #[test]
