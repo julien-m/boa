@@ -64,3 +64,24 @@ it("retains and reports the old bundle if final verification and rollback both f
 		rmSync(root, { recursive: true, force: true });
 	}
 });
+
+it("does not move the installed application when the signing session cannot prove re-locking", () => {
+	const root = mkdtempSync(join(tmpdir(), "boa-relock-test-"));
+	try {
+		const source = join(root, "source/BOA.app");
+		const destination = join(root, "installed/BOA.app");
+		for (const path of [source, destination]) mkdirSync(path, { recursive: true });
+		writeFileSync(join(source, "marker"), "new");
+		writeFileSync(join(destination, "marker"), "previous");
+		fault.destination = destination;
+		fault.reads = 0;
+		expect(() =>
+			installBundle(source, destination, "A".repeat(40), () => {
+				throw new Error("KEYCHAIN_RELOCK_FAILED");
+			}),
+		).toThrow("KEYCHAIN_RELOCK_FAILED");
+		expect(readFileSync(join(destination, "marker"), "utf8")).toBe("previous");
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});

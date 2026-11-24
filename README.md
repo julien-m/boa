@@ -316,6 +316,37 @@ To install an extracted CI artifact with your local identity, use `bun run mac:i
 
 There is no Developer ID-signed, notarized public installer yet. Local Apple Development signing is not public distribution or notarization. See [Tauri's macOS prerequisites](https://tauri.app/start/prerequisites/#macos) for environment setup. Open BOA after installation and click **Ajouter un dossier** to choose your first project. Adding a folder does not pin it automatically; use its pin button if you want it in the sidebar.
 
+#### Optional unattended signing while the screen is locked
+
+This opt-in mode uses the existing logged-in user's security context. The Mac must remain awake and the login keychain must be accessible; locking the screen is a separate state that must pass a real acceptance check. It does not unlock the screen or login keychain and does not use SessionCreate, a root daemon, an exported key or Bitwarden.
+
+Prepare the native helper without accessing signing keys:
+
+```bash
+bun run mac:signing -- prepare
+```
+
+Then run the following **yourself in an interactive Terminal**. It asks twice for the dedicated signing-keychain password using native masked input. The initial codesign authorization may show a Keychain dialog: approve only the expected key and codesign, using **Always Allow**. Never paste passwords into chat, command arguments, environment variables or configuration files.
+
+```bash
+bun run mac:signing -- provision
+bun run mac:signing -- doctor --non-interactive
+bun run mac:signing -- acceptance --non-interactive
+```
+
+The signed helper is stored with the local profile, outside Git. It creates the login-keychain item `creds:local-app-signing/local/keychain-password` (current user's account) only if absent, restricted to that helper; an incompatible existing item is never overwritten. It records the original dedicated-keychain settings before configuring its inactivity/sleep safety timeout. No global key ACL or partition list is rewritten. If codesign's exact access or partition constraints cannot be verified, setup stops for diagnosis instead of attempting a build. Do not replace/recompile the provisioned helper silently: its signature, content hash and source version are checked before use.
+
+Run the locked-screen acceptance from the actual context that will request unattended builds (including Codex when applicable), then manually lock your screen when prompted. It waits up to 120 seconds before starting two tiny, disposable BOA signing requests; unlock after completion. Session lock observation is advisory and must be corroborated by your manual confirmation. After unlocking, confirm that you entered no password/Touch ID and that no authorization dialog is pending, then activate:
+
+```bash
+bun run mac:signing -- acceptance --non-interactive --wait-for-screen-lock
+bun run mac:signing -- activate --confirm-no-interaction
+```
+
+Activation requires the locked-screen receipt to match the unchanged profile and helper. Ordinary `mac:build` compiles/bundles without signing first, then signs under a short exclusive native session; `mac:install` signs its staged copy and requires verified re-locking **before** moving the installed app. The helper keeps the password in native memory only, validates the expected certificate and codesign access, supervises signing, verifies the embedded signer and re-locks the dedicated keychain. Cooperating clients serialize through a kernel file lock. A watchdog recovers after the main helper dies; killing every supervisor or losing power cannot guarantee immediate cleanup.
+
+Missing credentials, a locked login keychain, unknown rights, modified helpers, failed signing or unverified re-locking fail explicitly. The helper disables its own authentication UI; that setting does not propagate into codesign. Validated rights remove ordinary prompts, but a concurrent external rights change may still make codesign wait: a timeout is an error, never proof of non-interaction. Sleep, logout, reboot before login, SSH and other user contexts are outside the validated guarantee. The original `{identity}` profile is retained as `identity-before-autonomous.json` at activation; restoring it disables autonomous mode without deleting certificates or keys. Preserve `keychain-settings-before.json` for a deliberate restoration of the dedicated settings; no login settings are changed. Restore only setup-specific rights with the user's participation; do not delete a credential that predates this setup.
+
 For local development:
 
 ```bash
