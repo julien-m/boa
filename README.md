@@ -320,6 +320,12 @@ There is no Developer ID-signed, notarized public installer yet. Local Apple Dev
 
 This opt-in mode uses the existing logged-in user's security context. The Mac must remain awake and the login keychain must be accessible; locking the screen is a separate state that must pass a real acceptance check. It does not unlock the screen or login keychain and does not use SessionCreate, a root daemon, an exported key or Bitwarden.
 
+Before provisioning, use [Keychain Access](https://support.apple.com/guide/keychain-access/kyca699a9058/mac) to create or open the dedicated file keychain `~/Library/Keychains/local-app-signing.keychain-db`. It needs the signing certificate and its matching private key. An identity available only in the login keychain can still be used for the standard signing workflow above. With the dedicated keychain unlocked, check that it contains the expected identity and use its exact fingerprint to configure BOA if needed:
+
+```bash
+security find-identity -v -p codesigning "$HOME/Library/Keychains/local-app-signing.keychain-db"
+```
+
 Prepare the native helper without accessing signing keys:
 
 ```bash
