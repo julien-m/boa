@@ -2110,6 +2110,18 @@ try {
 	});
 	expect(frames.violations).toEqual([]);
 	expect(frames.sources).toBeGreaterThan(1);
+	await lightbox.getByTestId("library-image-actions").press("ArrowDown");
+	const imageMenu = lightbox.getByRole("menu", { name: "Actions sur l’image", exact: true });
+	await expect(imageMenu).toBeVisible();
+	await expect(imageMenu.getByRole("menuitem").first()).toBeFocused();
+	if (process.env.BOA_QA_OUTPUT)
+		await page.screenshot({ path: join(process.env.BOA_QA_OUTPUT, "library-image-actions.png") });
+	await page.keyboard.press("Escape");
+	await expect(lightbox.getByTestId("library-image-actions")).toBeFocused();
+	await expect(imageMenu).toHaveCount(0);
+	await lightbox.getByTestId("library-image-actions").click();
+	await imageMenu.getByRole("menuitem", { name: "Copier le chemin complet", exact: true }).click();
+	await expect.poll(() => clipboard).toBe(`${directory}/second/${libraryPath}`);
 	await lightbox.locator(".image-viewport").click({ button: "right" });
 	await expect(lightbox.getByRole("menuitem", { name: "Afficher dans Finder", exact: true })).toBeVisible();
 	if (process.env.BOA_QA_OUTPUT)
@@ -2325,7 +2337,8 @@ try {
 	await expect(lightbox.locator("img")).toHaveAttribute("alt", libraryPath);
 	await page.keyboard.press("Escape");
 	await lightbox.getByTestId("image-annotate").click();
-	await lightbox.getByRole("button", { name: "Ouvrir dans Fichiers", exact: true }).click();
+	await lightbox.getByTestId("library-image-actions").click();
+	await lightbox.getByRole("menuitem", { name: "Ouvrir dans Fichiers", exact: true }).click();
 	await expect(page.locator(".workspace-reader")).toBeVisible();
 	await browsers.nth(1).getByTestId("file-preview.png").click({ button: "right" });
 	await page.getByRole("menuitem", { name: "Plein écran", exact: true }).click();

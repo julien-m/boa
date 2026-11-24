@@ -2335,6 +2335,15 @@ span.markdown-expandable {
 	color: #9da2ad;
 }
 
+.library-preview-actions {
+	display: flex;
+	padding-inline-end: 8px;
+	border-inline-end: 1px solid #3a3d46;
+}
+.library-preview-actions [aria-expanded="true"] {
+	background: #688bca40;
+}
+
 .library-breadcrumbs {
 	display: flex;
 	flex-wrap: wrap;

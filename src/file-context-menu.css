@@ -32,6 +32,12 @@
 .file-context-menu button:disabled {
 	opacity: 0.45;
 }
+.file-context-menu hr {
+	width: 100%;
+	margin: 4px 0;
+	border: 0;
+	border-top: 1px solid #8886;
+}
 
 .tree-row,
 .tree-pin-open,

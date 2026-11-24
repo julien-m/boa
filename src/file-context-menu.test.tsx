@@ -122,6 +122,11 @@ it("copies exact paths, distinguishes folder actions, and closes on outside poin
 	);
 	await act(async () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
 	expect(document.querySelector('[role="menu"]')).toBeNull();
+	await act(async () =>
+		row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+	);
+	await act(async () => row.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+	expect(document.querySelector('[role="menu"]')).toBeNull();
 });
 it("shares a path-only context through the existing composer without copying before confirmation", async () => {
 	await browser();

@@ -13,7 +13,7 @@ export function FileSpaceAdd({
 	onClose,
 }: {
 	project: string;
-	entry: DirectoryEntry;
+	entry: Pick<DirectoryEntry, "name" | "path">;
 	fullPath: string;
 	trigger: HTMLElement;
 	onClose: () => void;

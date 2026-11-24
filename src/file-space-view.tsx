@@ -152,6 +152,7 @@ export function FileSpaceView({
 			)}
 			<FileWorkspace
 				libraryRoot={entries[0]}
+				fileRoots={space.files}
 				onVisit={onVisit}
 				restoration={restoration}
 				onOpen={(value) => open(value)}

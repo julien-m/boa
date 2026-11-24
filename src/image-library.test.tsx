@@ -13,6 +13,10 @@ const images = vi.hoisted(() => vi.fn());
 const thumbnail = vi.hoisted(() => vi.fn());
 const revealFile = vi.hoisted(() => vi.fn());
 const previewImage = vi.hoisted(() => vi.fn());
+const writeText = vi.hoisted(() => vi.fn());
+const openFile = vi.hoisted(() => vi.fn());
+const addToSpace = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText }));
 vi.mock("./file-workspace-api", async (load) => ({
 	...(await load<typeof import("./file-workspace-api")>()),
 	fileWorkspace: {
@@ -20,11 +24,14 @@ vi.mock("./file-workspace-api", async (load) => ({
 		setPreferences,
 		images,
 		thumbnail,
+		state: async () => ({ spaces: [] }),
+		addToSpace,
 	},
 }));
 vi.mock("./api", () => ({
 	api: {
 		revealFile,
+		openFile,
 		preview: previewImage,
 		directory: async (_root: string, path: string) =>
 			path === "assets"
@@ -56,6 +63,9 @@ beforeEach(() => {
 		limited: false,
 	});
 	revealFile.mockReset().mockResolvedValue(undefined);
+	writeText.mockReset().mockResolvedValue(undefined);
+	openFile.mockReset().mockResolvedValue(undefined);
+	addToSpace.mockReset().mockResolvedValue(undefined);
 	thumbnail.mockReset().mockResolvedValue("data:image/png;base64,fixture");
 	previewImage.mockReset().mockResolvedValue({
 		kind: "image",
@@ -100,6 +110,16 @@ async function render(open = vi.fn()) {
 }
 const button = (name: string) =>
 	[...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name)!;
+const imageActions = () =>
+	document.querySelector<HTMLButtonElement>('[data-testid="library-image-actions"]')!;
+const menuItem = (name: string) =>
+	[...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+		(item) => item.textContent === name,
+	)!;
+async function selectImageAction(name: string) {
+	await act(async () => imageActions().click());
+	await act(async () => menuItem(name).click());
+}
 async function setValue(element: HTMLInputElement | HTMLSelectElement, value: string) {
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(
@@ -132,9 +152,7 @@ it("loads images only on opening, lazily loads thumbnails, filters format/name a
 	await flush();
 	expect(open).not.toHaveBeenCalled();
 	expect(document.querySelector("dialog.library-lightbox")?.hasAttribute("open")).toBe(true);
-	await act(async () =>
-		document.querySelector<HTMLButtonElement>('dialog button[aria-label="Ouvrir dans Fichiers"]')!.click(),
-	);
+	await selectImageAction("Ouvrir dans Fichiers");
 	expect(open).toHaveBeenCalledWith({ project: "/fixture", path: "assets/one.png" });
 	expect(host.querySelector(".workspace-reader")?.hasAttribute("hidden")).toBe(false);
 	expect(host.querySelector("textarea")).toBe(reader);
@@ -187,9 +205,7 @@ it("keeps failed thumbnail cards actionable and displays a partial-list notice",
 	expect(host.textContent).toContain("Miniature indisponible");
 	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
 	await flush();
-	await act(async () =>
-		document.querySelector<HTMLButtonElement>('dialog button[aria-label="Ouvrir dans Fichiers"]')!.click(),
-	);
+	await selectImageAction("Ouvrir dans Fichiers");
 	expect(open).toHaveBeenCalledWith({ project: "/fixture", path: "broken.png" });
 });
 
@@ -491,9 +507,88 @@ it("reveals the gallery image in Finder through mouse and keyboard context menus
 		viewport.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
 	);
 	expect(dialog.querySelector('[role="menu"]')).not.toBeNull();
-	await act(async () => dialog.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+	await act(async () => menuItem("Afficher dans Finder").click());
 	expect(revealFile).toHaveBeenLastCalledWith("/fixture", path);
 	expect(dialog.isConnected).toBe(true);
+});
+
+it("copies and adds the currently previewed image with keyboard-accessible actions", async () => {
+	await render();
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	const tiles = [...host.querySelectorAll<HTMLButtonElement>(".library-image")];
+	const next = tiles[1];
+	const path = next.getAttribute("aria-label")!;
+	const name = next.querySelector("strong")!.textContent;
+	await act(async () => tiles[0].click());
+	await flush();
+	await act(async () =>
+		document.querySelector<HTMLButtonElement>('dialog button[aria-label="Image suivante"]')!.click(),
+	);
+	await flush();
+	const trigger = imageActions();
+	await act(async () => {
+		trigger.focus();
+		trigger.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+		);
+	});
+	expect(trigger.getAttribute("aria-expanded")).toBe("true");
+	expect(document.activeElement).toBe(menuItem("Ouvrir dans Fichiers"));
+	await act(async () => {
+		document.activeElement!.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+		);
+	});
+	expect(document.querySelector("dialog.library-lightbox")).not.toBeNull();
+	expect(document.activeElement).toBe(trigger);
+	const close = document.querySelector<HTMLButtonElement>('dialog button[aria-keyshortcuts="Escape"]')!;
+	await act(async () => {
+		close.focus();
+		close.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
+	});
+	await act(async () => {
+		document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	});
+	expect(document.activeElement).toBe(close);
+	await selectImageAction("Copier le nom");
+	await selectImageAction("Copier le chemin relatif");
+	await selectImageAction("Copier le chemin complet");
+	expect(writeText.mock.calls).toEqual([[name], [path], [`/fixture/${path}`]]);
+	await selectImageAction("Ouvrir avec l’application par défaut");
+	expect(openFile).toHaveBeenCalledWith("/fixture", path);
+	await selectImageAction("Ajouter à un espace de fichiers…");
+	await flush();
+	const dialog = document.querySelector<HTMLDialogElement>("dialog.file-space-add")!;
+	expect(dialog.querySelector<HTMLInputElement>("input[readonly]")?.value).toBe(`/fixture/${path}`);
+	await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+	await flush();
+	expect(addToSpace).toHaveBeenCalledWith(expect.objectContaining({ root: "/fixture", path, name }));
+	expect(document.querySelector("dialog.file-space-add")).toBeNull();
+	expect(document.activeElement).toBe(trigger);
+});
+
+it("copies the file root itself for a library backed by a single image", async () => {
+	const listing = await images();
+	const image = listing.images[0];
+	const file = `/fixture/${image.path}`;
+	images.mockResolvedValue({ ...listing, images: [{ ...image, path: image.name }] });
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<FileWorkspace libraryRoot={file} fileRoots={[file]} tree={null} onOpen={vi.fn()}>
+					<div />
+				</FileWorkspace>
+			</QueryClientProvider>,
+		),
+	);
+	await act(async () => button("Bibliothèque").click());
+	await flush();
+	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
+	await selectImageAction("Copier le chemin complet");
+	expect(writeText).toHaveBeenCalledWith(file);
+	await selectImageAction("Ajouter à un espace de fichiers…");
+	expect(document.querySelector<HTMLInputElement>("dialog.file-space-add input[readonly]")?.value).toBe(file);
 });
 
 it("shares persisted sorting with the tree, keeps filters and reports save failures", async () => {
@@ -598,8 +693,6 @@ it("keeps the restored library root when multiple folder browsers reset", async 
 	);
 	await act(async () => host.querySelector<HTMLButtonElement>(".library-image")!.click());
 	await flush();
-	await act(async () =>
-		document.querySelector<HTMLButtonElement>('dialog button[aria-label="Ouvrir dans Fichiers"]')!.click(),
-	);
+	await selectImageAction("Ouvrir dans Fichiers");
 	expect(open.mock.lastCall?.[0].project).toBe(restoration.workspace.library.root);
 });

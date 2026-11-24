@@ -123,6 +123,7 @@ function ImageCard({
 
 export function ImageLibrary({
 	root,
+	singleFile = false,
 	folder,
 	onOpen,
 	onReveal,
@@ -130,6 +131,7 @@ export function ImageLibrary({
 	onFolder,
 }: {
 	root: string;
+	singleFile?: boolean;
 	folder: string;
 	onOpen: (path: string) => void;
 	onReveal: (path: string) => void;
@@ -295,6 +297,7 @@ export function ImageLibrary({
 			{preview && index >= 0 && (
 				<ImageLibraryPreview
 					root={root}
+					singleFile={singleFile}
 					image={images[index]}
 					index={index}
 					total={images.length}

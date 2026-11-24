@@ -31,6 +31,7 @@ export function FileWorkspace({
 	tree,
 	children,
 	libraryRoot,
+	fileRoots,
 	onOpen,
 	navigationKey,
 	onVisit,
@@ -44,6 +45,7 @@ export function FileWorkspace({
 	tree: ReactNode;
 	children: ReactNode;
 	libraryRoot?: string;
+	fileRoots?: readonly string[];
 	onOpen?: (selection: Selection) => void;
 	navigationKey?: string;
 	context?: ReactNode;
@@ -207,6 +209,7 @@ export function FileWorkspace({
 								active={library}
 								key={JSON.stringify(scope)}
 								root={scope.root}
+								singleFile={fileRoots?.includes(scope.root)}
 								folder={scope.folder}
 								onOpen={(path) => showImage(path)}
 								onReveal={(path) => showImage(path, true)}
